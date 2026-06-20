@@ -7,7 +7,7 @@ Fix 3: Smart face selection (motion energy mouth + group_reaction for 3+ faces)
 import os
 import subprocess
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -15,7 +15,7 @@ import numpy as np
 from ..config import STORAGE_DIR
 
 # ── tuning knobs ──────────────────────────────────────────────────
-SAMPLE_FPS = 2
+SAMPLE_FPS = 4
 EMA_FACTOR = 0.15
 CONFIDENCE_THRESHOLD = 0.5
 CLOSEUP_THRESHOLD = 0.30
@@ -194,9 +194,18 @@ def _lerp(a: float, b: float, t: float) -> float:
 
 # ── Pass 1: Analysis at SAMPLE_FPS ───────────────────────────────
 
-def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_h: int) -> List[SampleFrame]:
-    """Pass 1: Analyze video using frame-by-frame cut detection (Look-Ahead Exact Cut)
-    and separate logic for multi-face master shots vs single-face camera shots.
+def _analyze_video(
+    in_path: str,
+    net,
+    crop_w: int,
+    crop_h: int,
+    src_w: int,
+    src_h: int,
+    camera_segments: List[Dict[str, Any]],
+    clip_start_offset: float = 0.0
+) -> List[SampleFrame]:
+    """Pass 1: Analyze video using ground-truth camera segments to guide crop decisions.
+    Applies strict behavior per segment type (master vs individual closeups) to eliminate noise.
     """
     cap = cv2.VideoCapture(in_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -204,22 +213,16 @@ def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_
     
     samples: List[SampleFrame] = []
     prev_frame_gray = None
-    prev_hist = None
     frame_idx = 0
     
-    # State tracking & Hysteresis
+    # State tracking
     tracked_faces = {}  # tid -> (cx, cy, face_h)
     next_face_id = 0
-    active_speaker_id = None
-    speaker_hold_counter = 0
     
-    last_shot_type = "wide_cut"
-    shot_hold_counter = 0
-    
-    missed_count = 0
+    last_shot_type = "closeup"
     last_valid_cx = src_w // 2
     last_valid_cy = src_h // 2
-    last_valid_ratio = 0.0
+    last_valid_ratio = 0.22  # default medium-ish ratio
     
     last_sample_frame_idx = -999
     
@@ -229,15 +232,32 @@ def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_
             break
         
         t = frame_idx / fps
-        gray = _to_gray(frame)
-        hist = _compute_histogram(frame)
+        t_source = t + clip_start_offset
         
-        # 1. Deteksi scene cut secara frame-by-frame untuk presisi waktu transisi 100%
-        is_cut = False
-        if prev_hist is not None:
-            is_cut = _is_cut(prev_hist, hist)
+        # 1. Tentukan segmen kamera aktif berdasarkan waktu video sumber (t_source)
+        active_seg = None
+        for seg in camera_segments:
+            if seg["start"] <= t_source <= seg["end"]:
+                active_seg = seg
+                break
+                
+        is_master_segment = True
+        if active_seg is not None:
+            is_master_segment = (active_seg["type"] == "master")
             
-        # 2. Ambil sampel jika ini adalah frame scene cut (agar snap tepat waktu),
+        # 2. Pemicu snap reset (is_cut): Terjadi saat berpindah jenis segmen kamera
+        is_cut = False
+        if len(samples) > 0:
+            prev_t_source = samples[-1].time + clip_start_offset
+            prev_seg = None
+            for seg in camera_segments:
+                if seg["start"] <= prev_t_source <= seg["end"]:
+                    prev_seg = seg
+                    break
+            if prev_seg != active_seg:
+                is_cut = True
+                
+        # 3. Ambil sampel jika berada di batas segmen (agar snap instan pas),
         # ATAU jika sudah melewati interval sampling reguler
         should_sample = is_cut or (frame_idx - last_sample_frame_idx >= sample_interval)
         
@@ -245,168 +265,252 @@ def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_
             last_sample_frame_idx = frame_idx
             
             if is_cut:
-                # Reset tracking dan data pembicara aktif secara instan pada frame transisi
+                # Reset pelacakan wajah pada transisi kamera baru
                 tracked_faces.clear()
-                active_speaker_id = None
-                speaker_hold_counter = 0
-                last_shot_type = "wide_cut"
-                shot_hold_counter = 0
-            
-            # Deteksi wajah menggunakan DNN
-            faces = _detect_faces_dnn(net, frame, CONFIDENCE_THRESHOLD)
-            num_faces = len(faces)
-            
-            if num_faces > 0:
-                missed_count = 0
                 
-                # Cocokkan wajah yang dideteksi dengan wajah terlacak
-                current_faces = []
-                for cx, cy, conf, face_h, bbox in faces:
-                    matched_id = None
-                    min_dist = 120.0
-                    
-                    for tid, (tcx, tcy, _) in list(tracked_faces.items()):
-                        dist = np.hypot(cx - tcx, cy - tcy)
-                        if dist < min_dist:
-                            min_dist = dist
-                            matched_id = tid
-                    
-                    if matched_id is not None:
-                        tracked_faces[matched_id] = (cx, cy, face_h)
-                    else:
-                        matched_id = next_face_id
-                        tracked_faces[matched_id] = (cx, cy, face_h)
-                        next_face_id += 1
-                        
-                    current_faces.append({
-                        "id": matched_id,
-                        "cx": cx,
-                        "cy": cy,
-                        "conf": conf,
-                        "face_h": face_h,
-                        "bbox": bbox
-                    })
-                
-                detected_ids = {f["id"] for f in current_faces}
-                for tid in list(tracked_faces.keys()):
-                    if tid not in detected_ids:
-                        del tracked_faces[tid]
-                
-                for f in current_faces:
-                    motion = _compute_mouth_motion(frame, prev_frame_gray, f["bbox"])
-                    size_score = f["face_h"]
-                    priority = size_score * SIZE_WEIGHT + motion * MOTION_WEIGHT
-                    f["priority"] = priority
-                    f["motion"] = motion
-                
-                # Aturan Seleksi Wajah Kamera Master vs Kamera Individu
-                if num_faces >= 2:
-                    # KAMERA MASTER (Banyak orang): Tidak usah deteksi bibir/mulut dan crop.
-                    # Tampilkan fullshot di tengah dengan background blur (wide_cut).
-                    target_cx = src_w // 2
-                    target_cy = src_h // 2
-                    face_ratio = 0.0
-                    candidate_shot = "wide_cut"
-                else:
-                    # KAMERA INDIVIDU (Satu orang): Crop orangnya saja sambil tracking.
-                    f = current_faces[0]
-                    target_cx = f["cx"]
-                    target_cy = f["cy"]
-                    face_ratio = f["face_h"]
-                    candidate_shot = _classify_shot(face_ratio)
-                
-                last_valid_cx = target_cx
-                last_valid_cy = target_cy
-                last_valid_ratio = face_ratio
+            if is_master_segment:
+                # ── BEHAVIOR SEGMEN MASTER ────────────────────────────────
+                # Paksa shot_type = "wide_cut" (letterbox blur penuh), letakkan di tengah.
+                # Kita tidak mendeteksi wajah di segmen master untuk performa tinggi & zero noise.
+                target_cx = src_w // 2
+                target_cy = src_h // 2
+                face_ratio = 0.0
+                shot_type_to_use = "wide_cut"
+                num_faces_detected = 2  # dummy count for master
             else:
-                # Tidak ada wajah terdeteksi pada sampel ini
-                if missed_count < MAX_MISSED_SAMPLES:
-                    # Grace period: pertahankan posisi terakhir
+                # ── BEHAVIOR SEGMEN INDIVIDU ──────────────────────────────
+                # Paksa mode crop-track (closeup/medium).
+                faces = _detect_faces_dnn(net, frame, CONFIDENCE_THRESHOLD)
+                num_faces_detected = len(faces)
+                
+                if num_faces_detected > 0:
+                    # Cocokkan wajah dengan tracked_faces (ambil terdekat untuk speaker utama)
+                    current_faces = []
+                    for cx, cy, conf, face_h, bbox in faces:
+                        matched_id = None
+                        min_dist = 120.0
+                        
+                        for tid, (tcx, tcy, _) in list(tracked_faces.items()):
+                            dist = np.hypot(cx - tcx, cy - tcy)
+                            if dist < min_dist:
+                                min_dist = dist
+                                matched_id = tid
+                        
+                        if matched_id is not None:
+                            tracked_faces[matched_id] = (cx, cy, face_h)
+                        else:
+                            matched_id = next_face_id
+                            tracked_faces[matched_id] = (cx, cy, face_h)
+                            next_face_id += 1
+                            
+                        current_faces.append({
+                            "id": matched_id,
+                            "cx": cx,
+                            "cy": cy,
+                            "face_h": face_h,
+                            "bbox": bbox
+                        })
+                    
+                    # Bersihkan tracker lama
+                    detected_ids = {f["id"] for f in current_faces}
+                    for tid in list(tracked_faces.keys()):
+                        if tid not in detected_ids:
+                            del tracked_faces[tid]
+                            
+                    # Tentukan wajah utama (jika ada wajah tambahan lewat, abaikan)
+                    # Kita pilih wajah terdekat ke pusat tracking atau yang memiliki ukuran terbesar
+                    main_face = max(current_faces, key=lambda f: f["face_h"])
+                    
+                    target_cx = main_face["cx"]
+                    target_cy = main_face["cy"]
+                    face_ratio = main_face["face_h"]
+                    shot_type_to_use = _classify_shot(face_ratio)
+                    if shot_type_to_use == "wide_cut":
+                        shot_type_to_use = "closeup" # Paksa crop di segmen individu
+                        
+                    last_valid_cx = target_cx
+                    last_valid_cy = target_cy
+                    last_valid_ratio = face_ratio
+                    last_shot_type = shot_type_to_use
+                else:
+                    # Wajah hilang sementara (oklusi/nengok) -> TAHAN POSISI TERAKHIR secara mutlak.
+                    # Jangan pernah melakukan fallback ke wide_cut / center!
                     target_cx = last_valid_cx
                     target_cy = last_valid_cy
                     face_ratio = last_valid_ratio
-                    candidate_shot = last_shot_type
-                    missed_count += 1
-                else:
-                    # Reset ke tengah (master wide_cut)
-                    target_cx = src_w // 2
-                    target_cy = src_h // 2
-                    face_ratio = 0.0
-                    candidate_shot = "wide_cut"
-            
-            # Shot type classification hysteresis
-            if candidate_shot == last_shot_type:
-                shot_hold_counter = 0
-            else:
-                shot_hold_counter += 1
-                if shot_hold_counter >= MIN_SHOT_HOLD_SAMPLES:
-                    last_shot_type = candidate_shot
-                    shot_hold_counter = 0
-            
-            # Deteksi cut semantik berbasis konfigurasi wajah antar-sampel
-            if len(samples) > 0:
-                last_s = samples[-1]
-                if last_s.num_faces != num_faces:
-                    is_cut = True
-                elif num_faces == 1 and last_s.num_faces == 1:
-                    if abs(target_cx - last_s.raw_cx) > src_w * 0.15:
-                        is_cut = True
-            
+                    shot_type_to_use = last_shot_type
+                    
             samples.append(SampleFrame(
                 time=t,
                 frame_idx=frame_idx,
                 raw_cx=target_cx,
                 raw_cy=target_cy,
                 face_ratio=face_ratio,
-                shot_type=last_shot_type,
+                shot_type=shot_type_to_use,
                 is_cut=is_cut,
-                num_faces=num_faces,
+                num_faces=num_faces_detected,
                 is_group_reaction=False,
             ))
             
-            prev_frame_gray = gray
-            
-        prev_hist = hist
+            if not is_master_segment:
+                prev_frame_gray = _to_gray(frame)
+                
         frame_idx += 1
         
     cap.release()
     return samples
 
 
-def _apply_ema_with_cut_reset(samples: List[SampleFrame], src_w: int, src_h: int) -> List[Tuple[int, int, str, bool]]:
-    """Apply EMA to samples, reset on cut boundaries. Returns (cx, cy, shot_type, is_cut)."""
+def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: int) -> List[Tuple[int, int, str, bool]]:
+    """Apply non-causal smoothing (moving average within scene boundaries) to eliminate camera lag."""
     if not samples:
         return []
-    
-    smoothed = []
-    last_cx = src_w // 2
-    last_cy = src_h // 2
-    
-    for i, s in enumerate(samples):
-        # SNAP TRICK: Jika posisi horizontal target melompat sangat jauh,
-        # kemungkinan besar ini adalah ganti kamera podcast atau pergantian orang yang berjauhan.
-        # Melakukan smooth panning melintasi area kosong akan membuat gerakan tersendat dan tidak enak.
-        # Jadi kita langsung snap instan jika jarak horizontal > 18% dari lebar video.
-        snap_threshold_x = src_w * 0.18
-        is_large_jump = False
-        if i > 0:
-            distance_x = abs(s.raw_cx - last_cx)
-            if distance_x > snap_threshold_x:
-                is_large_jump = True
-                
-        if s.is_cut or i == 0 or is_large_jump:
-            # CUT / LARGE JUMP: reset EMA (instant snap)
-            last_cx = s.raw_cx
-            last_cy = s.raw_cy
-            s.is_cut = True
-        else:
-            # NO CUT: EMA smooth
-            last_cx = int(last_cx + (s.raw_cx - last_cx) * EMA_FACTOR)
-            last_cy = int(last_cy + (s.raw_cy - last_cy) * EMA_FACTOR)
         
-        smoothed.append((last_cx, last_cy, s.shot_type, s.is_cut))
+    n = len(samples)
+    smoothed = []
     
+    # 1. Bagi sampel menjadi beberapa segmen scene terpisah berdasarkan boundary cut
+    scenes = []
+    current_scene = []
+    
+    for s in samples:
+        if s.is_cut and current_scene:
+            scenes.append(current_scene)
+            current_scene = [s]
+        else:
+            current_scene.append(s)
+            
+    if current_scene:
+        scenes.append(current_scene)
+        
+    # 2. Terapkan moving average di dalam masing-masing scene secara terpisah
+    window_size = 5  # Jendela smoothing: 2 sebelum, 1 saat ini, 2 sesudah
+    half_w = window_size // 2
+    
+    for scene in scenes:
+        scene_len = len(scene)
+        for i, s in enumerate(scene):
+            # Jika ini adalah segmen master, kita paksa di tengah (tidak usah di-smooth)
+            if s.shot_type == "wide_cut":
+                smoothed.append((s.raw_cx, s.raw_cy, s.shot_type, s.is_cut))
+                continue
+                
+            # Moving average dengan penanganan batas (boundary clamping)
+            sum_cx = 0
+            sum_cy = 0
+            count = 0
+            
+            for j in range(max(0, i - half_w), min(scene_len, i + half_w + 1)):
+                sum_cx += scene[j].raw_cx
+                sum_cy += scene[j].raw_cy
+                count += 1
+                
+            smooth_cx = int(sum_cx / count) if count > 0 else s.raw_cx
+            smooth_cy = int(sum_cy / count) if count > 0 else s.raw_cy
+            
+            smoothed.append((smooth_cx, smooth_cy, s.shot_type, s.is_cut))
+            
     return smoothed
+
+
+def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
+    """Analyze the full source video to detect scene cuts and classify camera shots (master vs individual).
+    Returns a list of ground-truth camera segments.
+    """
+    cap = cv2.VideoCapture(source_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+    duration = total_frames / fps
+    
+    # Gunakan 4 FPS untuk analisis segmentasi kamera (responsif & akurat)
+    analysis_fps = 4.0
+    interval = max(1, int(fps / analysis_fps))
+    
+    prev_hist = None
+    frame_idx = 0
+    
+    raw_frames = []
+    
+    while True:
+        ret, frame = _read_bgr_frame(cap)
+        if not ret or frame is None:
+            break
+            
+        t = frame_idx / fps
+        
+        # Hitung korelasi histogram frame-by-frame untuk deteksi cut presisi milidetik
+        hist = _compute_histogram(frame)
+        is_cut = False
+        if prev_hist is not None:
+            is_cut = _is_cut(prev_hist, hist, threshold=0.985)
+            
+        if frame_idx % interval == 0 or is_cut:
+            faces = _detect_faces_dnn(net, frame, CONFIDENCE_THRESHOLD)
+            raw_frames.append({
+                "time": t,
+                "frame_idx": frame_idx,
+                "is_cut": is_cut,
+                "num_faces": len(faces)
+            })
+            
+        prev_hist = hist
+        frame_idx += 1
+        
+    cap.release()
+    
+    # Kelompokkan segmentasi berdasarkan transisi cut (is_cut)
+    segments = []
+    current_segment_frames = []
+    
+    for f in raw_frames:
+        if f["is_cut"] and current_segment_frames:
+            segments.append(current_segment_frames)
+            current_segment_frames = [f]
+        else:
+            current_segment_frames.append(f)
+            
+    if current_segment_frames:
+        segments.append(current_segment_frames)
+        
+    camera_segments = []
+    
+    for i, seg_frames in enumerate(segments):
+        start_t = seg_frames[0]["time"]
+        end_t = segments[i+1][0]["time"] if i < len(segments) - 1 else duration
+        
+        # Tentukan tipe segmen: master (jika >= 2 wajah atau 0 wajah) atau individual (1 wajah)
+        faces_counts = [f["num_faces"] for f in seg_frames]
+        max_faces = max(faces_counts) if faces_counts else 0
+        
+        if max_faces >= 2 or max_faces == 0:
+            seg_type = "master"
+        else:
+            seg_type = "individual"
+            
+        camera_segments.append({
+            "start": start_t,
+            "end": end_t,
+            "type": seg_type
+        })
+        
+    # Gabungkan segmen yang sangat pendek (< 1.5 detik) dengan tetangganya agar tidak flicker
+    min_dur = 1.5
+    refined_segments = []
+    
+    for s in camera_segments:
+        if not refined_segments:
+            refined_segments.append(s)
+            continue
+            
+        last_s = refined_segments[-1]
+        dur = s["end"] - s["start"]
+        
+        if dur < min_dur or s["type"] == last_s["type"]:
+            last_s["end"] = s["end"]
+        else:
+            refined_segments.append(s)
+            
+    return refined_segments
 
 
 # ── Pass 2: Render at full framerate with interpolation ──────────
@@ -602,11 +706,13 @@ def _reframe_vertical(
     in_path: str,
     out_path: str,
     aspect_ratio: str,
+    camera_segments: List[Dict[str, Any]],
+    clip_start_offset: float = 0.0,
     is_master: bool = False,
     subtitle_path: Optional[str] = None,
     fonts_dir: Optional[str] = None,
 ) -> str:
-    """Two-pass smart crop with interpolation, cut detection, motion-aware face selection."""
+    """Two-pass smart crop using ground-truth camera segments and non-causal smoothing."""
     if is_master:
         silent_path = _render_master_letterbox(in_path, out_path, aspect_ratio)
     else:
@@ -635,13 +741,13 @@ def _reframe_vertical(
         crop_w = max(2, crop_w - (crop_w % 2))
         crop_h = max(2, crop_h - (crop_h % 2))
         
-        # Pass 1: Analysis
-        samples = _analyze_video(in_path, net, crop_w, crop_h, src_w, src_h)
+        # Pass 1: Analysis guided by camera segments
+        samples = _analyze_video(in_path, net, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset)
         
-        # Apply EMA with cut reset
-        smoothed = _apply_ema_with_cut_reset(samples, src_w, src_h)
+        # Apply non-causal smoothing (moving average inside scene boundaries) to eliminate lag
+        smoothed = _apply_smoothing_non_causal(samples, src_w, src_h)
         
-        # Pass 2: Render with interpolation
+        # Pass 2: Render with zero-lag smooth interpolation
         silent_path = _render_frames(in_path, out_path, samples, smoothed, crop_w, crop_h)
 
     # Final mux: audio + optional subtitle burn-in (single re-encode if subtitles)
@@ -689,8 +795,34 @@ def render_clips(
     os.makedirs(clips_dir, exist_ok=True)
     results = []
     
-    # Read the full transcript segments from cached json or parse from the main ass if not available.
-    # To keep it extremely robust and avoid parsing ASS, let's load transcript.json if it exists.
+    # Load DNN model untuk analisis segmen kamera video sumber
+    if not os.path.exists(_PROTOTXT) or not os.path.exists(_MODEL):
+        raise RuntimeError(f"DNN model not found at {_PROTOTXT} or {_MODEL}")
+    net = cv2.dnn.readNetFromCaffe(_PROTOTXT, _MODEL)
+    
+    # 1. Muat atau buat segmentasi kamera video sumber (Ground Truth Segmenter)
+    camera_segments_path = STORAGE_DIR / task_id / "camera_segments.json"
+    camera_segments = []
+    
+    if camera_segments_path.exists():
+        try:
+            with open(camera_segments_path, "r", encoding="utf-8") as f:
+                camera_segments = json.load(f)
+            log.info("Loaded camera segments cache for task %s", task_id)
+        except Exception as e:
+            log.error("Failed to load camera segments cache: %s", e)
+            
+    if not camera_segments:
+        log.info("Generating camera segments for source video %s...", source_path)
+        camera_segments = _generate_camera_segments(source_path, net)
+        try:
+            with open(camera_segments_path, "w", encoding="utf-8") as f:
+                json.dump(camera_segments, f, indent=2)
+            log.info("Saved camera segments cache to %s", camera_segments_path)
+        except Exception as e:
+            log.error("Failed to save camera segments cache: %s", e)
+            
+    # Read the full transcript segments from cached json
     import json
     transcript_segments = []
     json_path = STORAGE_DIR / task_id / "transcript.json"
@@ -735,12 +867,7 @@ def render_clips(
             # Generate subtitle ASS specific to this clip
             resolved_subtitle_path = subtitle_path
             if clip_segments and subtitle_path:
-                # Detect subtitle style from main ass directory structure or task record
-                # We can determine the style by looking at task_id or style_key from main pipeline.
-                # However, generate_ass is a helper. Let's import generate_ass here or use a helper
-                # to generate the ass file.
                 from .subtitles import generate_ass, STYLES, DEFAULT_STYLE
-                # We can read the style_key by checking state or just reading it from the original subtitles.ass header
                 style_key = subtitle_style
                 if not style_key:
                     style_key = DEFAULT_STYLE
@@ -748,12 +875,9 @@ def render_clips(
                         try:
                             with open(subtitle_path, "r", encoding="utf-8") as f:
                                 main_ass_content = f.read()
-                                # Find the font name or style name used
-                                # But since we have the task, we can fetch the style name directly from the store!
                                 from ..state import store
                                 task_record = None
                                 try:
-                                    # Run synchronously since we are in a thread pool executor anyway
                                     import asyncio
                                     try:
                                         loop = asyncio.get_running_loop()
@@ -761,8 +885,6 @@ def render_clips(
                                         loop = None
 
                                     if loop and loop.is_running():
-                                        # If loop is already running, run with run_coroutine_threadsafe or similar,
-                                        # or since it's a threadpool task, we can do a blocking call via future.
                                         import concurrent.futures
                                         future = asyncio.run_coroutine_threadsafe(store.get(task_id), loop)
                                         task_record = future.result(timeout=2.0)
@@ -793,6 +915,8 @@ def render_clips(
             _cut_subclip(source_path, h_start, h_end, cut_path)
             _reframe_vertical(
                 cut_path, out_path, aspect_ratio,
+                camera_segments=camera_segments,
+                clip_start_offset=h_start,
                 subtitle_path=resolved_subtitle_path,
                 fonts_dir=fonts_dir,
             )

@@ -11,6 +11,26 @@ This file documents the history of major modifications made to the `clip-ai` wor
 
 ---
 
+## [2026-06-20 11:20 WIB] — Rekonstruksi Pelacakan Kamera: Segment-Aware Ground-Truth & Non-Causal Zero-Lag Smoothing
+
+### Ringkasan Perubahan
+Merombak total sistem pemosisian kamera *crop* vertical pada backend untuk memisahkan logika klasifikasi segmen kamera global (ground-truth) dengan pelacakan individual di dalam segmen. Mengimplementasikan smoothing non-causal (moving average) untuk menghilangkan lag pergerakan kamera secara total, serta deteksi cut presisi frame-by-frame.
+
+### Aktivitas Detail
+* **Arsitektur Klasifikasi Kamera Berbasis Ground-Truth (`render.py`)**:
+  * Menambahkan fungsi `_generate_camera_segments()` untuk menganalisis video sumber penuh sekali jalan di awal pada 4 FPS guna mendeteksi scene transition dan jenis shot dominan.
+  * Hasil klasifikasi segmen (`master` / `individual` + waktu mulai & akhir) disimpan di dalam file cache `storage/{task_id}/camera_segments.json` (sejajar dengan transkrip) untuk menghindari analisis ulang per klip highlight.
+* **Perilaku Disiplin Per Segmen Kamera (`render.py`)**:
+  * **Segmen Master**: Memaksa posisi crop di tengah (`src_w // 2`, `src_h // 2`) dengan tipe `wide_cut` (letterbox blur penuh) sepanjang durasi segmen. Menghemat CPU dengan mematikan face detection.
+  * **Segmen Individu**: Memaksa pelacakan wajah closeup/medium tunggal. Jika wajah hilang sementara (oklusi/nengok), sistem **menahan posisi terakhir secara mutlak (last known position)**, menghilangkan bug reset ke center. Jika ada noise deteksi (wajah tambahan lewat), sistem tetap mengunci target wajah utama.
+  * Meniadakan hysteresis shot type per sampel karena tipe segmen kamera sudah dipandu oleh ground-truth global.
+* **Penghilangan Lag Kamera & Snap Instan (`render.py`)**:
+  * Mengganti smoothing EMA causal dengan **Non-Causal Zero-Lag Smoothing (Moving Average)**. Karena seluruh koordinat sampel sudah didapatkan di Pass 1, smoothing diaplikasikan dua arah di dalam batas-batas scene untuk meniadakan lag pergerakan tanpa mengorbankan kehalusan.
+  * Pemicu *snap* reset (EMA/smoothing bypass) hanya diaktifkan pada boundary batas segmen kamera asli, menghilangkan lompatan palsu noise detector.
+  * Menganalisis dengan rate `SAMPLE_FPS = 4` secara global agar tracking closeup rapat dan sangat responsif.
+
+---
+
 ## [2026-06-20 10:55 WIB] — Penambahan Panel Log Detail & Perbaikan Penghapusan Aset Fisik Storage
 
 ### Ringkasan Perubahan
