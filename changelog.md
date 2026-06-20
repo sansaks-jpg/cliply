@@ -11,6 +11,31 @@ This file documents the history of major modifications made to the `clip-ai` wor
 
 ---
 
+## [2026-06-20 23:55 WIB] — Resolusi Risiko Deadlock, Integrasi Fitur Group Reaction, dan Pengamanan Exception Resource
+
+### Ringkasan Perubahan
+Memperbaiki risiko deadlock pada thread pool, menyelesaikan implementasi penempatan kamera untuk fitur Group Reaction, menambahkan pengamanan terhadap list sampel kosong (video kosong/corrupt), menangani pelolosan karakter kutip tunggal pada filter FFmpeg, dan memastikan pelepasan resource OpenCV (`VideoCapture` & `VideoWriter`) menggunakan block `try...finally`.
+
+### Aktivitas Detail
+
+* **Pencegahan Risiko Deadlock Thread Pool (`pipeline.py` & `render.py`)**:
+  * Memindahkan resolusi parameter `subtitle_style` ke thread pemanggil utama di `pipeline.py` dan meneruskannya langsung sebagai argumen ke `render_clips`.
+  * Menghilangkan panggilan event loop asinkron (`run_coroutine_threadsafe`) dan `.result()` yang berisiko memblokir loop/thread di dalam fungsi sinkron `render_clips`. Sebagai gantinya, jika parameter `subtitle_style` kosong, sistem akan mencoba membacanya secara sinkron dari in-memory task store `store._mem_tasks` atau langsung jatuh kembali ke `DEFAULT_STYLE`.
+
+* **Penerapan Kamera Group Reaction (`render.py`)**:
+  * Menyelesaikan logika visual untuk *group reaction*: Jika terdeteksi reaksi kelompok (`is_group = True`), kamera sekarang secara aktif memposisikan `target_cx` dan `target_cy` ke titik tengah koordinat rata-rata dari semua wajah yang terdeteksi, serta memaksa rasio shot ke `"wide_cut"` (mengabaikan pembatasan closeup horizontal individu).
+
+* **Pencegahan IndexError Video Kosong/Corrupt (`render.py`)**:
+  * Menambahkan validasi `if not samples` di awal fungsi `_render_frames` untuk langsung menyalin video asli ke berkas output fallback aslinya menggunakan `shutil.copy2` daripada melempar pengecualian `IndexError` pada list kosong.
+
+* **Pelepasan Resource OpenCV (`render.py`)**:
+  * Membungkus pembacaan/penulisan frame video pada fungsi `_analyze_video` dan `_render_frames` menggunakan blok `try...finally` untuk menjamin bahwa `cap.release()` and `writer.release()` selalu dieksekusi secara aman meskipun terjadi kegagalan proses/exception di tengah proses pemrosesan frame.
+
+* **Pencegahan Error String FFmpeg Filter (`render.py`)**:
+  * Menambahkan penggantian karakter tanda kutip tunggal (`'`) di dalam fungsi `_ffmpeg_escape_path` dengan karakter ter-escape (`\'`) guna menghindari kerusakan string filter FFmpeg `ass=` jika terdapat tanda kutip di dalam nama direktori atau file subtitle.
+
+---
+
 ## [2026-06-20 23:45 WIB] — Implementasi Hysteresis, Deteksi Mouth Motion Aktif, dan Perbaikan Bug Bracket Render Interpolation
 
 ### Ringkasan Perubahan

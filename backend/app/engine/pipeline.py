@@ -64,7 +64,15 @@ async def run_pipeline(
 
         # Stage 6: Render vertical clips with subtitle burn-in
         clips = await asyncio.to_thread(
-            render_clips, source_path, top, task_id, aspect_ratio, ass_path, fonts_dir, face_detector=face_detector
+            render_clips,
+            source_path,
+            top,
+            task_id,
+            aspect_ratio,
+            ass_path,
+            fonts_dir,
+            subtitle_style=style_key,
+            face_detector=face_detector,
         )
 
         clip_count = sum(1 for c in clips if c.get("clip_url"))
