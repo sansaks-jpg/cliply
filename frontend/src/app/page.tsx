@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { createTask } from "@/lib/api";
+import { createTask, deleteTask } from "@/lib/api";
 
 const YOUTUBE_RE =
   /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/).+/i;
@@ -83,13 +83,18 @@ export default function Home() {
     }
   };
 
-  const removeRecentTask = (id: string, e: React.MouseEvent) => {
+  const removeRecentTask = async (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    try {
+      await deleteTask(id);
+    } catch (err) {
+      console.error("Gagal menghapus tugas dari server:", err);
+    }
     const updated = recentTasks.filter(t => t.id !== id);
     setRecentTasks(updated);
     localStorage.setItem("clip_ai_recent_tasks", JSON.stringify(updated));
-    toast.success("Riwayat tugas dihapus");
+    toast.success("Riwayat tugas dan file penyimpanan berhasil dihapus");
   };
 
   // Helper to extract video ID or display clean label

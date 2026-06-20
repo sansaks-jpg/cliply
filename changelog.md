@@ -11,6 +11,29 @@ This file documents the history of major modifications made to the `clip-ai` wor
 
 ---
 
+## [2026-06-20 10:55 WIB] — Penambahan Panel Log Detail & Perbaikan Penghapusan Aset Fisik Storage
+
+### Ringkasan Perubahan
+Menambahkan panel log interaktif ala retro-developer di frontend saat proses pembuatan klip berlangsung yang dapat disembunyikan/ditampilkan secara dinamis. Memperbaiki bug di mana berkas penyimpanan sementara (`storage/task_id/`) di backend tidak terhapus saat tugas dihapus di frontend.
+
+### Aktivitas Detail
+* **Log Progres Detail di Frontend (`tasks/[id]/page.tsx`)**:
+  * Menambahkan panel log di sebelah kanan area kemajuan utama saat status tugas berstatus `"queued"` atau `"processing"`.
+  * Mengintegrasikan penyimpanan log ke `localStorage` (`clip_logs_{task_id}`) agar log tetap persisten saat halaman disegarkan (refresh).
+  * Membuat tombol toggle "Tampilkan Log / Sembunyikan Log" dengan ikon `Terminal` di navbar atas untuk menyembunyikan atau menampilkan panel log kapan saja.
+  * Menghubungkan log ke semua jenis event SSE (`progress`, `clip_ready`, `done`, `error`) dengan representasi warna teks yang berbeda untuk masing-masing tahap (`DOWNLOAD`, `TRANSCRIBE`, `ANALYZE`, `SUBTITLES`, `RENDER`, `DONE`, `ERROR`).
+  * Mengimplementasikan auto-scroll ke log terbaru menggunakan React `useRef` dan `scrollIntoView`.
+* **Pembaruan Progress Render Real-time di Backend (`render.py`)**:
+  * Menambahkan fungsi helper `_update_render_progress` untuk mengirim status render klip yang sedang diproses ke Redis/memori.
+  * Memanggil helper tersebut di dalam loop `render_clips()` untuk melaporkan progres rendering secara mendetail (misal: "Merender klip 1 dari 5", "Merender klip 2 dari 5", dst.).
+* **Perbaikan Penghapusan Aset Tugas di Backend (`state.py`)**:
+  * Memperbarui metode `delete` pada kelas `TaskStore` agar menghapus direktori fisik `storage/{task_id}/` beserta seluruh isinya secara asinkron (`shutil.rmtree` dijalankan dalam thread pool via `asyncio.to_thread`) saat endpoint `DELETE /tasks/{task_id}` dipanggil.
+* **Perbaikan Penghapusan Tugas di Frontend (`page.tsx` & `api.ts`)**:
+  * Menambahkan fungsi `deleteTask` ke client API frontend untuk mengirim permintaan HTTP `DELETE` ke backend.
+  * Mengubah fungsi `removeRecentTask` di Home page (`page.tsx`) agar memanggil API `deleteTask` secara asinkron sebelum menghapus data riwayat dari `localStorage`.
+
+---
+
 ## [2026-06-20 05:50 WIB] — Added TikTok-Style Caption (`tiktok`)
 
 Menambahkan gaya subtitle `"tiktok"` di `subtitles.py` yang meniru visual `remotion-dev/template-tiktok`: Inter Black uppercase ~119px, white text → neon green (`#39E508`) karaoke highlight, thick black 20px outline, bottom-positioned, 4 words per chunk.

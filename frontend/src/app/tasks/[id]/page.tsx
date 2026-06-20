@@ -14,7 +14,8 @@ import {
   Scissors,
   FileVideo,
   Sparkles,
-  Clock
+  Clock,
+  Terminal
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -183,6 +184,54 @@ export default function TaskPage() {
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
+  // States & Refs for detailed logs panel
+  const [logs, setLogs] = useState<string[]>([]);
+  const [showLogs, setShowLogs] = useState(true);
+  const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  const addLog = useCallback((stage: string, message: string) => {
+    const cleanMsg = message.trim();
+    if (!cleanMsg) return;
+    const timestamp = new Date().toLocaleTimeString("id-ID", { hour12: false });
+    const newLog = `[${timestamp}] [${stage.toUpperCase()}] ${cleanMsg}`;
+    
+    setLogs((prev) => {
+      if (prev.length > 0) {
+        const lastLog = prev[prev.length - 1];
+        if (lastLog.includes(cleanMsg)) {
+          return prev;
+        }
+      }
+      const next = [...prev, newLog];
+      if (taskId) {
+        localStorage.setItem(`clip_logs_${taskId}`, JSON.stringify(next));
+      }
+      return next;
+    });
+  }, [taskId]);
+
+  // Load saved logs
+  useEffect(() => {
+    if (!taskId) return;
+    const saved = localStorage.getItem(`clip_logs_${taskId}`);
+    if (saved) {
+      try {
+        setLogs(JSON.parse(saved));
+      } catch {
+        /* ignore */
+      }
+    } else {
+      setLogs([]);
+    }
+  }, [taskId]);
+
+  // Auto-scroll logs
+  useEffect(() => {
+    if (showLogs && logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logs, showLogs]);
+
   const refresh = useCallback(async () => {
     try {
       const data = await getTask(taskId);
@@ -233,6 +282,7 @@ export default function TaskPage() {
               }
             : prev,
         );
+        addLog(data.stage || "progress", data.message || "");
       } catch {
         /* ignore malformed */
       }
@@ -255,26 +305,33 @@ export default function TaskPage() {
               }
             : prev,
         );
+        addLog("render", `Klip siap: "${clip.title || "Klip"}" (Score: ${clip.score})`);
       } catch {
         /* ignore */
       }
     });
 
     es.addEventListener("done", () => {
+      addLog("done", "Semua proses selesai! Mengambil klip hasil...");
       void refresh();
       es.close();
     });
 
     es.addEventListener("error", (e) => {
       const me = e as MessageEvent;
+      let errorMsg = "Terjadi kegagalan pemrosesan";
       if (typeof me.data === "string" && me.data.length > 0) {
         try {
           const data = JSON.parse(me.data);
-          if (data?.error) setError(data.error);
+          if (data?.error) {
+            errorMsg = data.error;
+            setError(data.error);
+          }
         } catch {
           /* ignore */
         }
       }
+      addLog("error", errorMsg);
       es.close();
     });
 
@@ -294,6 +351,13 @@ export default function TaskPage() {
     }, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, [task?.status, refresh]);
+
+  // Initialize first log message if list is empty
+  useEffect(() => {
+    if (task && logs.length === 0 && (task.status === "queued" || task.status === "processing")) {
+      addLog(task.stage || "queued", task.message || "Tugas ditambahkan ke antrean...");
+    }
+  }, [task, logs.length, addLog]);
 
   if (loading) {
     return (
@@ -365,6 +429,17 @@ export default function TaskPage() {
               )}
               {task.status}
             </Badge>
+            {(task.status === "queued" || task.status === "processing") && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowLogs(!showLogs)}
+                className="rounded-lg text-xs gap-1.5 border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-850 h-8 font-medium transition-all"
+              >
+                <Terminal className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400" />
+                {showLogs ? "Sembunyikan Log" : "Tampilkan Log"}
+              </Button>
+            )}
             <ThemeToggle />
           </div>
         </div>
@@ -407,9 +482,79 @@ export default function TaskPage() {
 
         {/* Processing State */}
         {(task.status === "queued" || task.status === "processing") && (
-          <div className="space-y-8">
-            <ProgressView task={task} />
-            
+          <div className="space-y-8 animate-in fade-in duration-500">
+            <div className={`grid grid-cols-1 ${showLogs ? "lg:grid-cols-3" : "grid-cols-1"} gap-8 items-start`}>
+              {/* Main Progress Panel */}
+              <div className={showLogs ? "lg:col-span-2 space-y-6" : "w-full"}>
+                <ProgressView task={task} />
+              </div>
+
+              {/* Detailed Logs Panel */}
+              {showLogs && (
+                <div className="bg-stone-950 text-stone-200 border border-stone-800 dark:border-stone-900 rounded-2xl shadow-xl p-5 font-mono text-[11px] flex flex-col h-[320px] lg:h-[350px] animate-in slide-in-from-right-4 duration-300">
+                  <div className="flex items-center justify-between border-b border-stone-800 pb-3 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                      <span className="text-[10px] uppercase font-bold tracking-wider text-stone-400">Progres Detail</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setLogs([]);
+                        if (taskId) localStorage.removeItem(`clip_logs_${taskId}`);
+                      }}
+                      className="text-[9px] uppercase font-bold text-stone-500 hover:text-stone-300 transition-colors"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                  
+                  <div className="flex-grow overflow-y-auto space-y-2.5 pr-2 scrollbar-thin scrollbar-thumb-stone-800 scrollbar-track-transparent">
+                    {logs.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-stone-600 italic text-[10px] gap-2">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Menghubungkan ke log server...
+                      </div>
+                    ) : (
+                      logs.map((logStr, idx) => {
+                        // Parse [time] [STAGE] message
+                        const match = logStr.match(/^\[(.*?)\]\s*\[(.*?)\]\s*(.*)$/);
+                        if (match) {
+                          const [, time, stage, msg] = match;
+                          let stageColor = "text-stone-500";
+                          const st = stage.toUpperCase();
+                          if (st === "DOWNLOAD") stageColor = "text-blue-400 font-semibold";
+                          else if (st === "TRANSCRIBE") stageColor = "text-purple-400 font-semibold";
+                          else if (st === "ANALYZE") stageColor = "text-amber-400 font-semibold";
+                          else if (st === "SUBTITLES") stageColor = "text-cyan-400 font-semibold";
+                          else if (st === "RENDER") stageColor = "text-rose-400 font-semibold";
+                          else if (st === "DONE") stageColor = "text-emerald-400 font-bold";
+                          else if (st === "ERROR") stageColor = "text-red-500 font-bold";
+
+                          return (
+                            <div key={idx} className="border-b border-stone-900/30 pb-1.5 last:border-0 text-left">
+                              <span className="text-stone-600 mr-1.5 select-none">[{time}]</span>
+                              <span className={`${stageColor} mr-1.5`}>[{stage}]</span>
+                              <span className="text-stone-300 break-words">{msg}</span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div key={idx} className="text-stone-400 break-words text-left">
+                            {logStr}
+                          </div>
+                        );
+                      })
+                    )}
+                    <div ref={logEndRef} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Rendered clips during processing */}
             {(task.clips?.length ?? 0) > 0 && (
               <div className="space-y-6 pt-6 border-t border-stone-200/50 dark:border-stone-850">
                 <div className="text-center space-y-2">

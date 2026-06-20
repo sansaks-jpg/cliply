@@ -666,6 +666,31 @@ def _reframe_vertical(
     return out_path
 
 
+def _update_render_progress(task_id: str, current: int, total: int, msg: str):
+    try:
+        import asyncio
+        from ..state import store
+        pct = 60.0 + (float(current) / float(total)) * 30.0
+        
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            future = asyncio.run_coroutine_threadsafe(
+                store.set_progress(task_id, pct, "RENDER", msg), loop
+            )
+            future.result(timeout=2.0)
+        else:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(store.set_progress(task_id, pct, "RENDER", msg))
+            loop.close()
+    except Exception as e:
+        log.error("Failed to update render progress: %s", e)
+
+
 def render_clips(
     source_path: str,
     highlights: List[Dict],
@@ -693,6 +718,7 @@ def render_clips(
 
     # If transcript.json does not exist or has no segments, fall back to segments from main pipeline or cache
     for i, h in enumerate(highlights, 1):
+        _update_render_progress(task_id, i - 1, len(highlights), f"Merender klip {i} dari {len(highlights)}…")
         out_path = os.path.join(clips_dir, f"short_{i:02d}.mp4")
         cut_path = out_path + ".cut.mp4"
         clip_ass_path = os.path.join(clips_dir, f"short_{i:02d}.ass")
@@ -791,4 +817,5 @@ def render_clips(
         finally:
             if os.path.exists(cut_path):
                 os.remove(cut_path)
+    _update_render_progress(task_id, len(highlights), len(highlights), "Semua klip selesai dirender")
     return results
