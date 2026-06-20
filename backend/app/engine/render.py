@@ -21,7 +21,7 @@ CONFIDENCE_THRESHOLD = 0.5
 CLOSEUP_THRESHOLD = 0.30
 MEDIUM_THRESHOLD = 0.15
 LETTERBOX_BLUR = 61
-CUT_THRESHOLD = 0.98          # histogram correlation below this = cut
+CUT_THRESHOLD = 0.94          # histogram correlation below this = cut
 MOTION_WEIGHT = 0.6          # weight for motion_score in face priority
 SIZE_WEIGHT = 0.4            # weight for size_score in face priority
 GROUP_REACTION_MIN_FACES = 3 # min faces for group_reaction state
@@ -110,12 +110,14 @@ def _letterbox(frame: np.ndarray, crop_w: int, crop_h: int) -> np.ndarray:
 
 
 def _detect_faces_dnn(net, frame, conf_threshold: float = 0.5) -> List[Tuple[int, int, float, float, Tuple[int, int, int, int]]]:
-    """Detect faces. Returns [(cx, cy, confidence, face_h_ratio, (x1,y1,x2,y2)), ...]."""
+    """Detect faces with Non-Maximum Suppression (NMS) to avoid overlapping boxes."""
     h, w = frame.shape[:2]
     blob = cv2.dnn.blobFromImage(frame, 1.0, (300, 300), (104, 177, 123))
     net.setInput(blob)
     detections = net.forward()
-    faces = []
+    
+    boxes = []
+    confidences = []
     for i in range(detections.shape[2]):
         conf = detections[0, 0, i, 2]
         if conf < conf_threshold:
@@ -124,10 +126,27 @@ def _detect_faces_dnn(net, frame, conf_threshold: float = 0.5) -> List[Tuple[int
         x1, y1, x2, y2 = box.astype(int)
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(w, x2), min(h, y2)
-        cx = (x1 + x2) // 2
-        cy = (y1 + y2) // 2
-        face_h = (y2 - y1) / h
-        faces.append((cx, cy, float(conf), float(face_h), (x1, y1, x2, y2)))
+        box_w = x2 - x1
+        box_h = y2 - y1
+        boxes.append([x1, y1, box_w, box_h])
+        confidences.append(float(conf))
+        
+    # Jalankan NMS (threshold tumpang tindih = 0.3)
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, conf_threshold, nms_threshold=0.3)
+    
+    faces = []
+    if len(indices) > 0:
+        indices = indices.flatten()
+        for idx in indices:
+            x1, y1, box_w, box_h = boxes[idx]
+            x2 = x1 + box_w
+            y2 = y1 + box_h
+            cx = x1 + box_w // 2
+            cy = y1 + box_h // 2
+            conf = confidences[idx]
+            face_h_ratio = box_h / h
+            faces.append((cx, cy, conf, face_h_ratio, (x1, y1, x2, y2)))
+            
     return faces
 
 
@@ -354,8 +373,21 @@ def _analyze_video(
                     # Tentukan wajah utama (jika ada wajah tambahan lewat, abaikan)
                     main_face = max(current_faces, key=lambda f: f["face_h"])
                     
-                    # Gunakan cx terkunci (Camera Lock), hanya perbarui cy dan zoom dari deteksi wajah
-                    target_cx = locked_cx
+                    # Deadzone Tracking horizontal:
+                    # Target_cx default mengikuti posisi wajah live
+                    live_cx = main_face["cx"]
+                    
+                    # Margin deadzone: 15% dari lebar crop vertical
+                    deadzone_margin = int(crop_w * 0.15)
+                    diff_x = abs(live_cx - last_valid_cx)
+                    
+                    if diff_x < deadzone_margin:
+                        # Tahan posisi horizontal di posisi sebelumnya agar tidak jitter
+                        target_cx = last_valid_cx
+                    else:
+                        # Pindahkan secara mulus mengikuti wajah jika di luar margin
+                        target_cx = live_cx
+                        
                     target_cy = main_face["cy"]
                     face_ratio = main_face["face_h"]
                     shot_type_to_use = _classify_shot(face_ratio)
@@ -369,7 +401,7 @@ def _analyze_video(
                 else:
                     # Wajah hilang sementara (oklusi/nengok) -> TAHAN POSISI TERAKHIR secara mutlak.
                     # Jangan pernah melakukan fallback ke wide_cut / center!
-                    target_cx = locked_cx
+                    target_cx = last_valid_cx
                     target_cy = last_valid_cy
                     face_ratio = last_valid_ratio
                     shot_type_to_use = last_shot_type
@@ -474,7 +506,7 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
         hist = _compute_histogram(frame)
         is_cut = False
         if prev_hist is not None:
-            is_cut = _is_cut(prev_hist, hist, threshold=0.985)
+            is_cut = _is_cut(prev_hist, hist, threshold=0.94)
             
         if frame_idx % interval == 0 or is_cut:
             faces = _detect_faces_dnn(net, frame, CONFIDENCE_THRESHOLD)
@@ -511,18 +543,31 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
         start_t = seg_frames[0]["time"]
         end_t = segments[i+1][0]["time"] if i < len(segments) - 1 else duration
         
-        # Tentukan tipe segmen: master (jika >= 2 wajah atau 0 wajah) atau individual (1 wajah)
-        faces_counts = [f["num_faces"] for f in seg_frames]
-        max_faces = max(faces_counts) if faces_counts else 0
-        
-        if max_faces >= 2 or max_faces == 0:
+        total_f = len(seg_frames)
+        if total_f == 0:
             seg_type = "master"
         else:
-            # Tentukan posisi horizontal rata-rata wajah pembawa acara tunggal
+            count_0 = sum(1 for f in seg_frames if f["num_faces"] == 0)
+            count_1 = sum(1 for f in seg_frames if f["num_faces"] == 1)
+            count_2_plus = sum(1 for f in seg_frames if f["num_faces"] >= 2)
+            
+            # Majority vote
+            if count_1 >= count_2_plus and count_1 >= count_0:
+                seg_type = "individual"
+            elif count_2_plus >= count_1 and count_2_plus >= count_0:
+                seg_type = "master"
+            else:
+                # Wajah 0 dominan (oklusi/nengok) -> tahan dari segmen sebelumnya jika ada
+                if len(camera_segments) > 0:
+                    seg_type = camera_segments[-1]["type"]
+                else:
+                    seg_type = "master"
+                    
+        # Klasifikasi spasial (left/right) jika segmen individual
+        if seg_type == "individual":
             all_cx = []
             for f in seg_frames:
                 all_cx.extend(f.get("faces_cx", []))
-            
             if all_cx:
                 avg_cx = sum(all_cx) / len(all_cx)
                 if avg_cx < src_w * 0.45:
@@ -532,7 +577,10 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
                 else:
                     seg_type = "individual"
             else:
-                seg_type = "individual"
+                if len(camera_segments) > 0:
+                    seg_type = camera_segments[-1]["type"]
+                else:
+                    seg_type = "individual"
             
         camera_segments.append({
             "start": start_t,
@@ -540,22 +588,43 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
             "type": seg_type
         })
         
-    # Gabungkan segmen yang sangat pendek (< 1.5 detik) dengan tetangganya agar tidak flicker
-    min_dur = 1.5
+    # Pass 1: Gabungkan segmen bertipe sama yang bersebelahan
     refined_segments = []
-    
     for s in camera_segments:
         if not refined_segments:
             refined_segments.append(s)
             continue
-            
         last_s = refined_segments[-1]
-        dur = s["end"] - s["start"]
-        
-        if dur < min_dur or s["type"] == last_s["type"]:
+        if s["type"] == last_s["type"]:
             last_s["end"] = s["end"]
         else:
             refined_segments.append(s)
+            
+    # Pass 2: Gabungkan anomali di tengah (segmen pendek < min_dur di antara segmen bertipe sama)
+    min_dur = 1.5
+    i = 1
+    while i < len(refined_segments) - 1:
+        s = refined_segments[i]
+        dur = s["end"] - s["start"]
+        if dur < min_dur:
+            prev_s = refined_segments[i-1]
+            next_s = refined_segments[i+1]
+            if prev_s["type"] == next_s["type"]:
+                prev_s["end"] = next_s["end"]
+                refined_segments.pop(i)  # hapus s
+                refined_segments.pop(i)  # hapus next_s (yang sekarang bergeser ke indeks i)
+                continue
+        i += 1
+        
+    # Pass 3: Gabungkan segmen yang sangat pendek di ujung jika durasi ekstrem < 0.8s
+    if len(refined_segments) > 1:
+        if (refined_segments[0]["end"] - refined_segments[0]["start"]) < 0.8:
+            refined_segments[1]["start"] = refined_segments[0]["start"]
+            refined_segments.pop(0)
+    if len(refined_segments) > 1:
+        if (refined_segments[-1]["end"] - refined_segments[-1]["start"]) < 0.8:
+            refined_segments[-2]["end"] = refined_segments[-1]["end"]
+            refined_segments.pop(-1)
             
     # Hitung ulang avg_cx yang stabil untuk segmen refined non-master
     for s in refined_segments:
