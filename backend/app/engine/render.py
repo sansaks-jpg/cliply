@@ -195,7 +195,9 @@ def _lerp(a: float, b: float, t: float) -> float:
 # ── Pass 1: Analysis at SAMPLE_FPS ───────────────────────────────
 
 def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_h: int) -> List[SampleFrame]:
-    """Pass 1: Analyze video at SAMPLE_FPS, return samples with positions."""
+    """Pass 1: Analyze video using frame-by-frame cut detection (Look-Ahead Exact Cut)
+    and separate logic for multi-face master shots vs single-face camera shots.
+    """
     cap = cv2.VideoCapture(in_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     sample_interval = max(1, int(fps / SAMPLE_FPS))
@@ -219,40 +221,49 @@ def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_
     last_valid_cy = src_h // 2
     last_valid_ratio = 0.0
     
+    last_sample_frame_idx = -999
+    
     while True:
         ret, frame = _read_bgr_frame(cap)
         if not ret or frame is None:
             break
         
-        if frame_idx % sample_interval == 0:
-            t = frame_idx / fps
-            gray = _to_gray(frame)
-            hist = _compute_histogram(frame)
+        t = frame_idx / fps
+        gray = _to_gray(frame)
+        hist = _compute_histogram(frame)
+        
+        # 1. Deteksi scene cut secara frame-by-frame untuk presisi waktu transisi 100%
+        is_cut = False
+        if prev_hist is not None:
+            is_cut = _is_cut(prev_hist, hist)
             
-            # Cut detection
-            is_cut = False
-            if prev_hist is not None:
-                is_cut = _is_cut(prev_hist, hist)
-                if is_cut:
-                    # Reset tracking and active speaker on scene cut
-                    tracked_faces.clear()
-                    active_speaker_id = None
-                    speaker_hold_counter = 0
-                    last_shot_type = "wide_cut"
-                    shot_hold_counter = 0
+        # 2. Ambil sampel jika ini adalah frame scene cut (agar snap tepat waktu),
+        # ATAU jika sudah melewati interval sampling reguler
+        should_sample = is_cut or (frame_idx - last_sample_frame_idx >= sample_interval)
+        
+        if should_sample:
+            last_sample_frame_idx = frame_idx
             
-            # Face detection
+            if is_cut:
+                # Reset tracking dan data pembicara aktif secara instan pada frame transisi
+                tracked_faces.clear()
+                active_speaker_id = None
+                speaker_hold_counter = 0
+                last_shot_type = "wide_cut"
+                shot_hold_counter = 0
+            
+            # Deteksi wajah menggunakan DNN
             faces = _detect_faces_dnn(net, frame, CONFIDENCE_THRESHOLD)
             num_faces = len(faces)
             
             if num_faces > 0:
                 missed_count = 0
                 
-                # Match detected faces with tracked_faces using Euclidean distance
+                # Cocokkan wajah yang dideteksi dengan wajah terlacak
                 current_faces = []
                 for cx, cy, conf, face_h, bbox in faces:
                     matched_id = None
-                    min_dist = 120.0  # distance threshold in pixels
+                    min_dist = 120.0
                     
                     for tid, (tcx, tcy, _) in list(tracked_faces.items()):
                         dist = np.hypot(cx - tcx, cy - tcy)
@@ -276,13 +287,11 @@ def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_
                         "bbox": bbox
                     })
                 
-                # Clean up stale tracked faces that were not detected in this frame
                 detected_ids = {f["id"] for f in current_faces}
                 for tid in list(tracked_faces.keys()):
                     if tid not in detected_ids:
                         del tracked_faces[tid]
                 
-                # Compute motion energy for each face
                 for f in current_faces:
                     motion = _compute_mouth_motion(frame, prev_frame_gray, f["bbox"])
                     size_score = f["face_h"]
@@ -290,81 +299,36 @@ def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_
                     f["priority"] = priority
                     f["motion"] = motion
                 
-                # Update active speaker with hysteresis
-                candidate_face = max(current_faces, key=lambda f: f["priority"])
-                candidate_id = candidate_face["id"]
-                
-                if active_speaker_id is None or active_speaker_id not in detected_ids:
-                    active_speaker_id = candidate_id
-                    speaker_hold_counter = 0
-                elif active_speaker_id != candidate_id:
-                    current_active_face = next((f for f in current_faces if f["id"] == active_speaker_id), None)
-                    current_priority = current_active_face["priority"] if current_active_face else -1.0
-                    
-                    # Switch only if candidate priority exceeds current speaker's priority by SWITCH_MARGIN
-                    if candidate_face["priority"] > current_priority + SWITCH_MARGIN:
-                        speaker_hold_counter += 1
-                        if speaker_hold_counter >= MIN_HOLD_SAMPLES:
-                            active_speaker_id = candidate_id
-                            speaker_hold_counter = 0
-                    else:
-                        speaker_hold_counter = 0
-                else:
-                    speaker_hold_counter = 0
-                
-                # Sort current_faces with active speaker at the front
-                sorted_faces = []
-                active_face = next((f for f in current_faces if f["id"] == active_speaker_id), None)
-                if active_face:
-                    sorted_faces.append(active_face)
-                
-                remaining_faces = [f for f in current_faces if f["id"] != active_speaker_id]
-                remaining_faces.sort(key=lambda f: f["priority"], reverse=True)
-                sorted_faces.extend(remaining_faces)
-                
-                # Group reaction detection: ≥3 faces with high motion
-                is_group_reaction = False
-                if num_faces >= GROUP_REACTION_MIN_FACES:
-                    high_motion_faces = sum(1 for f in sorted_faces if f["motion"] > GROUP_REACTION_MOTION_THRESH)
-                    if high_motion_faces >= GROUP_REACTION_MIN_FACES:
-                        is_group_reaction = True
-                
-                # Compute target coordinates
-                if is_group_reaction:
+                # Aturan Seleksi Wajah Kamera Master vs Kamera Individu
+                if num_faces >= 2:
+                    # KAMERA MASTER (Banyak orang): Tidak usah deteksi bibir/mulut dan crop.
+                    # Tampilkan fullshot di tengah dengan background blur (wide_cut).
                     target_cx = src_w // 2
                     target_cy = src_h // 2
                     face_ratio = 0.0
                     candidate_shot = "wide_cut"
-                elif num_faces >= 2:
-                    f1, f2 = sorted_faces[0], sorted_faces[1]
-                    target_cx = (f1["cx"] + f2["cx"]) // 2
-                    target_cy = (f1["cy"] + f2["cy"]) // 2
-                    face_ratio = max(f1["face_h"], f2["face_h"])
-                    candidate_shot = _classify_shot(face_ratio)
                 else:
-                    # Single person
-                    target_cx = sorted_faces[0]["cx"]
-                    target_cy = sorted_faces[0]["cy"]
-                    face_ratio = sorted_faces[0]["face_h"]
+                    # KAMERA INDIVIDU (Satu orang): Crop orangnya saja sambil tracking.
+                    f = current_faces[0]
+                    target_cx = f["cx"]
+                    target_cy = f["cy"]
+                    face_ratio = f["face_h"]
                     candidate_shot = _classify_shot(face_ratio)
                 
-                # Update last known valid position
                 last_valid_cx = target_cx
                 last_valid_cy = target_cy
                 last_valid_ratio = face_ratio
-                
             else:
-                # No face detected in this sample
-                is_group_reaction = False
+                # Tidak ada wajah terdeteksi pada sampel ini
                 if missed_count < MAX_MISSED_SAMPLES:
-                    # GRACE PERIOD: hold last known position
+                    # Grace period: pertahankan posisi terakhir
                     target_cx = last_valid_cx
                     target_cy = last_valid_cy
                     face_ratio = last_valid_ratio
                     candidate_shot = last_shot_type
                     missed_count += 1
                 else:
-                    # Reset to center
+                    # Reset ke tengah (master wide_cut)
                     target_cx = src_w // 2
                     target_cy = src_h // 2
                     face_ratio = 0.0
@@ -388,14 +352,14 @@ def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_
                 shot_type=last_shot_type,
                 is_cut=is_cut,
                 num_faces=num_faces,
-                is_group_reaction=is_group_reaction,
+                is_group_reaction=False,
             ))
             
             prev_frame_gray = gray
-            prev_hist = hist
-        
+            
+        prev_hist = hist
         frame_idx += 1
-    
+        
     cap.release()
     return samples
 
