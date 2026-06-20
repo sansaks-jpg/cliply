@@ -21,7 +21,7 @@ CONFIDENCE_THRESHOLD = 0.5
 CLOSEUP_THRESHOLD = 0.30
 MEDIUM_THRESHOLD = 0.15
 LETTERBOX_BLUR = 61
-CUT_THRESHOLD = 0.4          # histogram correlation below this = cut
+CUT_THRESHOLD = 0.65          # histogram correlation below this = cut
 MOTION_WEIGHT = 0.6          # weight for motion_score in face priority
 SIZE_WEIGHT = 0.4            # weight for size_score in face priority
 GROUP_REACTION_MIN_FACES = 3 # min faces for group_reaction state
@@ -410,10 +410,22 @@ def _apply_ema_with_cut_reset(samples: List[SampleFrame], src_w: int, src_h: int
     last_cy = src_h // 2
     
     for i, s in enumerate(samples):
-        if s.is_cut or i == 0:
-            # CUT: reset EMA (instant snap)
+        # SNAP TRICK: Jika posisi horizontal target melompat sangat jauh,
+        # kemungkinan besar ini adalah ganti kamera podcast atau pergantian orang yang berjauhan.
+        # Melakukan smooth panning melintasi area kosong akan membuat gerakan tersendat dan tidak enak.
+        # Jadi kita langsung snap instan jika jarak horizontal > 18% dari lebar video.
+        snap_threshold_x = src_w * 0.18
+        is_large_jump = False
+        if i > 0:
+            distance_x = abs(s.raw_cx - last_cx)
+            if distance_x > snap_threshold_x:
+                is_large_jump = True
+                
+        if s.is_cut or i == 0 or is_large_jump:
+            # CUT / LARGE JUMP: reset EMA (instant snap)
             last_cx = s.raw_cx
             last_cy = s.raw_cy
+            s.is_cut = True
         else:
             # NO CUT: EMA smooth
             last_cx = int(last_cx + (s.raw_cx - last_cx) * EMA_FACTOR)
