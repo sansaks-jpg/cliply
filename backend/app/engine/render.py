@@ -209,10 +209,8 @@ def _analyze_video(
     """
     cap = cv2.VideoCapture(in_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    sample_interval = max(1, int(fps / SAMPLE_FPS))
     
     samples: List[SampleFrame] = []
-    prev_frame_gray = None
     frame_idx = 0
     
     # State tracking
@@ -242,8 +240,10 @@ def _analyze_video(
                 break
                 
         is_master_segment = True
+        seg_type = "master"
         if active_seg is not None:
-            is_master_segment = (active_seg["type"] == "master")
+            seg_type = active_seg["type"]
+            is_master_segment = (seg_type == "master")
             
         # 2. Pemicu snap reset (is_cut): Terjadi saat berpindah jenis segmen kamera
         is_cut = False
@@ -257,6 +257,10 @@ def _analyze_video(
             if prev_seg != active_seg:
                 is_cut = True
                 
+        # Tentukan interval sampling dinamis: 5 FPS untuk individu agar responsif, 2 FPS untuk master
+        current_sample_fps = 2.0 if is_master_segment else 5.0
+        sample_interval = max(1, int(fps / current_sample_fps))
+        
         # 3. Ambil sampel jika berada di batas segmen (agar snap instan pas),
         # ATAU jika sudah melewati interval sampling reguler
         should_sample = is_cut or (frame_idx - last_sample_frame_idx >= sample_interval)
@@ -267,6 +271,19 @@ def _analyze_video(
             if is_cut:
                 # Reset pelacakan wajah pada transisi kamera baru
                 tracked_faces.clear()
+                # Default fallback spasial awal yang disesuaikan berdasarkan segmentasi
+                if active_seg is not None and "avg_cx" in active_seg:
+                    last_valid_cx = int(active_seg["avg_cx"])
+                else:
+                    if seg_type == "left":
+                        last_valid_cx = int(src_w * 0.25)
+                    elif seg_type == "right":
+                        last_valid_cx = int(src_w * 0.75)
+                    else:
+                        last_valid_cx = src_w // 2
+                last_valid_cy = src_h // 2
+                last_valid_ratio = 0.22
+                last_shot_type = "closeup" if not is_master_segment else "wide_cut"
                 
             if is_master_segment:
                 # ── BEHAVIOR SEGMEN MASTER ────────────────────────────────
@@ -279,14 +296,31 @@ def _analyze_video(
                 num_faces_detected = 2  # dummy count for master
             else:
                 # ── BEHAVIOR SEGMEN INDIVIDU ──────────────────────────────
-                # Paksa mode crop-track (closeup/medium).
+                # Camera Lock: Ambil avg_cx dari segmen aktif untuk mengunci posisi horizontal secara mutlak
+                locked_cx = int(active_seg.get("avg_cx", src_w // 2)) if active_seg else src_w // 2
+                
+                # Deteksi wajah diaktifkan untuk menyesuaikan target_cy dan zoom
                 faces = _detect_faces_dnn(net, frame, CONFIDENCE_THRESHOLD)
-                num_faces_detected = len(faces)
+                
+                # Filter spasial: abaikan wajah dari sisi yang salah untuk mencegah cross-talk
+                filtered_faces = []
+                for face in faces:
+                    cx, cy, conf, face_h, bbox = face
+                    if seg_type == "left":
+                        if cx < src_w * 0.6:
+                            filtered_faces.append(face)
+                    elif seg_type == "right":
+                        if cx > src_w * 0.4:
+                            filtered_faces.append(face)
+                    else:
+                        filtered_faces.append(face)
+                        
+                num_faces_detected = len(filtered_faces)
                 
                 if num_faces_detected > 0:
                     # Cocokkan wajah dengan tracked_faces (ambil terdekat untuk speaker utama)
                     current_faces = []
-                    for cx, cy, conf, face_h, bbox in faces:
+                    for cx, cy, conf, face_h, bbox in filtered_faces:
                         matched_id = None
                         min_dist = 120.0
                         
@@ -318,10 +352,10 @@ def _analyze_video(
                             del tracked_faces[tid]
                             
                     # Tentukan wajah utama (jika ada wajah tambahan lewat, abaikan)
-                    # Kita pilih wajah terdekat ke pusat tracking atau yang memiliki ukuran terbesar
                     main_face = max(current_faces, key=lambda f: f["face_h"])
                     
-                    target_cx = main_face["cx"]
+                    # Gunakan cx terkunci (Camera Lock), hanya perbarui cy dan zoom dari deteksi wajah
+                    target_cx = locked_cx
                     target_cy = main_face["cy"]
                     face_ratio = main_face["face_h"]
                     shot_type_to_use = _classify_shot(face_ratio)
@@ -335,7 +369,7 @@ def _analyze_video(
                 else:
                     # Wajah hilang sementara (oklusi/nengok) -> TAHAN POSISI TERAKHIR secara mutlak.
                     # Jangan pernah melakukan fallback ke wide_cut / center!
-                    target_cx = last_valid_cx
+                    target_cx = locked_cx
                     target_cy = last_valid_cy
                     face_ratio = last_valid_ratio
                     shot_type_to_use = last_shot_type
@@ -352,9 +386,6 @@ def _analyze_video(
                 is_group_reaction=False,
             ))
             
-            if not is_master_segment:
-                prev_frame_gray = _to_gray(frame)
-                
         frame_idx += 1
         
     cap.release()
@@ -421,6 +452,7 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
     duration = total_frames / fps
+    src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     
     # Gunakan 4 FPS untuk analisis segmentasi kamera (responsif & akurat)
     analysis_fps = 4.0
@@ -450,7 +482,8 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
                 "time": t,
                 "frame_idx": frame_idx,
                 "is_cut": is_cut,
-                "num_faces": len(faces)
+                "num_faces": len(faces),
+                "faces_cx": [face[0] for face in faces] if faces else []
             })
             
         prev_hist = hist
@@ -485,7 +518,21 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
         if max_faces >= 2 or max_faces == 0:
             seg_type = "master"
         else:
-            seg_type = "individual"
+            # Tentukan posisi horizontal rata-rata wajah pembawa acara tunggal
+            all_cx = []
+            for f in seg_frames:
+                all_cx.extend(f.get("faces_cx", []))
+            
+            if all_cx:
+                avg_cx = sum(all_cx) / len(all_cx)
+                if avg_cx < src_w * 0.45:
+                    seg_type = "left"
+                elif avg_cx > src_w * 0.55:
+                    seg_type = "right"
+                else:
+                    seg_type = "individual"
+            else:
+                seg_type = "individual"
             
         camera_segments.append({
             "start": start_t,
@@ -509,6 +556,25 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
             last_s["end"] = s["end"]
         else:
             refined_segments.append(s)
+            
+    # Hitung ulang avg_cx yang stabil untuk segmen refined non-master
+    for s in refined_segments:
+        if s["type"] != "master":
+            seg_cx = []
+            for f in raw_frames:
+                if s["start"] <= f["time"] <= s["end"]:
+                    seg_cx.extend(f.get("faces_cx", []))
+            if seg_cx:
+                s["avg_cx"] = float(sum(seg_cx) / len(seg_cx))
+            else:
+                if s["type"] == "left":
+                    s["avg_cx"] = float(src_w * 0.25)
+                elif s["type"] == "right":
+                    s["avg_cx"] = float(src_w * 0.75)
+                else:
+                    s["avg_cx"] = float(src_w / 2.0)
+        else:
+            s["avg_cx"] = float(src_w / 2.0)
             
     return refined_segments
 
@@ -706,8 +772,6 @@ def _reframe_vertical(
     in_path: str,
     out_path: str,
     aspect_ratio: str,
-    camera_segments: List[Dict[str, Any]],
-    clip_start_offset: float = 0.0,
     is_master: bool = False,
     subtitle_path: Optional[str] = None,
     fonts_dir: Optional[str] = None,
@@ -741,8 +805,11 @@ def _reframe_vertical(
         crop_w = max(2, crop_w - (crop_w % 2))
         crop_h = max(2, crop_h - (crop_h % 2))
         
+        # Deteksi segmen kamera langsung pada potongan subclip (in_path) untuk kecepatan optimal
+        camera_segments = _generate_camera_segments(in_path, net)
+        
         # Pass 1: Analysis guided by camera segments
-        samples = _analyze_video(in_path, net, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset)
+        samples = _analyze_video(in_path, net, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset=0.0)
         
         # Apply non-causal smoothing (moving average inside scene boundaries) to eliminate lag
         smoothed = _apply_smoothing_non_causal(samples, src_w, src_h)
@@ -795,33 +862,6 @@ def render_clips(
     os.makedirs(clips_dir, exist_ok=True)
     results = []
     
-    # Load DNN model untuk analisis segmen kamera video sumber
-    if not os.path.exists(_PROTOTXT) or not os.path.exists(_MODEL):
-        raise RuntimeError(f"DNN model not found at {_PROTOTXT} or {_MODEL}")
-    net = cv2.dnn.readNetFromCaffe(_PROTOTXT, _MODEL)
-    
-    # 1. Muat atau buat segmentasi kamera video sumber (Ground Truth Segmenter)
-    camera_segments_path = STORAGE_DIR / task_id / "camera_segments.json"
-    camera_segments = []
-    
-    if camera_segments_path.exists():
-        try:
-            with open(camera_segments_path, "r", encoding="utf-8") as f:
-                camera_segments = json.load(f)
-            log.info("Loaded camera segments cache for task %s", task_id)
-        except Exception as e:
-            log.error("Failed to load camera segments cache: %s", e)
-            
-    if not camera_segments:
-        log.info("Generating camera segments for source video %s...", source_path)
-        camera_segments = _generate_camera_segments(source_path, net)
-        try:
-            with open(camera_segments_path, "w", encoding="utf-8") as f:
-                json.dump(camera_segments, f, indent=2)
-            log.info("Saved camera segments cache to %s", camera_segments_path)
-        except Exception as e:
-            log.error("Failed to save camera segments cache: %s", e)
-            
     # Read the full transcript segments from cached json
     import json
     transcript_segments = []
@@ -915,8 +955,6 @@ def render_clips(
             _cut_subclip(source_path, h_start, h_end, cut_path)
             _reframe_vertical(
                 cut_path, out_path, aspect_ratio,
-                camera_segments=camera_segments,
-                clip_start_offset=h_start,
                 subtitle_path=resolved_subtitle_path,
                 fonts_dir=fonts_dir,
             )
