@@ -21,7 +21,7 @@ CONFIDENCE_THRESHOLD = 0.5
 CLOSEUP_THRESHOLD = 0.30
 MEDIUM_THRESHOLD = 0.15
 LETTERBOX_BLUR = 61
-CUT_THRESHOLD = 0.65          # histogram correlation below this = cut
+CUT_THRESHOLD = 0.98          # histogram correlation below this = cut
 MOTION_WEIGHT = 0.6          # weight for motion_score in face priority
 SIZE_WEIGHT = 0.4            # weight for size_score in face priority
 GROUP_REACTION_MIN_FACES = 3 # min faces for group_reaction state
@@ -342,6 +342,15 @@ def _analyze_video(in_path: str, net, crop_w: int, crop_h: int, src_w: int, src_
                 if shot_hold_counter >= MIN_SHOT_HOLD_SAMPLES:
                     last_shot_type = candidate_shot
                     shot_hold_counter = 0
+            
+            # Deteksi cut semantik berbasis konfigurasi wajah antar-sampel
+            if len(samples) > 0:
+                last_s = samples[-1]
+                if last_s.num_faces != num_faces:
+                    is_cut = True
+                elif num_faces == 1 and last_s.num_faces == 1:
+                    if abs(target_cx - last_s.raw_cx) > src_w * 0.15:
+                        is_cut = True
             
             samples.append(SampleFrame(
                 time=t,
