@@ -26,6 +26,9 @@ export interface Task {
   language: string | null;
   subtitle_style: string | null;
   face_detector: string | null;
+  subtitle_font: string | null;
+  subtitle_color_primary: string | null;
+  subtitle_color_highlight: string | null;
   status: "queued" | "processing" | "completed" | "error" | "cancelled";
   progress: number;
   stage: string;
@@ -46,6 +49,9 @@ export interface CreateTaskOptions {
   language?: string;
   subtitle_style?: string;
   face_detector?: string;
+  subtitle_font?: string;
+  subtitle_color_primary?: string;
+  subtitle_color_highlight?: string;
 }
 
 /** Resolve a clip_url returned by the backend into an absolute URL.

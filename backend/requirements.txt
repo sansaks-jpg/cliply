@@ -10,3 +10,4 @@ anthropic>=0.30.0
 mediapipe>=0.10.0
 numpy>=1.26.0
 redis>=4.5,<5.0
+scenedetect>=0.7

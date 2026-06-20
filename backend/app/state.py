@@ -31,6 +31,9 @@ class TaskRecord:
     language: Optional[str]
     subtitle_style: Optional[str] = None
     face_detector: Optional[str] = "yunet"
+    subtitle_font: Optional[str] = None
+    subtitle_color_primary: Optional[str] = None
+    subtitle_color_highlight: Optional[str] = None
     status: str = "queued"
     progress: float = 0.0
     stage: str = ""
@@ -49,6 +52,9 @@ class TaskRecord:
             "language": self.language or "",
             "subtitle_style": self.subtitle_style or "",
             "face_detector": self.face_detector or "yunet",
+            "subtitle_font": self.subtitle_font or "",
+            "subtitle_color_primary": self.subtitle_color_primary or "",
+            "subtitle_color_highlight": self.subtitle_color_highlight or "",
             "status": self.status,
             "progress": self.progress,
             "stage": self.stage,
@@ -95,9 +101,31 @@ class TaskStore:
                 self._use_redis = False
         return self._use_redis
 
-    async def create(self, url: str, num_clips: int, aspect_ratio: str, language: Optional[str], subtitle_style: Optional[str] = None, face_detector: Optional[str] = "yunet") -> str:
+    async def create(
+        self,
+        url: str,
+        num_clips: int,
+        aspect_ratio: str,
+        language: Optional[str],
+        subtitle_style: Optional[str] = None,
+        face_detector: Optional[str] = "yunet",
+        subtitle_font: Optional[str] = None,
+        subtitle_color_primary: Optional[str] = None,
+        subtitle_color_highlight: Optional[str] = None,
+    ) -> str:
         task_id = uuid.uuid4().hex[:12]
-        record = TaskRecord(task_id=task_id, url=url, num_clips=num_clips, aspect_ratio=aspect_ratio, language=language, subtitle_style=subtitle_style, face_detector=face_detector)
+        record = TaskRecord(
+            task_id=task_id,
+            url=url,
+            num_clips=num_clips,
+            aspect_ratio=aspect_ratio,
+            language=language,
+            subtitle_style=subtitle_style,
+            face_detector=face_detector,
+            subtitle_font=subtitle_font,
+            subtitle_color_primary=subtitle_color_primary,
+            subtitle_color_highlight=subtitle_color_highlight,
+        )
         if await self._ensure_backend():
             await self._redis.hmset(_TASK.format(task_id), record.to_redis_hash())
         else:
@@ -124,13 +152,19 @@ class TaskStore:
                 data[k] = float(data[k])
         if "num_clips" in data:
             data["num_clips"] = int(data["num_clips"])
-        for k in ("language", "error", "subtitle_style", "face_detector"):
+        for k in ("language", "error", "subtitle_style", "face_detector", "subtitle_font", "subtitle_color_primary", "subtitle_color_highlight"):
             if k in data and not data.get(k):
                 data[k] = None
         if "subtitle_style" not in data:
             data["subtitle_style"] = None
         if "face_detector" not in data:
             data["face_detector"] = "yunet"
+        if "subtitle_font" not in data:
+            data["subtitle_font"] = None
+        if "subtitle_color_primary" not in data:
+            data["subtitle_color_primary"] = None
+        if "subtitle_color_highlight" not in data:
+            data["subtitle_color_highlight"] = None
         if "clips" not in data:
             data["clips"] = []
         return TaskRecord(**data)

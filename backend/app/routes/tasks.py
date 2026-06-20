@@ -25,6 +25,7 @@ _YOUTUBE_RE = re.compile(
 SubtitleStyle = Literal[
     "viral-bold", "minimalist", "neon-glow", "classic-popup",
     "word-pop", "clean-minimal", "highlight-box", "neon-gradient",
+    "tiktok",
 ]
 
 
@@ -43,6 +44,9 @@ class CreateTaskRequest(BaseModel):
         default="yunet",
         description="Face detector model to use.",
     )
+    subtitle_font: Optional[str] = Field(default=None, description="Custom font override.")
+    subtitle_color_primary: Optional[str] = Field(default=None, description="Custom primary text color override (#RRGGBB).")
+    subtitle_color_highlight: Optional[str] = Field(default=None, description="Custom highlight color override (#RRGGBB).")
 
 
 class TaskCreatedResponse(BaseModel):
@@ -72,6 +76,9 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
         language=req.language,
         subtitle_style=req.subtitle_style,
         face_detector=req.face_detector,
+        subtitle_font=req.subtitle_font,
+        subtitle_color_primary=req.subtitle_color_primary,
+        subtitle_color_highlight=req.subtitle_color_highlight,
     )
 
     # Enqueue the background pipeline (no-op stub in Fase 0; real in Fase 1).

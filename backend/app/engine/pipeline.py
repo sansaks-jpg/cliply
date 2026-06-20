@@ -50,6 +50,12 @@ async def run_pipeline(
         ass_path = f"{task_dir}/subtitles.ass"
         fonts_dir = str(FONTS_DIR) if FONTS_DIR.exists() else None
 
+        # Get custom overrides if set
+        record = await store.get(task_id)
+        s_font = getattr(record, "subtitle_font", None) if record else None
+        s_color_primary = getattr(record, "subtitle_color_primary", None) if record else None
+        s_color_highlight = getattr(record, "subtitle_color_highlight", None) if record else None
+
         await store.set_progress(task_id, 55, "SUBTITLES", f"Generating subtitles ({style_key})…")
         ass_path = await asyncio.to_thread(
             generate_ass,
@@ -59,6 +65,9 @@ async def run_pipeline(
             1080,   # play_res_x — will be updated by render based on actual crop dims
             1920,   # play_res_y
             fonts_dir,
+            s_font,
+            s_color_primary,
+            s_color_highlight,
         )
         await store.set_progress(task_id, 60, "SUBTITLES", "Subtitles ready")
 
@@ -73,6 +82,9 @@ async def run_pipeline(
             fonts_dir,
             subtitle_style=style_key,
             face_detector=face_detector,
+            subtitle_font=s_font,
+            subtitle_color_primary=s_color_primary,
+            subtitle_color_highlight=s_color_highlight,
         )
 
         clip_count = sum(1 for c in clips if c.get("clip_url"))

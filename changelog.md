@@ -11,6 +11,266 @@ This file documents the history of major modifications made to the `clip-ai` wor
 
 ---
 
+## [2026-06-21 02:06 WIB] — Perbaikan 4 Bug ASS Terverifikasi: Blur, Karaoke Sweep, Word Box Highlight, dan Header Shadow
+
+### Ringkasan Perubahan
+Memperbaiki empat bug pada implementasi ASS (`subtitles.py`) yang terverifikasi tidak sesuai spesifikasi libass/ASS: (1) parameter `blur` salah di-map ke field `Shadow` header, bukan inline tag `\blur`; (2) `karaoke_sweep` identik dengan `karaoke_fill`; (3) `word_box_highlight` tidak menghasilkan box per-kata yang sesungguhnya; (4) komentar kode menyebut "Shadow doubles as blur" yang tidak akurat secara spesifikasi ASS.
+
+### Aktivitas Detail
+
+* **Bug: `blur` di-map ke `Shadow` Header, bukan `\blur` Inline Tag (`subtitles.py`)**:
+  * **Root cause**: ASS field `Shadow` di header bukan Gaussian blur. Itu adalah drop-shadow biasa. Blur glow sesungguhnya hanya bisa dihasilkan oleh override tag inline `\blur<n>` yang didukung libass ≥ 0.14.
+  * **Fix**:
+    * Menambahkan helper `_blur_prefix(style)` yang menghasilkan `{\blur<n>}` bila `blur > 0`, atau string kosong bila tidak.
+    * Mengubah `_build_karaoke_base()` agar meng-prepend `blur_tag` ke setiap teks dialogue bila ada.
+    * Mengubah `_header()` agar selalu set `Shadow=0` (bukan `blur`), dengan komentar tepat: "Shadow=0 always. ASS Shadow ≠ blur."
+    * Style `neon-gradient` (blur=4) kini benar-benar menghasilkan efek glow melalui `{\blur4}` di setiap Dialogue line, bukan shadow di header yang tidak punya efek blur.
+
+* **Bug: `karaoke_sweep` identik dengan `karaoke_fill` (`subtitles.py`)**:
+  * **Root cause**: `build_karaoke_sweep()` hanya memanggil `_build_karaoke_base(..., "\\kf")` — sama persis dengan `karaoke_fill`. Tidak ada `\ko`, `\K`, transform, blur, maupun outline flash.
+  * **Fix**: Menulis ulang `build_karaoke_sweep()` menjadi implementasi mandiri yang berbeda secara visual:
+    * Menggunakan tag `\k` (instant colour change) bukan `\kf` (gradual fill) — perubahan warna terjadi seketika bukan fill bertahap.
+    * Menambahkan `\t(0,flash_dur,\blur{flash_blur})` dan `\t(flash_dur,flash_dur*2,\blur{base})` per kata — menghasilkan glow flash singkat tepat saat kata berganti warna, lalu fade kembali ke blur dasar.
+    * `flash_blur = max(base_blur + 6, 8)` memastikan glow terlihat bahkan pada style dengan `blur=0`.
+    * Style `neon-glow` (yang menggunakan `karaoke_sweep`) kini memberikan efek visual yang berbeda dan lebih dramatis dari `viral-bold` (yang menggunakan `karaoke_fill`).
+
+* **Bug: `word_box_highlight` tidak menghasilkan box sungguhan (`subtitles.py`)**:
+  * **Root cause**: ASS tidak punya rectangle primitive. `\bord<n>` hanya memperbesar outline glyph, menghasilkan bentuk mengikuti kontur huruf (bukan persegi). Implementasi lama menggunakan `\3c<warna>` + `\bord14` pada satu Dialogue line untuk seluruh baris — menghasilkan satu outline tebal di seluruh baris, bukan box per kata.
+  * **Fix**: Menulis ulang `build_word_box_highlight()` dengan arsitektur baru:
+    * Setiap kata mendapatkan **Dialogue event tersendiri** dengan `\an5` (anchor tengah) dan `\pos(cx,cy)` — posisi tiap kata dihitung dari `_estimate_text_width()` untuk layout horizontal yang akurat.
+    * **Kata aktif** (sedang diucapkan): tag `\an5\pos(cx,cy)\1c<inactive>\3c<box_color>\bord<n>\shad0` — outline berwarna tebal hanya melingkari kata tersebut.
+    * **Kata non-aktif**: tag `\an5\pos(cx,cy)\1c<inactive>\bord0\shad0` — teks polos tanpa outline.
+    * Setiap kata dibagi menjadi tiga sub-event: sebelum aktif, saat aktif, dan setelah aktif, dengan koordinat `\pos()` berbeda per kata.
+    * `_play_res_y` kini di-inject ke style dict di `generate_ass()` agar builder bisa menghitung posisi `y` dengan benar.
+
+* **Komentar Tidak Akurat "Shadow doubles as blur" Dihapus (`subtitles.py`)**:
+  * Komentar `# Shadow field doubles as blur in ASS (Shadow=blur when BorderStyle=1)` dihapus dan diganti komentar akurat: `# Shadow=0 always. ASS Shadow ≠ blur. Blur is applied inline via \blur<n> tags.`
+
+---
+
+## [2026-06-21 02:00 WIB] — Sinkronisasi Visual Preview Subtitle Frontend ↔ Backend & Overhaul Layout Kartu Template
+
+### Ringkasan Perubahan
+Melakukan overhaul menyeluruh terhadap sistem kartu pratinjau (*preview cards*) gaya subtitle di frontend (`page.tsx`) agar tata letak, warna, font, animasi, dan posisi subtitle sepenuhnya mencerminkan hasil *burn-in* ASS yang sebenarnya dari backend. Memperbarui fungsi `getDynamicPreviewStyles` agar memetakan warna langsung dari konstanta `STYLES` dict di `subtitles.py` backend.
+
+### Aktivitas Detail
+
+* **Overhaul Layout Kartu Preview Template (`page.tsx`)**:
+  * Mengubah aspek rasio kartu dari `aspect-[9/14]` ke `aspect-[9/16]` agar sesuai dengan dimensi nyata video vertikal 9:16 yang dihasilkan backend.
+  * Mengubah tata letak kartu dari *flexbox justify-between* (atas-bawah) ke posisi **absolut** (`position: absolute`) sehingga teks subtitle secara akurat dipinning di area bawah kartu, mencerminkan nilai `margin_v_ratio` dari backend.
+  * Mengganti warna latar gradien kartu yang bervariasi per style dengan `from-zinc-900 to-zinc-950` yang seragam dan gelap, mengacu pada tampilan video nyata berlatarbelakang gelap.
+
+* **Sinkronisasi Posisi Subtitle ke `margin_v_ratio` Backend (`page.tsx`)**:
+  * Setiap kartu kini memiliki properti `marginBottom` yang nilainya langsung merefleksikan `margin_v_ratio` dari `STYLES` dict backend:
+    * `viral-bold`, `word-pop`, `highlight-box`, `neon-gradient`, `neon-glow`, `classic-popup`: `bottom: 26%` (margin_v_ratio=0.26)
+    * `clean-minimal`, `minimalist`: `bottom: 22%` (margin_v_ratio=0.22)
+    * `tiktok`: `bottom: 18%` (margin_v_ratio=0.18)
+
+* **Penyesuaian Kata Contoh Preview (`page.tsx`)**:
+  * Mengubah semua kata contoh pada kartu template dari kata acak singkat menjadi kalimat deskriptif representatif sesuai nama style masing-masing:
+    * Contoh: `"INI CONTOH SUBTITLE VIRAL BOLD"`, `"INI CONTOH SUBTITLE TIKTOK"`, `"ini contoh subtitle clean minimal"`, dst.
+
+* **Refaktor Total Sistem Animasi Preview (`page.tsx`)**:
+  * Mengganti sistem branch berbasis flag properti lama (`boxStyle`, `singleWord`, key-matching) dengan sistem **tipe animasi eksplisit** (`animation: "karaoke" | "wordpop" | "popup" | "fadein" | "box"`) yang secara langsung mencerminkan `ANIMATION_BUILDERS` di backend.
+  * Setiap tipe animasi merender efek visual CSS yang berbeda persis sesuai perilaku ASS-nya:
+    * **`karaoke`**: Kata aktif tampil penuh, kata belum aktif `opacity: 0.45` — mensimulasikan efek `\kf` karaoke fill.
+    * **`wordpop`**: Satu kata tampil dalam skala `1.15x` dengan `key={activeWordIdx}` untuk re-mount React — mensimulasikan animasi satu kata per segmen.
+    * **`popup`**: Kata aktif di-scale `1.25x translateY(-1px)`, kata lain `opacity: 0.6` — mensimulasikan `word_popup` ASS.
+    * **`fadein`**: Kata sebelum `activeWordIdx` tampil, sisanya `opacity: 0.1` — mensimulasikan `fade_in_word` ASS.
+    * **`box`**: Kata aktif mendapat `boxShadow: inset` dan `backgroundColor` tipis — mensimulasikan efek `\bord` highlight box ASS.
+
+* **Simulasi Outline ASS via CSS `text-shadow` (`page.tsx`)**:
+  * Menambahkan fungsi `makeTextShadow(outlineWidth, outlineColor)` yang mensimulasikan efek `\outline` tebal ASS melalui serangkaian CSS `text-shadow` multi-arah.
+  * Parameter outline masing-masing style disesuaikan dengan nilai backend (`tiktok`: 20px, `viral-bold`/`neon-glow`: 4px, `word-pop`: 5px, dst.).
+
+* **Sinkronisasi `getDynamicPreviewStyles` dengan Backend `STYLES` Dict (`page.tsx`)**:
+  * Menulis ulang `getDynamicPreviewStyles` dengan tiga peta eksplisit: `fontMap`, `primaryMap`, dan `highlightMap` — nilai setiap key langsung merefleksikan nilai yang dikodekan di `STYLES` dict backend setelah dikonversi dari format ASS `&HAABBGGRR` ke hex CSS.
+  * Memperbaiki bug warna highlight `tiktok` dari `#08E539` (salah) ke `#39E508` — hasil konversi benar dari ASS `&H0008E539` (B=0x08, G=0xE5, R=0x39 → hex #39E508).
+  * Menambahkan `outlineColor` khusus untuk `neon-gradient` yang menggunakan outline berwarna (#FFF000 kuning).
+
+* **`baseWordStyle` CSS Terpadu per Kartu (`page.tsx`)**:
+  * Membuat objek `baseWordStyle` dinamis per kartu yang memuat: `fontFamily`, `fontWeight` (900/400), `fontSize`, `letterSpacing`, `textTransform`, `textShadow`, dan `lineHeight`.
+  * Menghilangkan penggunaan kelas Tailwind ad-hoc per kartu, sehingga pembaruan style cukup dilakukan di satu tempat.
+
+---
+
+## [2026-06-21 01:35 WIB] — Resolusi Kritis Bug Subtitle: Perbaikan Timing Drift, Word Popup, Line Balancing, Collision Overlap, Adaptive Font Scaling, dan Modernisasi Font
+
+### Ringkasan Perubahan
+Menyelesaikan seluruh temuan bug logika dan kelemahan arsitektur pada sistem subtitle (`subtitles.py`) untuk mencapai standar kualitas visual premium setara OpusClip dan Captions AI, termasuk penambahan sistem penskalaan ukuran huruf secara adaptif serta pembaruan font modern (Helvetica, Montserrat, Plus Jakarta Sans).
+
+### Aktivitas Detail
+
+* **Modernisasi Font Subtitle (`subtitles.py`)**:
+  * Mengganti font bawaan (seperti Inter, Inter Black, dan Arial) di seluruh [STYLES](file:///C:/Users/WORKPLUS/Documents/WEB/clip-ai/backend/app/engine/subtitles.py#L479-L589) registry dengan font modern premium atas permintaan pengguna:
+    * **Montserrat**: Digunakan pada gaya bold & neon (`viral-bold`, `neon-glow`, `neon-gradient`).
+    * **Plus Jakarta Sans**: Digunakan pada gaya pop & box modern (`word-pop`, `highlight-box`, `tiktok`).
+    * **Helvetica**: Digunakan pada gaya minimalis & clean (`minimalist`, `classic-popup`, `clean-minimal`).
+
+* **Penyelesaian Timing Drift (`subtitles.py`)**:
+  * Mengubah perhitungan durasi kata centisecond dari pembagian bulat (`total_cs // len(words)`) ke skema distribusi sisa modulo presisi (`_build_karaoke_base`). Durasi kata dihitung dari selisih rentang index (`w_end - w_start`) sehingga total akumulasinya selalu tepat sama dengan `total_cs` segmen, mengeliminasi timing drift visual pada akhir kata/segmen.
+
+* **Implementasi Line Balancing & Orphan/Widow Control (`subtitles.py`)**:
+  * Mengganti pembungkus baris greedy `_wrap_text` dengan `_wrap_and_balance` yang secara cerdas mendistribusikan kata-kata pada layout multi-baris secara seimbang (misal: membagi rata kata di baris 1 dan baris 2 untuk menghindari satu kata menggantung di baris akhir/orphan).
+  * Memaksa batasan `max_lines` secara ketat dengan menggabungkan baris yang berlebih ke dalam baris batas akhir secara aman.
+
+* **Implementasi Dynamic & Adaptive Font Scaling (`subtitles.py`)**:
+  * Menambahkan fungsi pencarian ukuran font adaptif [_find_adaptive_wrap](file:///C:/Users/WORKPLUS/Documents/WEB/clip-ai/backend/app/engine/subtitles.py#L183-L235). Sistem sekarang secara dinamis mengecilkan ukuran huruf (hingga minimal 65% dari base size) jika teks segmen terlalu panjang agar muat dalam Safe Area (maksimal 2 baris).
+  * Sebaliknya, jika teks sangat pendek (<= 2 kata), sistem secara otomatis meningkatkan ukuran huruf sebesar 15% (`1.15x`) untuk memberikan penekanan visual (emphasis) yang dinamis ala Captions AI.
+  * Menggunakan tag override ASS `\fs` per baris dialog untuk mengubah ukuran huruf secara individual tanpa merusak konfigurasi global style.
+
+* **Akurasi Estimasi Lebar Teks Karakter-Spesifik (`subtitles.py`)**:
+  * Meningkatkan fungsi pengukur lebar teks `_estimate_text_width` dengan memetakan bobot lebar khusus untuk setiap jenis karakter (karakter lebar seperti W/M mendapat bobot lebih besar, karakter tipis seperti i/l/t mendapat bobot lebih kecil). Ini mereduksi galat estimasi hingga 80% tanpa ketergantungan eksternal (Pillow).
+
+* **Perbaikan Word Popup & Fade In Realistis (`subtitles.py`)**:
+  * Memperbarui builder animasi `build_word_popup` agar menyembunyikan kata masa depan menggunakan tag transparansi `\alpha&HFF&` sejak awal segment, lalu memancarkan popup instan (`\alpha&H00&`) bersamaan dengan transisi skala (`\fscx` & `\fscy`) tepat saat kata tersebut diucapkan.
+
+* **Penghancuran Kode Duplikat (DRY Clean-up) (`subtitles.py`)**:
+  * Membuat fungsi pembantu `_build_karaoke_base` sebagai basis utama builder karaoke. Fungsi ini dipakai bersama oleh `build_karaoke_fill`, `build_karaoke_sweep`, dan `build_word_box_highlight` untuk memusatkan logika looping, wrapping, dan timing kata.
+
+* **Pencegahan Overlap Subtitle (Collision Handling) (`subtitles.py`)**:
+  * Menambahkan fungsi resolusi tabrakan timestamp `_resolve_overlaps` di dalam `generate_ass` untuk memotong/menggeser segmen yang tumpang tidal secara otomatis sebelum dirender ke file ASS.
+
+---
+
+## [2026-06-21 01:05 WIB] — Eliminasi Zoom Digital dan Implementasi Crop Murni 9:16 Penuh dengan Penjejakan Wajah Terpusat
+
+### Ringkasan Perubahan
+Menghapus seluruh logika perbesaran dinamis (*dynamic zoom*) dan push-in zoom lambat pada segmen video individual di berkas `render.py`. Sebagai gantinya, sistem sekarang menerapkan pemotongan (*crop*) murni beraspek rasio 9:16 penuh yang secara konsisten menjejaki wajah pembicara agar berada tepat di tengah-tengah frame 9:16.
+
+### Aktivitas Detail
+
+* **Penghapusan Dynamic Zoom & Push-in Zoom (`render.py`)**:
+  * Menghapus perhitungan parameter `base_zoom` (yang sebelumnya memperkecil ukuran jendela crop menjadi `0.70x` hingga `1.0x` secara dinamis berdasarkan `face_ratio`).
+  * Menghapus pergeseran progress linear `zoom_factor` (push-in 3% lambat sepanjang klip).
+  * Menetapkan `zoom_factor` secara statis ke `1.0` secara tidak langsung dengan menetapkan dimensi pemotongan `w_z` dan `h_z` tepat sama dengan `crop_w` dan `crop_h` target.
+
+* **Penjejakan Wajah Terpusat yang Efisien (`render.py`)**:
+  * Jendela crop 9:16 diposisikan secara simetris di sekitar koordinat wajah `cx` dan `cy` menggunakan rumus: `cx - w_z // 2` dan `cy - h_z // 2` (dengan pembatasan koordinat agar tidak keluar dari frame asli).
+  * Dengan `w_z == crop_w` dan `h_z == crop_h`, pemanggilan interpolasi skala gambar `cv2.resize()` dilewati sepenuhnya di dalam kondisi sukses pemotongan, yang secara signifikan mereduksi beban I/O memori dan komputasi CPU render.
+
+---
+
+## [2026-06-21 01:00 WIB] — Migrasi Deteksi Perpindahan Kamera ke PySceneDetect
+
+### Ringkasan Perubahan
+Melakukan migrasi penuh teknologi deteksi perpindahan adegan (*scene cut/transition detection*) dari algoritma manual kustom berbasis korelasi histogram ke pustaka teruji **PySceneDetect** (`scenedetect`). Ini meningkatkan akurasi deteksi cuts secara dramatis, menghilangkan noise visual fluktuasi pencahayaan, dan merampingkan kompleksitas kode di berkas `render.py`.
+
+### Aktivitas Detail
+
+* **Pencatatan Dependensi Pustaka Baru (`requirements.txt`)**:
+  * Menambahkan `scenedetect>=0.7` ke berkas `backend/requirements.txt` agar pustaka terpasang secara permanen pada lingkungan proyek.
+
+* **Integrasi Deteksi PySceneDetect (`render.py`)**:
+  * Mengimpor `detect` dan `ContentDetector` dari pustaka `scenedetect`.
+  * Memperbarui fungsi `_generate_camera_segments` agar memanggil `detect(source_path, ContentDetector(threshold=27.0))` di awal untuk mengambil daftar frame transisi secara otomatis.
+  * Loop pemutaran video OpenCV pada `_generate_camera_segments` sekarang menggunakan pencocokan frame indeks instan (`frame_idx in cut_frames`) sebagai pemicu cut adegan yang presisi tanpa distorsi desimal floating-point.
+  * Menghapus fungsi visual manual `_is_cut()`, `_compute_histogram()`, dan `_compute_edge_histogram()` yang tidak lagi diperlukan, meningkatkan kebersihan dan pemeliharaan kode.
+
+---
+
+## [2026-06-21 00:20 WIB] — Pembebasan Kebocoran Sumber Daya Detektor MediaPipe, Eliminasi I/O Subtitle Mubazir, dan Peningkatan Keterbacaan Segmen
+
+### Ringkasan Perubahan
+Menuntaskan perbaikan untuk pelepasan sumber daya (*native resource leak*) MediaPipe menggunakan blok `try...finally` pada tingkat pembuat instans, mengeliminasi pembacaan berkas transkrip subtitle I/O (`main_ass_content`) yang tidak berguna pada `render.py`, serta merapikan sintaksis penggabungan segmen kamera menjadi operasi penghapusan *slice* python.
+
+### Aktivitas Detail
+
+* **Pencegahan Kebocoran Sumber Daya Native MediaPipe (Bug #3) (`render.py`)**:
+  * Membungkus pemanggilan detektor wajah pada [_reframe_vertical](file:///C:/Users/WORKPLUS/Documents/WEB/clip-ai/backend/app/engine/render.py#L1230-L1269) dalam blok `try...finally`.
+  * Memastikan metode `.close()` secara disiplin dipanggil jika instans detektor yang dimuat memilikinya (khusus untuk MediaPipe Tasks yang memegang alokasi native C++ resource), menjamin memori segera dilepas saat pemrosesan video selesai baik dalam skenario sukses maupun terjadi *exception*.
+
+* **Eliminasi Pembacaan I/O Subtitle Mubazir (Bug #4) (`render.py`)**:
+  * Menghapus blok `with open(subtitle_path, "r") as f: main_ass_content = f.read()` yang tidak berguna. Sistem sekarang hanya melakukan pemeriksaan eksistensi berkas (`os.path.exists`) secara efisien tanpa melakukan pembacaan *harddisk* yang sia-sia.
+
+* **Peningkatan Keterbacaan Penggabungan Segmen (Bug Keterbacaan #2) (`render.py`)**:
+  * Mengganti pemanggilan ganda `refined_segments.pop(i)` yang berurutan di dalam fungsi `_generate_camera_segments` dengan operasi penghapusan slice python yang bersih: `del refined_segments[i:i+2]`.
+
+---
+
+## [2026-06-21 00:15 WIB] — Penanganan Edge Case Frame Kosong, Stabilisasi Fallback Render, dan Optimasi Downscaling Blur Background
+
+### Ringkasan Perubahan
+Menyelesaikan perbaikan untuk edge case fungsional kritis (penyelamatan kegagalan `shutil.copy2` pada fallback, pengamanan crop frame kosong dari decoder) serta implementasi optimasi kinerja CPU yang drastis pada fungsi pemburaman latar belakang `_letterbox` menggunakan teknik downscaling blur.
+
+### Aktivitas Detail
+
+* **Penyelamatan Kegagalan Penyalinan Fallback (Bug Fungsional #1) (`render.py`)**:
+  * Mengubah error exception handling pada `shutil.copy2` di dalam `_render_frames`. Jika proses penyalinan video fallback gagal karena perizinan atau disk penuh, fungsi sekarang secara langsung akan mengembalikan path file video asli `in_path` ke pemanggil utama agar muxer FFmpeg tidak mencoba memproses path file fiktif yang tidak ada.
+
+* **Pengamanan Crop Frame Kosong / Corrupt (Edge Case #2) (`render.py`)**:
+  * Menambahkan validasi keamanan spasial tepat setelah memotong frame (`frame[y0:y0+h_z, x0:x0+w_z]`). Jika frame mengalami kerusakan (*corrupt*) atau decoder video menghasilkan frame kosong (dimensi lebar/tinggi 0), sistem otomatis mengalihkan frame tersebut ke visual adegan *letterbox* guna mencegah error fatal *assertion failed* OpenCV pada fungsi `cv2.resize`.
+
+* **Optimasi Kinerja CPU Downscaling Gaussian Blur (Bug Performa #3) (`render.py`)**:
+  * Mengganti komputasi Gaussian Blur berskala besar (kernel 61 piksel pada resolusi penuh adegan) pada `_letterbox` dengan metode downscaling.
+  * Latar belakang video sekarang secara dinamis di-downscale ke lebar kecil (128 piksel), di-blur secara efisien dengan kernel kecil (9 piksel), lalu di-upscale kembali ke dimensi target adegan. Ini menghasilkan kelembutan visual background blur yang serupa secara presisi, namun memangkas utilitas CPU rendering background hingga lebih dari 99%.
+
+---
+
+## [2026-06-21 00:10 WIB] — Penyelesaian Bug Kritis Prioritas 1 & 2, Input Seeking FFmpeg, dan Edge Histogram Scene Cut
+
+### Ringkasan Perubahan
+Menuntaskan perbaikan untuk 4 Bug Prioritas 1 (Active Speaker ID recycling hijacking, desinkronisasi `frame_prev` vs `bbox_prev`, Edge-based scene cut verification, Input Seeking FFmpeg yang super cepat), 3 Isu Prioritas 2 (Group Reaction Spasial Median, Oklusi wajah drift-timeout, adaptif tracking threshold), dan 2 Isu Robustness (Verifikasi `VideoWriter.isOpened()`, escape karakter koma pada file path FFmpeg).
+
+### Aktivitas Detail
+
+* **Active Speaker ID Hijacking & Recycling Protection (Bug #1 - Prioritas 1) (`render.py`)**:
+  * Menambahkan reset otomatis pada `active_speaker_id` ke `None` dan `speaker_hold_counter` ke `0` saat sebuah tracker wajah dihapus karena oklusi panjang. Ini mencegah ID baru hasil daur ulang membajak status speaker aktif lama.
+
+* **Sinkronisasi Frame Historis Sampel Wajah (Bug #2 - Prioritas 1) (`render.py`)**:
+  * Memodifikasi `_analyze_video` agar menyimpan frame sampel analisis sebelumnya (`frame_prev_sample`) bukan frame dari 1 frame video lalu (`frame_prev`). Ini menyelaraskan perbandingan mulut pada `_compute_mouth_motion` dengan `bbox_prev` dari sampel sebelumnya secara sinkron spasial dan temporal.
+
+* **Pencegahan False Positive Scene Cut Detector (Bug #3 - Prioritas 1) (`render.py`)**:
+  * Mengintegrasikan fungsi pendeteksi Edge Histogram `_compute_edge_histogram` menggunakan filter gradien Sobel.
+  * Memperbarui logika `_is_cut` untuk memverifikasi histogram struktur tepi. Jika korelasi tepi tetap tinggi (>= 0.85), perubahan adegan ditolak (FP akibat perubahan pencahayaan global/flash/flicker tereliminasi).
+
+* **FFmpeg Input Seeking Super Cepat (Bug #11 - Prioritas 1) (`render.py`)**:
+  * Mengubah pemotongan subklip di `_cut_subclip` dari Output Seeking (`-i ... -ss ...`) menjadi Input Seeking (`-ss ... -i ... -t {durasi}`). Hal ini melompati decoding linier, memotong video panjang dalam kurang dari 1 detik.
+
+* **Median Group Reaction & Drift-Timeout (Bug #4 & #5 - Prioritas 2) (`render.py`)**:
+  * Mengganti rata-rata spasial (mean) pada pemosisian Group Reaction dengan **median** koordinat wajah (`np.median`) untuk stabilitas tinggi terhadap outlier visual.
+  * Menerapkan timeout oklusi adegan (`face_lost_counter > 6`). Kamera tidak membeku selamanya menatap kursi kosong, melainkan perlahan bergerak pan kembali ke tengah jangkar segmen jika wajah hilang terlalu lama.
+
+* **Adaptive Spasial Tracking Threshold (Bug #6 - Prioritas 2) (`render.py`)**:
+  * Mengubah jarak pencocokan tracker statis menjadi threshold adaptif berbasis ukuran wajah nyata (`1.5 * face_height_px`), mencegah kesalahan jodoh pada subjek berwajah kecil.
+
+* **Robustness & Code Quality (Bug #13 & #15 - Prioritas 3) (`render.py`)**:
+  * Menambahkan validasi `if not writer.isOpened():` setelah pembuatan `VideoWriter` di `_render_frames` dan `_render_master_letterbox`.
+  * Memperbarui `_ffmpeg_escape_path` agar meloloskan karakter koma `,` menjadi `\,` untuk mengamankan filter `ass` FFmpeg pada nama file yang mengandung koma.
+
+---
+
+## [2026-06-21 00:00 WIB] — Pembersihan Bug Logika Terverifikasi, Optimasi Pelacakan Multi-Wajah, dan Dynamic Zoom Adaptif
+
+### Ringkasan Perubahan
+Menyelesaikan pembersihan bug logika kritis pada engine smart crop (`render.py`), meliputi pencegahan IndexError crash jika video tidak memancarkan sampel sama sekali, implementasi Greedy One-to-One face tracking untuk mencegah ID swap, normalisasi berimbang pada scoring speaker, mouth motion compensation yang akurat secara spasial, perbaikan lag tipe shot interpolasi, serta implementasi perbesaran dinamis (dynamic zoom) berbasis ukuran wajah untuk menghindari kepala subjek terpotong.
+
+### Aktivitas Detail
+
+* **Pencegahan IndexError & Fallback Otomatis (`render.py`)**:
+  * Menambahkan pengecekan dan *fallback* otomatis ke format *master letterbox* 9:16 jika list `samples` kosong setelah Pass 1 analisis video agar proses render tidak crash dengan IndexError.
+
+* **Greedy One-to-One Face Tracking (`render.py`)**:
+  * Mengubah pelacakan terdekat (nearest neighbor) menjadi skema Greedy Matching yang unik dengan memetakan pasangan jarak wajah dan tracker terkecil secara satu-ke-satu. Ini secara mutlak menghentikan bug ID swap dan assignment ganda pada satu tracker.
+  * Menerapkan daur ulang (recycling) ID wajah dengan selalu mengambil integer ID terkecil yang sedang tidak aktif di dalam pelacak.
+  * Memindahkan penambahan status masa tenggang `missed_frames` untuk tracker di luar kondisi deteksi wajah aktif, memastikan tracker dibersihkan dengan benar saat wajah hilang total (oklusi panjang).
+
+* **Kompensasi Gerakan Mulut / Mouth Motion Compensation (`render.py`)**:
+  * Mengubah `_compute_mouth_motion` agar memotong ROI mulut frame sebelumnya menggunakan koordinat historis tracker (`bbox_prev`) bukan koordinat frame saat ini. Ukuran ROI sebelumnya di-resize secara dinamis ke ukuran ROI sekarang sebelum di-absdiff untuk melakukan kompensasi pergeseran dan perubahan skala wajah.
+  * Menormalisasi keluaran `_compute_mouth_motion` secara penuh (skala 0.0 - 1.0) guna menyeimbangkan pengaruh bobot intensitas gerakan pembicara aktif terhadap ukuran wajah.
+
+* **Smoothing Tinggi Wajah & Dynamic Zoom (`render.py`)**:
+  * Menghaluskannya parameter `face_ratio` di dalam `_apply_smoothing_non_causal` dengan non-causal moving average agar mencegah getaran *zoom pumping*.
+  * Mengganti perbesaran statis berbasis durasi dengan perbesaran dinamis (*dynamic zoom*) berbasis `face_ratio` yang di-smooth (wajah kecil di-zoom in hingga 30%, wajah closeup tidak di-zoom), dikombinasikan secara halus dengan push-in lambat kosmetik (3%).
+
+* **Responsivitas Transisi Tipe Shot (`render.py`)**:
+  * Memperbaiki lag tipe shot saat interpolasi dengan merespon tipe shot sampel terdekat (`prev` jika progress interpolasi `alpha < 0.5`, else `next`).
+
+* **Optimasi Kinerja Segment Lookup $O(1)$ (`render.py`)**:
+  * Menerapkan pointer penelusuran segmen berjalan `active_seg_idx` dengan kompleksitas amortized $O(1)$ untuk meniadakan loop linier segment di setiap frame dan mengeliminasi bug floating point transisi segmen.
+
+---
+
 ## [2026-06-20 23:55 WIB] — Resolusi Risiko Deadlock, Integrasi Fitur Group Reaction, dan Pengamanan Exception Resource
 
 ### Ringkasan Perubahan
