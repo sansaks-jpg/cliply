@@ -4,6 +4,7 @@ Fix 1: Two-pass interpolation (sample 2FPS → EMA → lerp render with easing)
 Fix 2: Cut detection (histogram correlation) + EMA reset on cuts
 Fix 3: Smart face selection (motion energy mouth + group_reaction for 3+ faces)
 """
+import logging
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -14,14 +15,16 @@ import numpy as np
 
 from ..config import STORAGE_DIR
 
+log = logging.getLogger(__name__)
+
 # ── tuning knobs ──────────────────────────────────────────────────
 SAMPLE_FPS = 4
 EMA_FACTOR = 0.15
-CONFIDENCE_THRESHOLD = 0.5
+CONFIDENCE_THRESHOLD = 0.30
 CLOSEUP_THRESHOLD = 0.30
 MEDIUM_THRESHOLD = 0.15
 LETTERBOX_BLUR = 61
-CUT_THRESHOLD = 0.94          # histogram correlation below this = cut
+CUT_THRESHOLD = 0.97          # histogram correlation below this = cut
 MOTION_WEIGHT = 0.6          # weight for motion_score in face priority
 SIZE_WEIGHT = 0.4            # weight for size_score in face priority
 GROUP_REACTION_MIN_FACES = 3 # min faces for group_reaction state
@@ -35,8 +38,7 @@ MAX_MISSED_SAMPLES = 4       # ~2s grace period for face tracking dropout
 
 # model paths
 _DIR = os.path.dirname(os.path.abspath(__file__))
-_PROTOTXT = os.path.join(_DIR, "..", "..", "models", "deploy.prototxt")
-_MODEL = os.path.join(_DIR, "..", "..", "models", "res10_300x300_ssd_iter_140000.caffemodel")
+_MODEL_YN = os.path.join(_DIR, "..", "..", "models", "face_detection_yunet_2023mar.onnx")
 
 
 def _to_gray(frame: np.ndarray) -> np.ndarray:
@@ -109,8 +111,162 @@ def _letterbox(frame: np.ndarray, crop_w: int, crop_h: int) -> np.ndarray:
     return bg
 
 
-def _detect_faces_dnn(net, frame, conf_threshold: float = 0.5) -> List[Tuple[int, int, float, float, Tuple[int, int, int, int]]]:
-    """Detect faces with Non-Maximum Suppression (NMS) to avoid overlapping boxes."""
+def _load_face_detector(face_detector: str):
+    """Factory to load selected face detector (YuNet, MediaPipe BlazeFace, YOLOv8-Face, SSD)."""
+    if face_detector == "yunet":
+        _MODEL_YN = os.path.join(_DIR, "..", "..", "models", "face_detection_yunet_2023mar.onnx")
+        if not os.path.exists(_MODEL_YN):
+            raise RuntimeError(f"YuNet model not found at {_MODEL_YN}")
+        return cv2.FaceDetectorYN.create(
+            model=_MODEL_YN,
+            config="",
+            input_size=(300, 300),
+            score_threshold=0.3,
+            nms_threshold=0.3
+        )
+    elif face_detector == "mediapipe":
+        _MODEL_MP = os.path.join(_DIR, "..", "..", "models", "blaze_face_short_range.tflite")
+        if not os.path.exists(_MODEL_MP):
+            raise RuntimeError(f"MediaPipe BlazeFace model not found at {_MODEL_MP}")
+        import mediapipe as mp
+        BaseOptions = mp.tasks.BaseOptions
+        FaceDetector = mp.tasks.vision.FaceDetector
+        FaceDetectorOptions = mp.tasks.vision.FaceDetectorOptions
+        options = FaceDetectorOptions(
+            base_options=BaseOptions(model_asset_path=_MODEL_MP),
+            running_mode=mp.tasks.vision.RunningMode.IMAGE,
+            min_detection_confidence=0.20
+        )
+        return FaceDetector.create_from_options(options)
+    elif face_detector == "yolov8-face":
+        _MODEL_YOLO = os.path.join(_DIR, "..", "..", "models", "yolov8n-face.onnx")
+        if not os.path.exists(_MODEL_YOLO):
+            raise RuntimeError(f"YOLOv8-Face model not found at {_MODEL_YOLO}")
+        return cv2.dnn.readNetFromONNX(_MODEL_YOLO)
+    elif face_detector == "ssd":
+        _PROTOTXT = os.path.join(_DIR, "..", "..", "models", "deploy.prototxt")
+        _MODEL = os.path.join(_DIR, "..", "..", "models", "res10_300x300_ssd_iter_140000.caffemodel")
+        if not os.path.exists(_PROTOTXT) or not os.path.exists(_MODEL):
+            raise RuntimeError(f"SSD model not found at {_PROTOTXT} or {_MODEL}")
+        return cv2.dnn.readNetFromCaffe(_PROTOTXT, _MODEL)
+    else:
+        raise ValueError(f"Unknown face detector: {face_detector}")
+
+
+def _detect_faces(detector, face_detector_type: str, frame: np.ndarray, conf_threshold: float = 0.3) -> List[Tuple[int, int, float, float, Tuple[int, int, int, int]]]:
+    """Unified face detection entry point supporting multiple models."""
+    if face_detector_type == "yunet":
+        return _detect_faces_yunet(detector, frame, conf_threshold)
+    elif face_detector_type == "mediapipe":
+        return _detect_faces_mediapipe(detector, frame, conf_threshold)
+    elif face_detector_type == "yolov8-face":
+        return _detect_faces_yolov8(detector, frame, conf_threshold)
+    elif face_detector_type == "ssd":
+        return _detect_faces_ssd(detector, frame, conf_threshold)
+    else:
+        raise ValueError(f"Unknown face detector type: {face_detector_type}")
+
+
+def _detect_faces_yunet(detector, frame: np.ndarray, conf_threshold: float = 0.3) -> List[Tuple[int, int, float, float, Tuple[int, int, int, int]]]:
+    """Detect faces using YuNet (extremely fast, lightweight, and accurate for side profile)."""
+    h, w = frame.shape[:2]
+    detector.setInputSize((w, h))
+    detector.setScoreThreshold(conf_threshold)
+    retval, detections = detector.detect(frame)
+    
+    faces = []
+    if detections is not None:
+        for face in detections:
+            x1, y1, box_w, box_h = map(int, face[0:4])
+            conf = float(face[14])
+            x1, y1 = max(0, x1), max(0, y1)
+            x2 = min(w, x1 + box_w)
+            y2 = min(h, y1 + box_h)
+            box_w = x2 - x1
+            box_h = y2 - y1
+            cx = x1 + box_w // 2
+            cy = y1 + box_h // 2
+            face_h_ratio = box_h / h
+            faces.append((cx, cy, conf, face_h_ratio, (x1, y1, x2, y2)))
+    return faces
+
+
+def _detect_faces_mediapipe(detector, frame: np.ndarray, conf_threshold: float = 0.3) -> List[Tuple[int, int, float, float, Tuple[int, int, int, int]]]:
+    """Detect faces using MediaPipe BlazeFace (short range)."""
+    h, w = frame.shape[:2]
+    import mediapipe as mp
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+    detection_result = detector.detect(mp_image)
+    
+    faces = []
+    if detection_result.detections:
+        for detection in detection_result.detections:
+            score = detection.categories[0].score
+            if score < conf_threshold:
+                continue
+            bbox = detection.bounding_box
+            x1 = bbox.origin_x
+            y1 = bbox.origin_y
+            box_w = bbox.width
+            box_h = bbox.height
+            x1, y1 = max(0, x1), max(0, y1)
+            x2 = min(w, x1 + box_w)
+            y2 = min(h, y1 + box_h)
+            box_w = x2 - x1
+            box_h = y2 - y1
+            cx = x1 + box_w // 2
+            cy = y1 + box_h // 2
+            face_h_ratio = box_h / h
+            faces.append((cx, cy, score, face_h_ratio, (x1, y1, x2, y2)))
+    return faces
+
+
+def _detect_faces_yolov8(net, frame: np.ndarray, conf_threshold: float = 0.3) -> List[Tuple[int, int, float, float, Tuple[int, int, int, int]]]:
+    """Detect faces using YOLOv8-face ONNX model (fast and accurate)."""
+    h, w = frame.shape[:2]
+    blob = cv2.dnn.blobFromImage(frame, 1/255.0, (640, 640), swapRB=True, crop=False)
+    net.setInput(blob)
+    out = net.forward()
+    predictions = out[0].T
+    
+    boxes = []
+    confidences = []
+    for pred in predictions:
+        conf = float(pred[4])
+        if conf < conf_threshold:
+            continue
+        cx_net, cy_net, w_net, h_net = pred[0:4]
+        x1_net = cx_net - w_net / 2.0
+        y1_net = cy_net - h_net / 2.0
+        x1 = int(x1_net * (w / 640.0))
+        y1 = int(y1_net * (h / 640.0))
+        box_w = int(w_net * (w / 640.0))
+        box_h = int(h_net * (h / 640.0))
+        boxes.append([x1, y1, box_w, box_h])
+        confidences.append(conf)
+        
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, conf_threshold, nms_threshold=0.45)
+    
+    faces = []
+    if len(indices) > 0:
+        indices = indices.flatten()
+        for idx in indices:
+            x1, y1, box_w, box_h = boxes[idx]
+            x1, y1 = max(0, x1), max(0, y1)
+            x2 = min(w, x1 + box_w)
+            y2 = min(h, y1 + box_h)
+            box_w = x2 - x1
+            box_h = y2 - y1
+            cx = x1 + box_w // 2
+            cy = y1 + box_h // 2
+            face_h_ratio = box_h / h
+            faces.append((cx, cy, confidences[idx], face_h_ratio, (x1, y1, x2, y2)))
+    return faces
+
+
+def _detect_faces_ssd(net, frame: np.ndarray, conf_threshold: float = 0.5) -> List[Tuple[int, int, float, float, Tuple[int, int, int, int]]]:
+    """Detect faces using SSD ResNet-10 (Caffe)."""
     h, w = frame.shape[:2]
     blob = cv2.dnn.blobFromImage(frame, 1.0, (300, 300), (104, 177, 123))
     net.setInput(blob)
@@ -131,7 +287,6 @@ def _detect_faces_dnn(net, frame, conf_threshold: float = 0.5) -> List[Tuple[int
         boxes.append([x1, y1, box_w, box_h])
         confidences.append(float(conf))
         
-    # Jalankan NMS (threshold tumpang tindih = 0.3)
     indices = cv2.dnn.NMSBoxes(boxes, confidences, conf_threshold, nms_threshold=0.3)
     
     faces = []
@@ -146,7 +301,6 @@ def _detect_faces_dnn(net, frame, conf_threshold: float = 0.5) -> List[Tuple[int
             conf = confidences[idx]
             face_h_ratio = box_h / h
             faces.append((cx, cy, conf, face_h_ratio, (x1, y1, x2, y2)))
-            
     return faces
 
 
@@ -215,13 +369,14 @@ def _lerp(a: float, b: float, t: float) -> float:
 
 def _analyze_video(
     in_path: str,
-    net,
+    detector,
     crop_w: int,
     crop_h: int,
     src_w: int,
     src_h: int,
     camera_segments: List[Dict[str, Any]],
-    clip_start_offset: float = 0.0
+    clip_start_offset: float = 0.0,
+    face_detector: str = "yunet"
 ) -> List[SampleFrame]:
     """Pass 1: Analyze video using ground-truth camera segments to guide crop decisions.
     Applies strict behavior per segment type (master vs individual closeups) to eliminate noise.
@@ -233,8 +388,12 @@ def _analyze_video(
     frame_idx = 0
     
     # State tracking
-    tracked_faces = {}  # tid -> (cx, cy, face_h)
+    tracked_faces = {}  # tid -> {"cx": cx, "cy": cy, "face_h": face_h, "missed_frames": 0, "bbox": bbox}
     next_face_id = 0
+    
+    active_speaker_id = None
+    speaker_hold_counter = 0
+    shot_hold_counter = 0
     
     last_shot_type = "closeup"
     last_valid_cx = src_w // 2
@@ -242,6 +401,8 @@ def _analyze_video(
     last_valid_ratio = 0.22  # default medium-ish ratio
     
     last_sample_frame_idx = -999
+    is_first_frame_of_cut = True
+    frame_prev = None
     
     while True:
         ret, frame = _read_bgr_frame(cap)
@@ -290,6 +451,11 @@ def _analyze_video(
             if is_cut:
                 # Reset pelacakan wajah pada transisi kamera baru
                 tracked_faces.clear()
+                is_first_frame_of_cut = True
+                active_speaker_id = None
+                speaker_hold_counter = 0
+                shot_hold_counter = MIN_SHOT_HOLD_SAMPLES
+                
                 # Default fallback spasial awal yang disesuaikan berdasarkan segmentasi
                 if active_seg is not None and "avg_cx" in active_seg:
                     last_valid_cx = int(active_seg["avg_cx"])
@@ -304,6 +470,8 @@ def _analyze_video(
                 last_valid_ratio = 0.22
                 last_shot_type = "closeup" if not is_master_segment else "wide_cut"
                 
+            is_group = False
+            
             if is_master_segment:
                 # ── BEHAVIOR SEGMEN MASTER ────────────────────────────────
                 # Paksa shot_type = "wide_cut" (letterbox blur penuh), letakkan di tengah.
@@ -315,11 +483,11 @@ def _analyze_video(
                 num_faces_detected = 2  # dummy count for master
             else:
                 # ── BEHAVIOR SEGMEN INDIVIDU ──────────────────────────────
-                # Camera Lock: Ambil avg_cx dari segmen aktif untuk mengunci posisi horizontal secara mutlak
+                # Camera Lock Anchor
                 locked_cx = int(active_seg.get("avg_cx", src_w // 2)) if active_seg else src_w // 2
                 
                 # Deteksi wajah diaktifkan untuk menyesuaikan target_cy dan zoom
-                faces = _detect_faces_dnn(net, frame, CONFIDENCE_THRESHOLD)
+                faces = _detect_faces(detector, face_detector, frame, CONFIDENCE_THRESHOLD)
                 
                 # Filter spasial: abaikan wajah dari sisi yang salah untuk mencegah cross-talk
                 filtered_faces = []
@@ -337,70 +505,135 @@ def _analyze_video(
                 num_faces_detected = len(filtered_faces)
                 
                 if num_faces_detected > 0:
-                    # Cocokkan wajah dengan tracked_faces (ambil terdekat untuk speaker utama)
                     current_faces = []
+                    
+                    # Pelacakan dengan threshold jarak dinamis sesuai resolusi (10% lebar frame)
+                    tracking_threshold = src_w * 0.10
+                    
                     for cx, cy, conf, face_h, bbox in filtered_faces:
                         matched_id = None
-                        min_dist = 120.0
+                        min_dist = tracking_threshold
                         
-                        for tid, (tcx, tcy, _) in list(tracked_faces.items()):
-                            dist = np.hypot(cx - tcx, cy - tcy)
+                        for tid, tinfo in list(tracked_faces.items()):
+                            dist = np.hypot(cx - tinfo["cx"], cy - tinfo["cy"])
                             if dist < min_dist:
                                 min_dist = dist
                                 matched_id = tid
                         
                         if matched_id is not None:
-                            tracked_faces[matched_id] = (cx, cy, face_h)
+                            tracked_faces[matched_id].update({
+                                "cx": cx,
+                                "cy": cy,
+                                "face_h": face_h,
+                                "missed_frames": 0,
+                                "bbox": bbox
+                            })
                         else:
                             matched_id = next_face_id
-                            tracked_faces[matched_id] = (cx, cy, face_h)
+                            tracked_faces[matched_id] = {
+                                "cx": cx,
+                                "cy": cy,
+                                "face_h": face_h,
+                                "missed_frames": 0,
+                                "bbox": bbox
+                            }
                             next_face_id += 1
                             
+                        # Hitung mouth motion untuk wajah ini
+                        motion_val = _compute_mouth_motion(frame, frame_prev, bbox) if frame_prev is not None else 0.0
+                        size_score = min(1.0, face_h / 0.5)
+                        total_score = MOTION_WEIGHT * motion_val + SIZE_WEIGHT * size_score
+                        
                         current_faces.append({
                             "id": matched_id,
                             "cx": cx,
                             "cy": cy,
                             "face_h": face_h,
-                            "bbox": bbox
+                            "bbox": bbox,
+                            "motion": motion_val,
+                            "score": total_score
                         })
                     
-                    # Bersihkan tracker lama
+                    # Kelola masa tenggang missed tracker
                     detected_ids = {f["id"] for f in current_faces}
                     for tid in list(tracked_faces.keys()):
                         if tid not in detected_ids:
-                            del tracked_faces[tid]
+                            tracked_faces[tid]["missed_frames"] += 1
+                            if tracked_faces[tid]["missed_frames"] > MAX_MISSED_SAMPLES:
+                                del tracked_faces[tid]
+                                
+                    # Tentukan is_group_reaction
+                    if num_faces_detected >= GROUP_REACTION_MIN_FACES:
+                        avg_motion = sum(f["motion"] for f in current_faces) / num_faces_detected
+                        if avg_motion >= GROUP_REACTION_MOTION_THRESH:
+                            is_group = True
                             
-                    # Tentukan wajah utama (jika ada wajah tambahan lewat, abaikan)
-                    main_face = max(current_faces, key=lambda f: f["face_h"])
+                    # Tentukan wajah utama dengan mempertimbangkan hysteresis dan mouth motion
+                    best_face = max(current_faces, key=lambda f: f["score"])
+                    curr_active_face = next((f for f in current_faces if f["id"] == active_speaker_id), None)
                     
-                    # Deadzone Tracking horizontal:
-                    # Target_cx default mengikuti posisi wajah live
+                    if active_speaker_id is None or curr_active_face is None:
+                        active_speaker_id = best_face["id"]
+                        speaker_hold_counter = 1
+                        main_face = best_face
+                    else:
+                        if best_face["id"] == active_speaker_id:
+                            speaker_hold_counter += 1
+                            main_face = best_face
+                        else:
+                            score_diff = best_face["score"] - curr_active_face["score"]
+                            if speaker_hold_counter >= MIN_HOLD_SAMPLES and score_diff >= SWITCH_MARGIN:
+                                active_speaker_id = best_face["id"]
+                                speaker_hold_counter = 1
+                                main_face = best_face
+                            else:
+                                speaker_hold_counter += 1
+                                main_face = curr_active_face
+                    
+                    # Deadzone Tracking horizontal & Snap instan
                     live_cx = main_face["cx"]
                     
-                    # Margin deadzone: 15% dari lebar crop vertical
-                    deadzone_margin = int(crop_w * 0.15)
-                    diff_x = abs(live_cx - last_valid_cx)
-                    
-                    if diff_x < deadzone_margin:
-                        # Tahan posisi horizontal di posisi sebelumnya agar tidak jitter
-                        target_cx = last_valid_cx
-                    else:
-                        # Pindahkan secara mulus mengikuti wajah jika di luar margin
+                    if is_first_frame_of_cut:
                         target_cx = live_cx
+                        is_first_frame_of_cut = False
+                    else:
+                        deadzone_margin = int(crop_w * 0.10)
+                        diff_x = live_cx - last_valid_cx
+                        
+                        if abs(diff_x) < deadzone_margin:
+                            target_cx = last_valid_cx
+                        else:
+                            target_cx = live_cx
+                            
+                        # Mean reversion: tarik kembali perlahan ke locked_cx (anchor) untuk mencegah drift horizontal
+                        target_cx = int(0.75 * target_cx + 0.25 * locked_cx)
                         
                     target_cy = main_face["cy"]
                     face_ratio = main_face["face_h"]
-                    shot_type_to_use = _classify_shot(face_ratio)
-                    if shot_type_to_use == "wide_cut":
-                        shot_type_to_use = "closeup" # Paksa crop di segmen individu
+                    
+                    # Klasifikasi tipe shot dengan hysteresis
+                    shot_type_raw = _classify_shot(face_ratio)
+                    if shot_type_raw == "wide_cut":
+                        shot_type_raw = "closeup"  # Paksa crop di segmen individu
                         
+                    if shot_type_raw == last_shot_type:
+                        shot_hold_counter += 1
+                        shot_type_to_use = last_shot_type
+                    else:
+                        if shot_hold_counter >= MIN_SHOT_HOLD_SAMPLES:
+                            last_shot_type = shot_type_raw
+                            shot_hold_counter = 1
+                            shot_type_to_use = shot_type_raw
+                        else:
+                            shot_hold_counter += 1
+                            shot_type_to_use = last_shot_type
+                            
                     last_valid_cx = target_cx
                     last_valid_cy = target_cy
                     last_valid_ratio = face_ratio
                     last_shot_type = shot_type_to_use
                 else:
                     # Wajah hilang sementara (oklusi/nengok) -> TAHAN POSISI TERAKHIR secara mutlak.
-                    # Jangan pernah melakukan fallback ke wide_cut / center!
                     target_cx = last_valid_cx
                     target_cy = last_valid_cy
                     face_ratio = last_valid_ratio
@@ -415,9 +648,10 @@ def _analyze_video(
                 shot_type=shot_type_to_use,
                 is_cut=is_cut,
                 num_faces=num_faces_detected,
-                is_group_reaction=False,
+                is_group_reaction=is_group,
             ))
             
+        frame_prev = frame.copy() if frame is not None else None
         frame_idx += 1
         
     cap.release()
@@ -447,7 +681,7 @@ def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: i
         scenes.append(current_scene)
         
     # 2. Terapkan moving average di dalam masing-masing scene secara terpisah
-    window_size = 5  # Jendela smoothing: 2 sebelum, 1 saat ini, 2 sesudah
+    window_size = 3  # FIX: Turunin ke 3 biar gak telat ngerender pergerakan
     half_w = window_size // 2
     
     for scene in scenes:
@@ -476,7 +710,7 @@ def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: i
     return smoothed
 
 
-def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
+def _generate_camera_segments(source_path: str, detector, face_detector: str) -> List[Dict[str, Any]]:
     """Analyze the full source video to detect scene cuts and classify camera shots (master vs individual).
     Returns a list of ground-truth camera segments.
     """
@@ -506,16 +740,19 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
         hist = _compute_histogram(frame)
         is_cut = False
         if prev_hist is not None:
-            is_cut = _is_cut(prev_hist, hist, threshold=0.94)
+            is_cut = _is_cut(prev_hist, hist, threshold=CUT_THRESHOLD)
             
         if frame_idx % interval == 0 or is_cut:
-            faces = _detect_faces_dnn(net, frame, CONFIDENCE_THRESHOLD)
+            # FIX 1: Turunkan threshold jadi 0.25 khusus buat ngecek scene
+            # biar muka yg jauh/nengok di kamera master gak gampang hilang
+            faces = _detect_faces(detector, face_detector, frame, conf_threshold=0.25)
             raw_frames.append({
                 "time": t,
                 "frame_idx": frame_idx,
                 "is_cut": is_cut,
                 "num_faces": len(faces),
-                "faces_cx": [face[0] for face in faces] if faces else []
+                "faces_cx": [face[0] for face in faces] if faces else [],
+                "face_ratios": [face[3] for face in faces] if faces else [] # Ambil data ukuran muka
             })
             
         prev_hist = hist
@@ -547,32 +784,44 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
         if total_f == 0:
             seg_type = "master"
         else:
-            count_0 = sum(1 for f in seg_frames if f["num_faces"] == 0)
-            count_1 = sum(1 for f in seg_frames if f["num_faces"] == 1)
             count_2_plus = sum(1 for f in seg_frames if f["num_faces"] >= 2)
             
-            # Majority vote
-            if count_1 >= count_2_plus and count_1 >= count_0:
-                seg_type = "individual"
-            elif count_2_plus >= count_1 and count_2_plus >= count_0:
-                seg_type = "master"
-            else:
-                # Wajah 0 dominan (oklusi/nengok) -> tahan dari segmen sebelumnya jika ada
-                if len(camera_segments) > 0:
-                    seg_type = camera_segments[-1]["type"]
-                else:
-                    seg_type = "master"
+            # Wajah kecil: untuk model lain pakai 0.15, untuk mediapipe pakai 0.22
+            # karena mediapipe tidak bisa deteksi profil wajah di master shot
+            small_ratio_thresh = 0.22 if face_detector == "mediapipe" else 0.15
+            count_small_faces = sum(1 for f in seg_frames if f["face_ratios"] and max(f["face_ratios"]) < small_ratio_thresh)
+            
+            # Cek apakah segmen ini menunjukkan tanda-tanda ada 2+ orang secara konsisten (untuk membedakan dari noise deteksi wajah)
+            has_multiple_people = (count_2_plus >= 2) and (count_2_plus / total_f >= 0.08)
+            
+            # Kriteria deteksi master:
+            # 1. Cukup 35% frame kedetek 2 orang (bukti langsung master shot, dinaikkan dari 18% agar lebih kebal noise).
+            # 2. ATAU (jika terbukti ada 2+ orang secara konsisten di segmen ini) 70% frame berwajah kecil (kamera jauh/master).
+            # Ini mencegah single-person wide/medium shot (yang wajahnya kecil tapi hanya ada 1 orang) dikira sebagai master.
+            is_master = (count_2_plus / total_f >= 0.35) or (has_multiple_people and (count_small_faces / total_f >= 0.70))
+            
+            # Fallback khusus MediaPipe: jika >70% frame tidak ada deteksi wajah sama sekali,
+            # kemungkinan besar ini adalah master di mana mediapipe buta profil.
+            if face_detector == "mediapipe" and not is_master:
+                count_no_faces = sum(1 for f in seg_frames if f["num_faces"] == 0)
+                if count_no_faces / total_f >= 0.70:
+                    is_master = True
                     
+            seg_type = "master" if is_master else "individual"
+
+                
         # Klasifikasi spasial (left/right) jika segmen individual
         if seg_type == "individual":
             all_cx = []
             for f in seg_frames:
-                all_cx.extend(f.get("faces_cx", []))
+                if f.get("faces_cx"):
+                    all_cx.append(sum(f["faces_cx"]) / len(f["faces_cx"]))
+            
             if all_cx:
                 avg_cx = sum(all_cx) / len(all_cx)
-                if avg_cx < src_w * 0.45:
+                if avg_cx < src_w * 0.47:  # Diperketat agar closeup condong kiri terdeteksi left
                     seg_type = "left"
-                elif avg_cx > src_w * 0.55:
+                elif avg_cx > src_w * 0.53:  # Diperketat agar closeup condong kanan terdeteksi right
                     seg_type = "right"
                 else:
                     seg_type = "individual"
@@ -588,31 +837,21 @@ def _generate_camera_segments(source_path: str, net) -> List[Dict[str, Any]]:
             "type": seg_type
         })
         
-    # Pass 1: Gabungkan segmen bertipe sama yang bersebelahan
-    refined_segments = []
-    for s in camera_segments:
-        if not refined_segments:
-            refined_segments.append(s)
-            continue
-        last_s = refined_segments[-1]
-        if s["type"] == last_s["type"]:
-            last_s["end"] = s["end"]
-        else:
-            refined_segments.append(s)
+    # FIX: Hapus penggabungan segmen bertipe sama agar batas cut asli tidak hancur.
+    refined_segments = camera_segments.copy()
             
-    # Pass 2: Gabungkan anomali di tengah (segmen pendek < min_dur di antara segmen bertipe sama)
-    min_dur = 1.5
+    # Pass 2: Hanya gabungkan anomali di tengah jika durasi sangat ekstrem (< 0.5s)
     i = 1
     while i < len(refined_segments) - 1:
         s = refined_segments[i]
         dur = s["end"] - s["start"]
-        if dur < min_dur:
+        if dur < 0.5:
             prev_s = refined_segments[i-1]
             next_s = refined_segments[i+1]
             if prev_s["type"] == next_s["type"]:
                 prev_s["end"] = next_s["end"]
                 refined_segments.pop(i)  # hapus s
-                refined_segments.pop(i)  # hapus next_s (yang sekarang bergeser ke indeks i)
+                refined_segments.pop(i)  # hapus next_s
                 continue
         i += 1
         
@@ -667,6 +906,9 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
     n_samples = len(samples)
     frame_idx = 0
     
+    # Amortized O(1) bracket pointer
+    sample_pointer = 0
+    
     while True:
         ret, frame = _read_bgr_frame(cap)
         if not ret or frame is None:
@@ -674,15 +916,16 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
         
         t = frame_idx / fps
         
-        # Find bracketing samples
-        prev_idx = 0
-        next_idx = n_samples - 1
-        for i in range(n_samples - 1):
-            if samples[i].time <= t < samples[i + 1].time:
-                prev_idx = i
-                next_idx = i + 1
-                break
-        
+        # Cari bracketing sample secara maju amortized (O(1))
+        while sample_pointer < n_samples - 1 and samples[sample_pointer + 1].time <= t:
+            sample_pointer += 1
+            
+        if t >= samples[-1].time:
+            prev_idx = next_idx = n_samples - 1
+        else:
+            prev_idx = sample_pointer
+            next_idx = min(sample_pointer + 1, n_samples - 1)
+            
         prev_s = samples[prev_idx]
         next_s = samples[next_idx]
         prev_smooth = smoothed[prev_idx]
@@ -701,10 +944,11 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
                 # Snap instantly to new scene at the exact moment of the cut
                 cx, cy, shot_type = next_smooth[0], next_smooth[1], next_smooth[2]
         else:
-            # NORMAL: lerp with easing
+            # NORMAL: lerp linear untuk mengejar target tanpa jeda perlambatan
             dt = next_s.time - prev_s.time
             alpha = (t - prev_s.time) / dt if dt > 0 else 0.0
-            alpha = _ease_in_out(alpha)  # ease-in-out
+            
+            # FIX: Hapus _ease_in_out(alpha) agar kamera langsung responsif
             cx = int(_lerp(prev_smooth[0], next_smooth[0], alpha))
             cy = int(_lerp(prev_smooth[1], next_smooth[1], alpha))
             shot_type = prev_smooth[2]  # use prev shot type
@@ -844,6 +1088,7 @@ def _reframe_vertical(
     is_master: bool = False,
     subtitle_path: Optional[str] = None,
     fonts_dir: Optional[str] = None,
+    face_detector: str = "yunet",
 ) -> str:
     """Two-pass smart crop using ground-truth camera segments and non-causal smoothing."""
     if is_master:
@@ -851,10 +1096,8 @@ def _reframe_vertical(
     else:
         target_ratio = _ratio(aspect_ratio)
         
-        # Load DNN model
-        if not os.path.exists(_PROTOTXT) or not os.path.exists(_MODEL):
-            raise RuntimeError(f"DNN model not found at {_PROTOTXT} or {_MODEL}")
-        net = cv2.dnn.readNetFromCaffe(_PROTOTXT, _MODEL)
+        # Load Face Detector model based on chosen type
+        detector = _load_face_detector(face_detector)
         
         cap = cv2.VideoCapture(in_path)
         if not cap.isOpened():
@@ -875,10 +1118,10 @@ def _reframe_vertical(
         crop_h = max(2, crop_h - (crop_h % 2))
         
         # Deteksi segmen kamera langsung pada potongan subclip (in_path) untuk kecepatan optimal
-        camera_segments = _generate_camera_segments(in_path, net)
+        camera_segments = _generate_camera_segments(in_path, detector, face_detector)
         
         # Pass 1: Analysis guided by camera segments
-        samples = _analyze_video(in_path, net, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset=0.0)
+        samples = _analyze_video(in_path, detector, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset=0.0, face_detector=face_detector)
         
         # Apply non-causal smoothing (moving average inside scene boundaries) to eliminate lag
         smoothed = _apply_smoothing_non_causal(samples, src_w, src_h)
@@ -899,21 +1142,23 @@ def _update_render_progress(task_id: str, current: int, total: int, msg: str):
         from ..state import store
         pct = 60.0 + (float(current) / float(total)) * 30.0
         
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
+        loop = getattr(store, "loop", None)
+        
         if loop and loop.is_running():
-            import concurrent.futures
-            future = asyncio.run_coroutine_threadsafe(
+            asyncio.run_coroutine_threadsafe(
                 store.set_progress(task_id, pct, "RENDER", msg), loop
             )
-            future.result(timeout=2.0)
         else:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(store.set_progress(task_id, pct, "RENDER", msg))
-            loop.close()
+            print(f"[render progress] Task {task_id}: {pct:.1f}% - {msg}", flush=True)
+            try:
+                if not getattr(store, "_use_redis", False) and task_id in store._mem_tasks:
+                    r = store._mem_tasks[task_id]
+                    r.progress = float(pct)
+                    r.stage = "RENDER"
+                    r.message = msg
+                    r.status = "processing"
+            except Exception:
+                pass
     except Exception as e:
         log.error("Failed to update render progress: %s", e)
 
@@ -926,6 +1171,7 @@ def render_clips(
     subtitle_path: Optional[str] = None,
     fonts_dir: Optional[str] = None,
     subtitle_style: Optional[str] = None,
+    face_detector: str = "yunet",
 ) -> List[Dict]:
     clips_dir = str(STORAGE_DIR / task_id / "clips")
     os.makedirs(clips_dir, exist_ok=True)
@@ -1026,6 +1272,7 @@ def render_clips(
                 cut_path, out_path, aspect_ratio,
                 subtitle_path=resolved_subtitle_path,
                 fonts_dir=fonts_dir,
+                face_detector=face_detector,
             )
             results.append({**h, "clip_url": f"/clips/{task_id}/short_{i:02d}.mp4"})
         except Exception as e:

@@ -10,9 +10,10 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Dict, List, Optional
+from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
-from .config import REDIS_URL
+from .config import REDIS_URL, STORAGE_DIR
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class TaskRecord:
     aspect_ratio: str
     language: Optional[str]
     subtitle_style: Optional[str] = None
+    face_detector: Optional[str] = "yunet"
     status: str = "queued"
     progress: float = 0.0
     stage: str = ""
@@ -46,6 +48,7 @@ class TaskRecord:
             "aspect_ratio": self.aspect_ratio,
             "language": self.language or "",
             "subtitle_style": self.subtitle_style or "",
+            "face_detector": self.face_detector or "yunet",
             "status": self.status,
             "progress": self.progress,
             "stage": self.stage,
@@ -70,8 +73,15 @@ class TaskStore:
         self._mem_tasks: Dict[str, TaskRecord] = {}
         self._mem_subs: Dict[str, List[asyncio.Queue]] = {}
         self._mem_lock = asyncio.Lock()
+        self.loop = None
 
     async def _ensure_backend(self):
+        if not self.loop:
+            try:
+                self.loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
+
         if self._redis is None:
             try:
                 from redis.asyncio import Redis
@@ -85,9 +95,9 @@ class TaskStore:
                 self._use_redis = False
         return self._use_redis
 
-    async def create(self, url: str, num_clips: int, aspect_ratio: str, language: Optional[str], subtitle_style: Optional[str] = None) -> str:
+    async def create(self, url: str, num_clips: int, aspect_ratio: str, language: Optional[str], subtitle_style: Optional[str] = None, face_detector: Optional[str] = "yunet") -> str:
         task_id = uuid.uuid4().hex[:12]
-        record = TaskRecord(task_id=task_id, url=url, num_clips=num_clips, aspect_ratio=aspect_ratio, language=language, subtitle_style=subtitle_style)
+        record = TaskRecord(task_id=task_id, url=url, num_clips=num_clips, aspect_ratio=aspect_ratio, language=language, subtitle_style=subtitle_style, face_detector=face_detector)
         if await self._ensure_backend():
             await self._redis.hmset(_TASK.format(task_id), record.to_redis_hash())
         else:
@@ -114,11 +124,13 @@ class TaskStore:
                 data[k] = float(data[k])
         if "num_clips" in data:
             data["num_clips"] = int(data["num_clips"])
-        for k in ("language", "error", "subtitle_style"):
+        for k in ("language", "error", "subtitle_style", "face_detector"):
             if k in data and not data.get(k):
                 data[k] = None
         if "subtitle_style" not in data:
             data["subtitle_style"] = None
+        if "face_detector" not in data:
+            data["face_detector"] = "yunet"
         if "clips" not in data:
             data["clips"] = []
         return TaskRecord(**data)
@@ -127,16 +139,35 @@ class TaskStore:
         if await self._ensure_backend():
             keys = await self._redis.keys(_TASK.format("*"))
             records = []
+            orphaned_ids = []
             for key in keys:
                 data = await self._redis.hgetall(key)
                 if data:
                     tid = data.get("task_id", "")
+                    # Auto-clean tasks whose storage directory was manually deleted
+                    task_dir = STORAGE_DIR / tid
+                    if not task_dir.exists() and data.get("status") not in ("queued", "processing"):
+                        orphaned_ids.append(tid)
+                        continue
                     clips = await self._redis.lrange(_CLIPS.format(tid), 0, -1)
                     if clips:
                         data["clips"] = [json.loads(c) for c in clips]
                     records.append(self._record_from_dict(data))
+            # Clean orphaned records from Redis
+            for tid in orphaned_ids:
+                await self._redis.delete(_TASK.format(tid), _CLIPS.format(tid))
+                log.info("Auto-cleaned orphaned task %s (storage deleted)", tid)
             return sorted(records, key=lambda r: r.created_at, reverse=True)
         async with self._mem_lock:
+            orphaned_ids = []
+            for tid, r in self._mem_tasks.items():
+                task_dir = STORAGE_DIR / tid
+                if not task_dir.exists() and r.status not in ("queued", "processing"):
+                    orphaned_ids.append(tid)
+            for tid in orphaned_ids:
+                self._mem_tasks.pop(tid, None)
+                self._mem_subs.pop(tid, None)
+                log.info("Auto-cleaned orphaned task %s (storage deleted)", tid)
             return sorted(self._mem_tasks.values(), key=lambda r: r.created_at, reverse=True)
 
     async def update(self, task_id: str, **fields) -> Optional[TaskRecord]:
@@ -182,6 +213,104 @@ class TaskStore:
                     q.put_nowait((event, data))
                 except asyncio.QueueFull:
                     pass
+
+    async def recover_from_storage(self) -> int:
+        """Scan STORAGE_DIR dan load semua task yang belum ada di state.
+
+        Dipanggil saat lifespan boot supaya task tidak hilang ketika server
+        restart. Task yang punya highlights.json dianggap 'completed'; task
+        yang hanya punya transcript.json dianggap 'error' (pipeline gagal
+        atau belum selesai saat server mati).
+
+        Returns:
+            Jumlah task yang berhasil di-recover.
+        """
+        recovered = 0
+        storage = Path(STORAGE_DIR)
+        if not storage.exists():
+            return 0
+
+        for task_dir in storage.iterdir():
+            if not task_dir.is_dir():
+                continue
+            task_id = task_dir.name
+            # Skip kalau task sudah ada di state
+            existing = await self.get(task_id)
+            if existing is not None:
+                continue
+
+            # Baca metadata dari highlights.json jika ada
+            highlights_path = task_dir / "highlights.json"
+            transcript_path = task_dir / "transcript.json"
+
+            if highlights_path.exists():
+                try:
+                    with open(highlights_path, encoding="utf-8") as f:
+                        manifest = json.load(f)
+                    url = manifest.get("url", "")
+                    clips = manifest.get("clips", [])
+                    # Re-create TaskRecord sebagai completed
+                    record = TaskRecord(
+                        task_id=task_id,
+                        url=url,
+                        num_clips=len(clips) or 5,
+                        aspect_ratio="9:16",
+                        language=None,
+                        subtitle_style="viral-bold",
+                        status="completed",
+                        progress=100.0,
+                        stage="done",
+                        message="Recovered from storage",
+                        clips=clips,
+                        created_at=highlights_path.stat().st_mtime,
+                        updated_at=highlights_path.stat().st_mtime,
+                    )
+                    if await self._ensure_backend():
+                        await self._redis.hmset(_TASK.format(task_id), record.to_redis_hash())
+                        for clip in clips:
+                            await self._redis.rpush(_CLIPS.format(task_id), json.dumps(clip))
+                    else:
+                        async with self._mem_lock:
+                            self._mem_tasks[task_id] = record
+                            self._mem_subs[task_id] = []
+                    recovered += 1
+                    log.info("Recovered completed task %s from storage", task_id)
+                    continue
+                except Exception as e:
+                    log.warning("Failed to recover task %s from highlights.json: %s", task_id, e)
+
+            if transcript_path.exists():
+                # Pipeline gagal atau mati di tengah jalan — tandai sebagai error
+                # supaya user bisa lihat task-nya di frontend
+                try:
+                    stat = transcript_path.stat()
+                    record = TaskRecord(
+                        task_id=task_id,
+                        url="",
+                        num_clips=5,
+                        aspect_ratio="9:16",
+                        language=None,
+                        subtitle_style="viral-bold",
+                        status="error",
+                        progress=0.0,
+                        stage="error",
+                        message="Server restarted — pipeline belum selesai.",
+                        error="Server restarted sebelum pipeline selesai. Submit ulang URL untuk memproses ulang.",
+                        created_at=stat.st_mtime,
+                        updated_at=stat.st_mtime,
+                    )
+                    if await self._ensure_backend():
+                        await self._redis.hmset(_TASK.format(task_id), record.to_redis_hash())
+                    else:
+                        async with self._mem_lock:
+                            self._mem_tasks[task_id] = record
+                            self._mem_subs[task_id] = []
+                    recovered += 1
+                    log.info("Recovered orphaned task %s from storage (marked as error)", task_id)
+                except Exception as e:
+                    log.warning("Failed to recover task %s from transcript.json: %s", task_id, e)
+
+        return recovered
 
     async def subscribe(self, task_id: str) -> AsyncIterator[Tuple[str, Any]]:
         if await self._ensure_backend():

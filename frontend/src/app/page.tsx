@@ -31,6 +31,7 @@ export default function Home() {
   const [aspectRatio, setAspectRatio] = useState("9:16");
   const [language, setLanguage] = useState("auto");
   const [subtitleStyle, setSubtitleStyle] = useState("viral-bold");
+  const [faceDetector, setFaceDetector] = useState("yunet");
 
   // Recent tasks state
   const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
@@ -60,6 +61,7 @@ export default function Home() {
         aspect_ratio: aspectRatio,
         language: language === "auto" ? undefined : language,
         subtitle_style: subtitleStyle,
+        face_detector: faceDetector,
       };
 
       const { task_id } = await createTask(url.trim(), opts);
@@ -177,7 +179,7 @@ export default function Home() {
 
               {showAdvanced && (
                 <div className="space-y-4 mt-4 p-4 rounded-xl bg-stone-50 dark:bg-stone-950/50 border border-stone-100 dark:border-stone-850 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="num-clips" className="text-xs text-stone-500 dark:text-stone-400">Jumlah Klip</Label>
                       <Select value={numClips} onValueChange={setNumClips}>
@@ -218,6 +220,21 @@ export default function Home() {
                           <SelectItem value="id">Bahasa Indonesia (id)</SelectItem>
                           <SelectItem value="en">English (en)</SelectItem>
                           <SelectItem value="es">Español (es)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="face-detector" className="text-xs text-stone-500 dark:text-stone-400">Detektor Wajah</Label>
+                      <Select value={faceDetector} onValueChange={setFaceDetector}>
+                        <SelectTrigger id="face-detector" className="bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-850">
+                          <SelectValue placeholder="Pilih Detektor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="yunet">YuNet ONNX</SelectItem>
+                          <SelectItem value="mediapipe">MediaPipe BlazeFace</SelectItem>
+                          <SelectItem value="yolov8-face">YOLOv8-Face Nano</SelectItem>
+                          <SelectItem value="ssd">Caffe SSD ResNet-10</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>

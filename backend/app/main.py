@@ -19,6 +19,15 @@ async def lifespan(app: FastAPI):
     # Ensure storage dir exists on boot.
     Path(config.STORAGE_DIR).mkdir(parents=True, exist_ok=True)
     app.state.store = store
+    # Auto-recover tasks yang ada di storage tapi hilang dari state (e.g. setelah server restart)
+    try:
+        recovered = await store.recover_from_storage()
+        if recovered:
+            import logging
+            logging.getLogger(__name__).info("Boot recovery: %d task(s) recovered from storage", recovered)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning("Boot recovery failed: %s", exc)
     yield
 
 

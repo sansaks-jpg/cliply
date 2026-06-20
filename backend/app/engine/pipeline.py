@@ -22,6 +22,7 @@ async def run_pipeline(
     aspect_ratio: str,
     language: Optional[str],
     subtitle_style: Optional[str] = None,
+    face_detector: str = "yunet",
 ) -> None:
     try:
         await store.set_progress(task_id, 0, "DOWNLOAD", "Starting download…")
@@ -63,7 +64,7 @@ async def run_pipeline(
 
         # Stage 6: Render vertical clips with subtitle burn-in
         clips = await asyncio.to_thread(
-            render_clips, source_path, top, task_id, aspect_ratio, ass_path, fonts_dir
+            render_clips, source_path, top, task_id, aspect_ratio, ass_path, fonts_dir, face_detector=face_detector
         )
 
         clip_count = sum(1 for c in clips if c.get("clip_url"))

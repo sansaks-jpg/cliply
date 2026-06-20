@@ -9,10 +9,13 @@ Key improvement: model works from a narrative map, not raw transcript.
 Segment IDs prevent timestamp hallucination.
 """
 import json
+import logging
 import re
 from typing import Dict, List, Optional
 
 from .llm import LLMFn, get_llm_fn
+
+logger = logging.getLogger(__name__)
 
 # ── Stage 1: Content Type & Density ───────────────────────────────
 
@@ -255,16 +258,19 @@ def _validate_units(units: List[Dict], transcript: Dict) -> List[Dict]:
     segments = transcript.get("segments", [])
     n_segments = len(segments)
     if n_segments == 0:
+        logger.warning("[UNITS] No segments in transcript")
         return []
     
+    logger.info(f"[UNITS] Validating {len(units)} raw units against {n_segments} segments")
     valid_types = {"story", "argument", "single_point", "q_and_a", "tips_list", "filler"}
     validated = []
     
-    for u in units:
+    for idx, u in enumerate(units):
         start_id = _coerce_int(u.get("start_segment_id"), -1)
         end_id = _coerce_int(u.get("end_segment_id"), -1)
         
         if start_id < 0 or end_id < start_id or end_id >= n_segments:
+            logger.warning(f"[UNITS] #{idx} REJECTED: bad segment IDs start={start_id} end={end_id} (n_segments={n_segments})")
             continue
         
         arc_type = str(u.get("arc_type", "single_point")).strip().lower()
@@ -282,6 +288,7 @@ def _validate_units(units: List[Dict], transcript: Dict) -> List[Dict]:
             "intensity": max(0, min(100, _coerce_int(u.get("intensity"), 50))),
         })
     
+    logger.info(f"[UNITS] Validation done: {len(validated)}/{len(units)} passed")
     return validated
 
 
@@ -308,9 +315,11 @@ def generate_highlights(
     last_error = "unknown"
     for attempt in range(1, MAX_HIGHLIGHT_ATTEMPTS + 1):
         raw = llm_fn(prompt)
+        logger.info(f"[HIGHLIGHTS] Attempt {attempt}: LLM returned {len(raw)} chars")
         try:
             parsed = _parse_json_loose(raw)
             highlights = parsed.get("highlights", [])
+            logger.info(f"[HIGHLIGHTS] Attempt {attempt}: parsed {len(highlights)} raw highlights")
             if highlights:
                 validated = _validate_highlights(highlights, transcript, num_clips)
                 if validated:
@@ -320,6 +329,7 @@ def generate_highlights(
                 last_error = "empty highlights array"
         except Exception as e:
             last_error = str(e)
+            logger.warning(f"[HIGHLIGHTS] Attempt {attempt}: parse error: {e}")
         
         if attempt < MAX_HIGHLIGHT_ATTEMPTS:
             prompt = f"{prompt}\n\nIMPORTANT: Return ONLY valid JSON with a top-level 'highlights' array. Each item must include: title, start_segment_id (int), end_segment_id (int), reasoning (2-3 sentences), score (0-100), hook_sentence (exact quote from transcript), virality_reason. No markdown fences."
@@ -332,21 +342,29 @@ def _validate_highlights(highlights: List[Dict], transcript: Dict, num_clips: in
     segments = transcript.get("segments", [])
     n_segments = len(segments)
     if n_segments == 0:
+        logger.warning("[HIGHLIGHTS] No segments in transcript, returning empty")
         return []
     
+    logger.info(f"[HIGHLIGHTS] Validating {len(highlights)} raw highlights against {n_segments} segments")
+    
     validated = []
-    for h in highlights:
+    for idx, h in enumerate(highlights):
         start_id = _coerce_int(h.get("start_segment_id"), -1)
         end_id = _coerce_int(h.get("end_segment_id"), -1)
         
         if start_id < 0 or end_id < start_id or end_id >= n_segments:
+            logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: bad segment IDs start={start_id} end={end_id} (n_segments={n_segments})")
             continue
         
         start_time = segments[start_id]["start"]
         end_time = segments[end_id]["end"]
         duration = end_time - start_time
         
-        if duration < MIN_DURATION or duration > MAX_DURATION:
+        if duration < MIN_DURATION:
+            logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: too short {duration:.1f}s < {MIN_DURATION}s (seg {start_id}-{end_id})")
+            continue
+        if duration > MAX_DURATION:
+            logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: too long {duration:.1f}s > {MAX_DURATION}s (seg {start_id}-{end_id})")
             continue
         
         # Check overlap with existing highlights
@@ -361,6 +379,7 @@ def _validate_highlights(highlights: List[Dict], transcript: Dict, num_clips: in
                 break
         
         if not overlap_ok:
+            logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: >{MAX_OVERLAP_RATIO*100:.0f}% overlap with existing highlight")
             continue
         
         # Extract hook sentence from transcript
@@ -368,6 +387,7 @@ def _validate_highlights(highlights: List[Dict], transcript: Dict, num_clips: in
         if not hook:
             hook = segments[start_id]["text"].strip()
         
+        logger.info(f"[HIGHLIGHTS] #{idx} ACCEPTED: {duration:.1f}s seg {start_id}-{end_id} score={h.get('score')}")
         validated.append({
             "title": str(h.get("title", "Untitled")).strip(),
             "start_segment_id": start_id,
@@ -382,7 +402,9 @@ def _validate_highlights(highlights: List[Dict], transcript: Dict, num_clips: in
     
     # Sort by score, return top N
     validated.sort(key=lambda x: x["score"], reverse=True)
-    return validated[:num_clips * 2]  # return extra for dedupe upstream
+    result = validated[:num_clips * 2]
+    logger.info(f"[HIGHLIGHTS] Validation done: {len(result)}/{len(highlights)} passed")
+    return result
 
 
 # ── Main Entry Point ─────────────────────────────────────────────

@@ -25,6 +25,7 @@ export interface Task {
   aspect_ratio: string;
   language: string | null;
   subtitle_style: string | null;
+  face_detector: string | null;
   status: "queued" | "processing" | "completed" | "error" | "cancelled";
   progress: number;
   stage: string;
@@ -44,6 +45,7 @@ export interface CreateTaskOptions {
   aspect_ratio?: string;
   language?: string;
   subtitle_style?: string;
+  face_detector?: string;
 }
 
 /** Resolve a clip_url returned by the backend into an absolute URL.

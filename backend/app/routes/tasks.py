@@ -39,6 +39,10 @@ class CreateTaskRequest(BaseModel):
         default="viral-bold",
         description="Subtitle animation style.",
     )
+    face_detector: Optional[Literal["yunet", "mediapipe", "yolov8-face", "ssd"]] = Field(
+        default="yunet",
+        description="Face detector model to use.",
+    )
 
 
 class TaskCreatedResponse(BaseModel):
@@ -67,6 +71,7 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
         aspect_ratio=aspect_ratio,
         language=req.language,
         subtitle_style=req.subtitle_style,
+        face_detector=req.face_detector,
     )
 
     # Enqueue the background pipeline (no-op stub in Fase 0; real in Fase 1).
@@ -81,6 +86,25 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
 async def list_tasks() -> dict:
     records = await store.list()
     return {"tasks": [r.to_dict() for r in sorted(records, key=lambda r: r.created_at, reverse=True)]}
+
+
+@router.get("/recover", status_code=200)
+async def recover_tasks() -> dict:
+    """Scan storage dan recover task yang hilang dari state (misalnya setelah server restart).
+    
+    Berguna jika frontend menunjukkan task yang sudah ada tapi backend
+    mengembalikan 404 Not Found.
+    """
+    try:
+        recovered = await store.recover_from_storage()
+        records = await store.list()
+        return {
+            "recovered": recovered,
+            "total_tasks": len(records),
+            "message": f"{recovered} task(s) berhasil di-recover dari storage.",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Recovery gagal: {e}")
 
 
 @router.get("/{task_id}")

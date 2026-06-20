@@ -19,8 +19,9 @@ async def enqueue_task(task_id: str) -> None:
     aspect_ratio = record.aspect_ratio
     language = record.language
     subtitle_style = record.subtitle_style
+    face_detector = getattr(record, "face_detector", "yunet")
 
-    asyncio.create_task(_run_pipeline_wrapper(task_id, url, num_clips, aspect_ratio, language, subtitle_style))
+    asyncio.create_task(_run_pipeline_wrapper(task_id, url, num_clips, aspect_ratio, language, subtitle_style, face_detector))
 
 
 async def _run_pipeline_wrapper(
@@ -30,10 +31,11 @@ async def _run_pipeline_wrapper(
     aspect_ratio: str,
     language: Optional[str],
     subtitle_style: Optional[str],
+    face_detector: str,
 ) -> None:
     from .engine.pipeline import run_pipeline
     try:
-        await run_pipeline(task_id, url, num_clips, aspect_ratio, language, subtitle_style)
+        await run_pipeline(task_id, url, num_clips, aspect_ratio, language, subtitle_style, face_detector)
     except Exception as e:
         log.exception("pipeline crashed for task %s", task_id)
         await store.update(task_id, status="error", error=str(e))
