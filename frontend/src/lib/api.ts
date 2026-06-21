@@ -61,6 +61,34 @@ export interface AvailableEncoders {
   current: string;
 }
 
+export type BackendStatus = "checking" | "ready" | "unavailable";
+
+/**
+ * Polling sederhana ke /health sampai backend merespons atau timeout.
+ * Dipakai saat app Tauri boot untuk menunggu uvicorn siap.
+ *
+ * @param maxWaitMs   Maksimum waktu tunggu dalam ms (default 30 detik)
+ * @param intervalMs  Interval polling (default 1 detik)
+ */
+export async function waitForBackend(
+  maxWaitMs = 30_000,
+  intervalMs = 1_000,
+): Promise<BackendStatus> {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${API_URL}/health`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (res.ok) return "ready";
+    } catch {
+      // koneksi ditolak / timeout — coba lagi
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return "unavailable";
+}
+
 export async function getAvailableEncoders(): Promise<AvailableEncoders> {
   const res = await fetch(`${API_URL}/encoders`);
   if (!res.ok) return { available: ["auto", "cpu"], current: "auto" };

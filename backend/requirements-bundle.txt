@@ -1,0 +1,15 @@
+# Requirements khusus untuk bundle PyInstaller (tanpa faster-whisper, torch, opencv)
+# Transkripsi menggunakan Gemini API (cloud), bukan model lokal
+fastapi>=0.115.0
+uvicorn[standard]>=0.34.0
+sse-starlette>=2.0.0
+requests>=2.31
+python-dotenv>=1.0
+yt-dlp>=2024.1.1
+openai>=1.0.0
+anthropic>=0.30.0
+google-generativeai>=0.8.0
+numpy>=1.26.0
+redis>=4.5,<5.0
+scenedetect>=0.7
+pyinstaller>=6.0.0

@@ -55,7 +55,7 @@ app = FastAPI(
     title="Clip-AI Backend",
     description="YouTube → viral 9:16 shorts. FastAPI wrapper over the "
     "backend engine.",
-    version="0.1.0",
+    version="0.1.1",
     lifespan=lifespan,
 )
 
