@@ -13,6 +13,7 @@ drive either MuAPI (default, --mode api) or a direct local LLM client
 import json
 import re
 from typing import Callable, Dict, List, Optional
+import requests
 
 from . import muapi
 
@@ -169,7 +170,7 @@ def detect_content_type(transcript: Dict, llm_fn: LLMFn = call_muapi_llm) -> Dic
     try:
         raw = llm_fn(prompt)
         return _parse_json_loose(raw)
-    except Exception:
+    except (json.JSONDecodeError, ValueError, RuntimeError, requests.RequestException):
         return {"content_type": "other", "density": "medium"}
 
 
@@ -230,7 +231,7 @@ def call_highlight_api(
             if highlights:
                 return {"highlights": highlights}
             last_error = "no valid highlights in response"
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError, RuntimeError, requests.RequestException) as e:
             last_error = str(e)
 
         if attempt < MAX_HIGHLIGHT_API_ATTEMPTS:
