@@ -453,7 +453,7 @@ def _align_highlight_to_units(start_id: int, end_id: int, units: List[Dict]) -> 
         
     intersecting_units = [
         u for u in units
-        if max(start_id, u["start_segment_id"]) <= min(end_id, u["end_segment_id"])
+        if u["start_segment_id"] <= end_id and start_id <= u["end_segment_id"]
     ]
     if not intersecting_units:
         return start_id, end_id
@@ -494,7 +494,7 @@ def _is_aligned_with_units(start_id: int, end_id: int, units: List[Dict]) -> boo
         
     intersecting_units = [
         u for u in units
-        if max(start_id, u["start_segment_id"]) <= min(end_id, u["end_segment_id"])
+        if u["start_segment_id"] <= end_id and start_id <= u["end_segment_id"]
     ]
     if not intersecting_units:
         return False
