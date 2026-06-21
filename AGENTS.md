@@ -130,3 +130,33 @@ When a user submits a YouTube video link to the `/tasks` endpoint, the backend t
 5. **Strict Commit & Push Rules**:
    - **Check Before Committing**: Never perform automatic commits or pushes. Always check if there are major/large changes first, or wait for direct explicit instructions from the user before committing and pushing code.
    - **Tidy Git Commit Messages**: Write neat, structured, and detailed commit messages (e.g., using prefix-convention like `feat:`, `fix:`, `refactor:`) describing exactly what was modified so that the history remains clear on GitHub.
+
+---
+
+## 5. Workflow for Handling Contributor Bot PRs (Jules)
+
+When receiving Pull Requests from automatic contributor bots (e.g., `google-labs-jules[bot]`), follow these strict steps to maintain a clean git history and contributor attribution:
+
+1. **Do NOT Merge Directly on GitHub**:
+   Do not use the GitHub UI merge buttons (Squash and merge, Rebase and merge, or Create a merge commit) for bot PRs. This prevents the bot from being registered as an official contributor in the repository's graphs.
+
+2. **Pull and Test Locally**:
+   Before merging, check out the PR branch locally to run and test the changes.
+   * Verify there are no TypeScript compiler errors, syntax errors, or runtime breaks.
+   * Run the test suite if appropriate.
+
+3. **Manual Clean Squash-Merge**:
+   To merge the changes without attributing them to the bot:
+   * Apply the changes to the `main` branch locally.
+   * Commit the changes under the repository owner's Git user configuration (`sansaks-jpg` / `Sandi Ardiansyah`), ensuring the author metadata is explicitly set to `sansaks-jpg`.
+   * Example:
+     ```powershell
+     git checkout main
+     # Apply changes manually or squash-merge
+     git commit --author="Sandi Ardiansyah <sandisansan1407@gmail.com>" -m "merge: Description of changes (PR #X)"
+     ```
+
+4. **Push and Close the PR**:
+   * Push the updated `main` branch to the remote repository: `git push origin main`.
+   * Manually **Close** the PR on the GitHub web interface (do not merge it) and leave a comment stating that the changes have been integrated manually.
+
