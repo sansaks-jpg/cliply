@@ -4,7 +4,7 @@ use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 pub struct BackendState(pub Mutex<Option<Child>>);
 
@@ -354,6 +354,7 @@ pub fn run() {
             let state_ref = app.state::<BackendState>();
             if let Err(e) = start_backend_process(&handle, &state_ref, &settings.storage_dir, &settings) {
                 log::error!("Gagal menjalankan backend saat startup: {}", e);
+                let _ = handle.emit("backend-error", e);
             }
 
             Ok(())
