@@ -315,7 +315,7 @@ class TaskStore:
                     recovered += 1
                     log.info("Recovered completed task %s from storage", task_id)
                     continue
-                except Exception as e:
+                except (OSError, ValueError, TypeError, AttributeError) as e:
                     log.warning("Failed to recover task %s from highlights.json: %s", task_id, e)
 
             if transcript_path.exists():
@@ -346,7 +346,7 @@ class TaskStore:
                             self._mem_subs[task_id] = []
                     recovered += 1
                     log.info("Recovered orphaned task %s from storage (marked as error)", task_id)
-                except Exception as e:
+                except (OSError, ValueError, TypeError, AttributeError) as e:
                     log.warning("Failed to recover task %s from transcript.json: %s", task_id, e)
 
         return recovered
