@@ -35,10 +35,10 @@ async def _run_pipeline_wrapper(
     face_detector: str,
     encoder: str,
 ) -> None:
-    from .engine.pipeline import run_pipeline
+    from .engine.pipeline import run_pipeline, PipelineError
     try:
         await run_pipeline(task_id, url, num_clips, aspect_ratio, language, subtitle_style, face_detector, encoder)
-    except Exception as e:
+    except PipelineError as e:
         log.exception("pipeline crashed for task %s", task_id)
         await store.update(task_id, status="error", error=str(e))
         await store.publish(task_id, "error", {"error": str(e)})

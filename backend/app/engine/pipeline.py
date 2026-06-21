@@ -19,6 +19,10 @@ from .transcriber import transcribe_video
 _logger = logging.getLogger(__name__)
 
 
+class PipelineError(Exception):
+    """Custom exception for pipeline errors."""
+
+
 async def run_pipeline(
     task_id: str,
     url: str,
@@ -153,5 +157,4 @@ async def run_pipeline(
         await store.publish(task_id, "done", {"clips": clip_count})
 
     except Exception as e:
-        await store.update(task_id, status="error", error=str(e))
-        await store.publish(task_id, "error", {"error": str(e)})
+        raise PipelineError(str(e)) from e
