@@ -2,12 +2,13 @@
 
 Blocking calls run via asyncio.to_thread to avoid stalling the event loop.
 """
+
 import asyncio
 import json
 import logging
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
-from ..config import FONTS_DIR, SUBTITLE_STYLE_DEFAULT, STORAGE_DIR, FFMPEG_ENCODER
+from ..config import FONTS_DIR, SUBTITLE_STYLE_DEFAULT, STORAGE_DIR
 from ..state import store
 from .downloader import download_video
 from .highlights import get_highlights
@@ -35,13 +36,17 @@ async def run_pipeline(
         await store.set_progress(task_id, 15, "DOWNLOAD", "Unduhan selesai")
 
         await store.set_progress(task_id, 15, "TRANSCRIBE", "Transkripsi video…")
-        transcript = await asyncio.to_thread(transcribe_video, source_path, task_id, language, url)
+        transcript = await asyncio.to_thread(
+            transcribe_video, source_path, task_id, language, url
+        )
         if not transcript.get("segments"):
             raise RuntimeError("No detectable speech.")
         await store.set_progress(task_id, 35, "TRANSCRIBE", "Transkripsi selesai")
 
         # ── ANALYZE stage: 3 sub-steps dengan progress callback ke SSE ───────
-        await store.set_progress(task_id, 36, "ANALYZE", "Mendeteksi tipe & kepadatan konten…")
+        await store.set_progress(
+            task_id, 36, "ANALYZE", "Mendeteksi tipe & kepadatan konten…"
+        )
         llm_fn = get_llm_fn()
 
         # Thread-safe emitter — dipanggil dari dalam thread pool asyncio.to_thread
@@ -58,7 +63,7 @@ async def run_pipeline(
             except Exception as exc:
                 _logger.debug("[EMIT] Failed to emit progress: %s", exc)
 
-        is_auto = (num_clips == 0)
+        is_auto = num_clips == 0
         target_limit = 10 if is_auto else num_clips
 
         highlights_result = await asyncio.to_thread(
@@ -67,27 +72,39 @@ async def run_pipeline(
         all_highlights: List[Dict] = highlights_result.get("highlights", [])
         if not all_highlights:
             raise RuntimeError("No viral highlights found.")
-            
+
         failed_chunks = highlights_result.get("failed_chunks", [])
         coverage_pct = highlights_result.get("coverage_pct", 100)
         if failed_chunks:
             _logger.warning(
                 "[PIPELINE] Partial failure during highlights analysis. "
                 "Coverage: %d%%. Chunks failed starting at: %s",
-                coverage_pct, failed_chunks
+                coverage_pct,
+                failed_chunks,
             )
-            await store.set_progress(task_id, 45, "ANALYZE", f"Analisis {coverage_pct}% video selesai (ada rate-limit)")
-            
+            await store.set_progress(
+                task_id,
+                45,
+                "ANALYZE",
+                f"Analisis {coverage_pct}% video selesai (ada rate-limit)",
+            )
+
         if is_auto:
-            sorted_highlights = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)
+            sorted_highlights = sorted(
+                all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True
+            )
             top = [h for h in sorted_highlights if int(h.get("score", 0)) >= 70]
             if not top and sorted_highlights:
                 top = sorted_highlights[:1]
             top = top[:7]
         else:
-            top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
-            
-        await store.set_progress(task_id, 50, "ANALYZE", f"Ditemukan {len(top)} highlight viral")
+            top = sorted(
+                all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True
+            )[:num_clips]
+
+        await store.set_progress(
+            task_id, 50, "ANALYZE", f"Ditemukan {len(top)} highlight viral"
+        )
 
         # ── SUBTITLES stage ──────────────────────────────────────────────────
         style_key = subtitle_style or SUBTITLE_STYLE_DEFAULT
@@ -97,10 +114,16 @@ async def run_pipeline(
 
         record = await store.get(task_id)
         s_font = getattr(record, "subtitle_font", None) if record else None
-        s_color_primary = getattr(record, "subtitle_color_primary", None) if record else None
-        s_color_highlight = getattr(record, "subtitle_color_highlight", None) if record else None
+        s_color_primary = (
+            getattr(record, "subtitle_color_primary", None) if record else None
+        )
+        s_color_highlight = (
+            getattr(record, "subtitle_color_highlight", None) if record else None
+        )
 
-        await store.set_progress(task_id, 55, "SUBTITLES", f"Membuat subtitle karaoke ({style_key})…")
+        await store.set_progress(
+            task_id, 55, "SUBTITLES", f"Membuat subtitle karaoke ({style_key})…"
+        )
         ass_path = await asyncio.to_thread(
             generate_ass,
             transcript.get("segments", []),
@@ -116,7 +139,9 @@ async def run_pipeline(
         await store.set_progress(task_id, 60, "SUBTITLES", "Subtitle siap")
 
         # ── SMART_CROP + RENDER stage ────────────────────────────────────────
-        await store.set_progress(task_id, 62, "SMART_CROP", f"Analisis face-crop untuk {len(top)} klip…")
+        await store.set_progress(
+            task_id, 62, "SMART_CROP", f"Analisis face-crop untuk {len(top)} klip…"
+        )
 
         s_encoder = getattr(record, "encoder", None) or encoder
 
@@ -137,17 +162,23 @@ async def run_pipeline(
         )
 
         clip_count = sum(1 for c in clips if c.get("clip_url"))
-        
+
         # Write highlights.json manifest
         manifest = {"url": url, "clips": clips}
         manifest_path = STORAGE_DIR / task_id / "highlights.json"
         try:
             with open(manifest_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2, ensure_ascii=False)
-        except Exception as e:
+        except (OSError, TypeError, ValueError) as e:
             _logger.warning("Failed to write highlights.json manifest: %s", e)
 
-        await store.update(task_id, status="completed", progress=100.0, stage="DONE", message=f"{clip_count} klip siap")
+        await store.update(
+            task_id,
+            status="completed",
+            progress=100.0,
+            stage="DONE",
+            message=f"{clip_count} klip siap",
+        )
         for c in clips:
             await store.add_clip(task_id, c)
         await store.publish(task_id, "done", {"clips": clip_count})
