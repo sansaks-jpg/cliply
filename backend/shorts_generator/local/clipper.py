@@ -161,7 +161,7 @@ def crop_highlights_local(
                 out_path,
             )
             results.append({**h, "clip_url": out_path})
-        except Exception as e:
+        except (ValueError, TypeError, KeyError, RuntimeError, subprocess.CalledProcessError) as e:
             print(f"[clip/local] {i} failed: {e}", flush=True)
             results.append({**h, "clip_url": None, "error": str(e)})
     return results
