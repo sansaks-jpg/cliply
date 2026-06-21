@@ -38,10 +38,8 @@ jobs:
           targets: x86_64-pc-windows-msvc
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v2
-        with:
-          projectPath: frontend
-          bundleIdentifier: com.cliply.app
+        run: pnpm tauri build
+        working-directory: frontend
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
