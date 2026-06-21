@@ -250,7 +250,7 @@ def segment_narrative(transcript: Dict, content_info: Dict, llm_fn: LLMFn) -> Li
                 err_msg = "no valid units after validation (possibly segment mapping failed)"
             else:
                 err_msg = "empty units array or incorrect JSON format"
-        except Exception as e:
+        except (json.JSONDecodeError, AttributeError) as e:
             err_msg = f"JSON parse error: {e}"
         
         last_errors.append(f"Attempt {attempt} failed: {err_msg}")
@@ -425,7 +425,7 @@ def generate_highlights(
                 err_msg = "no valid highlights after validation (possibly failed narrative unit bounds constraint)"
             else:
                 err_msg = "empty highlights array or incorrect JSON format"
-        except Exception as e:
+        except (json.JSONDecodeError, AttributeError) as e:
             err_msg = f"JSON parse/validation error: {e}"
             logger.warning(f"[HIGHLIGHTS] Attempt {attempt}: error: {e}")
         
