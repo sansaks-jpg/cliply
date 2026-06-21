@@ -60,7 +60,7 @@ export default function Home() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
 
   const [isTauriApp, setIsTauriApp] = useState(false);
-  const [settings, setSettings] = useState<any | null>(null);
+  const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
   const [showSetup, setShowSetup] = useState(false);
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export default function Home() {
       await setStorageDir(selectedPath);
       await restartBackend(selectedPath);
       setShowSetup(false);
-      setSettings((prev: any) => prev ? { ...prev, storage_dir: selectedPath, first_run: false } : null);
+      setSettings((prev: Record<string, unknown> | null) => prev ? { ...prev, storage_dir: selectedPath, first_run: false } : null);
       
       const status = await waitForBackend(15000, 1000);
       setBackendStatus(status);

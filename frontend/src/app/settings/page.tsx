@@ -49,7 +49,7 @@ export default function SettingsPage() {
 
   // States untuk update
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
-  const [updateAvailable, setUpdateAvailable] = useState<any | null>(null);
+  const [updateAvailable, setUpdateAvailable] = useState<Record<string, unknown> | null>(null);
   const [appVersion, setAppVersion] = useState<string>("0.1.1");
 
   const handleCheckUpdate = async () => {
@@ -80,7 +80,7 @@ export default function SettingsPage() {
     try {
       let downloaded = 0;
       let contentLength = 0;
-      await updateAvailable.downloadAndInstall((event: any) => {
+      await updateAvailable.downloadAndInstall((event: unknown) => {
         switch (event.event) {
           case 'Started':
             contentLength = event.data.contentLength || 0;
@@ -458,7 +458,7 @@ export default function SettingsPage() {
           <div className="space-y-1">
             <div className="text-xs font-semibold text-amber-500">Penyelarasan Server Otomatis</div>
             <p className="text-[11px] text-neutral-400 leading-relaxed">
-              Setiap kali Anda menekan tombol **"Simpan & Terapkan"** atau mengubah folder penyimpanan, server backend lokal akan dimatikan lalu dinyalakan ulang dengan variabel lingkungan (*environment variables*) baru berisi API Key yang Anda masukkan. Hal ini memastikan perubahan langsung aktif tanpa perlu membuka ulang aplikasi.
+              Setiap kali Anda menekan tombol **&quot;Simpan &amp; Terapkan&quot;** atau mengubah folder penyimpanan, server backend lokal akan dimatikan lalu dinyalakan ulang dengan variabel lingkungan (*environment variables*) baru berisi API Key yang Anda masukkan. Hal ini memastikan perubahan langsung aktif tanpa perlu membuka ulang aplikasi.
             </p>
           </div>
         </div>
