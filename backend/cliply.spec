@@ -32,6 +32,7 @@ a = Analysis(
         'uvicorn.lifespan.on',
         # fastapi / starlette
         'fastapi',
+        'fastapi.middleware.cors',
         'starlette',
         'starlette.middleware',
         'starlette.middleware.cors',
