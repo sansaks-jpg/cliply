@@ -806,7 +806,7 @@ def _generate_camera_segments(source_path: str, detector, face_detector: str) ->
         is_cut = frame_idx in cut_frames
         
         if frame_idx % interval == 0 or is_cut:
-            # FIX 1: Turunkan threshold jadi 0.25 khusus buat ngecek scene
+            # Turunkan threshold jadi 0.25 khusus buat ngecek scene
             # biar muka yg jauh/nengok di kamera master gak gampang hilang
             faces = _detect_faces(detector, face_detector, frame, conf_threshold=0.25)
             raw_frames.append({
