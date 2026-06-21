@@ -18,7 +18,7 @@ from ..config import STORAGE_DIR
 
 # API keys
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", GROQ_API_KEY)  # fallback ke groq key
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.5-flash"
 GROQ_MODEL = "whisper-large-v3"
 
