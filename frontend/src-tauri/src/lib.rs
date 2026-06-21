@@ -311,12 +311,18 @@ fn restart_backend(
     start_backend_process(&app, &state, &storage_path, &settings)
 }
 
+#[tauri::command]
+fn relaunch_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_log::Builder::default()
             .level(log::LevelFilter::Info)
             .build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -341,7 +347,8 @@ pub fn run() {
             save_app_settings,
             pick_storage_dir,
             open_storage_dir,
-            restart_backend
+            restart_backend,
+            relaunch_app
         ])
         .run(tauri::generate_context!())
         .expect("error saat menjalankan aplikasi tauri");

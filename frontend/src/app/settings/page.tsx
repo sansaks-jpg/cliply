@@ -10,6 +10,7 @@ import {
   pickStorageDir,
   openStorageDir,
   restartBackend,
+  relaunchApp,
   type AppSettings,
 } from "@/lib/tauri";
 import { waitForBackend, type BackendStatus } from "@/lib/api";
@@ -35,6 +36,8 @@ import {
   Key,
   Globe,
   Save,
+  ArrowUpCircle,
+  Download,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,6 +46,64 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [restarting, setRestarting] = useState<boolean>(false);
+
+  // States untuk update
+  const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
+  const [updateAvailable, setUpdateAvailable] = useState<any | null>(null);
+
+  const handleCheckUpdate = async () => {
+    if (checkingUpdate || restarting) return;
+    setCheckingUpdate(true);
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const updateResult = await check();
+      
+      if (updateResult) {
+        setUpdateAvailable(updateResult);
+        toast.success(`Pembaruan versi v${updateResult.version} ditemukan!`);
+      } else {
+        toast.info("Aplikasi Anda sudah versi terbaru.");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Gagal memeriksa pembaruan.");
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!updateAvailable || restarting) return;
+    setRestarting(true);
+    toast.info("Mengunduh dan memasang pembaruan...");
+    try {
+      let downloaded = 0;
+      let contentLength = 0;
+      await updateAvailable.downloadAndInstall((event: any) => {
+        switch (event.event) {
+          case 'Started':
+            contentLength = event.data.contentLength || 0;
+            toast.info(`Unduhan dimulai: ${contentLength} byte.`);
+            break;
+          case 'Progress':
+            downloaded += event.data.chunkLength;
+            break;
+          case 'Finished':
+            toast.success("Unduhan selesai. Memasang pembaruan...");
+            break;
+        }
+      });
+      
+      toast.success("Pembaruan berhasil dipasang! Menjalankan ulang aplikasi...");
+      setTimeout(async () => {
+        await relaunchApp();
+      }, 2000);
+    } catch (err) {
+      console.error(err);
+      toast.error("Gagal mengunduh atau memasang pembaruan.");
+      setRestarting(false);
+    }
+  };
 
   // States untuk form API
   const [llmProvider, setLlmProvider] = useState<string>("openai");
@@ -242,6 +303,52 @@ export default function SettingsPage() {
               </Button>
             )}
           </div>
+        </div>
+
+        {/* 1.5. App Update Settings */}
+        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6 space-y-6 backdrop-blur-md">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-white">Pembaruan Aplikasi</h2>
+            <p className="text-xs text-neutral-400">
+              Periksa dan pasang versi terbaru Cliply yang dirilis di GitHub Releases.
+            </p>
+          </div>
+
+          {updateAvailable ? (
+            <div className="p-4 bg-emerald-500/5 border border-emerald-500/10 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <div className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
+                  <ArrowUpCircle className="w-4 h-4" />
+                  Versi Baru v{updateAvailable.version} Tersedia!
+                </div>
+                <p className="text-xs text-neutral-400 leading-relaxed">
+                  Rilis tanggal {updateAvailable.date || "baru-baru ini"}. Klik tombol di samping untuk memasang.
+                </p>
+              </div>
+              <Button
+                onClick={handleInstallUpdate}
+                disabled={restarting}
+                className="bg-emerald-500 hover:bg-emerald-600 text-neutral-950 font-bold gap-2 self-start md:self-auto rounded-xl"
+              >
+                <Download className="w-4 h-4" />
+                Unduh & Pasang
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                onClick={handleCheckUpdate}
+                disabled={checkingUpdate || restarting}
+                className="bg-white hover:bg-neutral-200 text-neutral-950 font-semibold gap-2 rounded-xl"
+              >
+                <RefreshCw className={`w-4 h-4 ${checkingUpdate ? "animate-spin" : ""}`} />
+                {checkingUpdate ? "Memeriksa..." : "Periksa Pembaruan"}
+              </Button>
+              <span className="text-xs text-neutral-500 font-mono">
+                Versi Saat Ini: v{settings?.version || "0.1.1"}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* 2. AI Key Settings */}
