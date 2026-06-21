@@ -908,30 +908,6 @@ def _generate_camera_segments(source_path: str, detector, face_detector: str) ->
     # FIX: Hapus penggabungan segmen bertipe sama agar batas cut asli tidak hancur.
     refined_segments = camera_segments.copy()
             
-    # Pass 2: Hanya gabungkan anomali di tengah jika durasi sangat ekstrem (< 0.5s)
-    i = 1
-    while i < len(refined_segments) - 1:
-        s = refined_segments[i]
-        dur = s["end"] - s["start"]
-        if dur < 0.5:
-            prev_s = refined_segments[i-1]
-            next_s = refined_segments[i+1]
-            if prev_s["type"] == next_s["type"]:
-                prev_s["end"] = next_s["end"]
-                del refined_segments[i:i+2]
-                continue
-        i += 1
-        
-    # Pass 3: Gabungkan segmen yang sangat pendek di ujung jika durasi ekstrem < 0.8s
-    if len(refined_segments) > 1:
-        if (refined_segments[0]["end"] - refined_segments[0]["start"]) < 0.8:
-            refined_segments[1]["start"] = refined_segments[0]["start"]
-            refined_segments.pop(0)
-    if len(refined_segments) > 1:
-        if (refined_segments[-1]["end"] - refined_segments[-1]["start"]) < 0.8:
-            refined_segments[-2]["end"] = refined_segments[-1]["end"]
-            refined_segments.pop(-1)
-            
     # Hitung ulang avg_cx yang stabil untuk segmen refined non-master
     for s in refined_segments:
         if s["type"] != "master":
