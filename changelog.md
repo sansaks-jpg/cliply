@@ -11,6 +11,16 @@ This file documents the history of major modifications made to the `clip-ai` wor
 
 ---
 
+## [2026-06-21 03:20 WIB] — Fix Deteksi GPU via WMI (Real Hardware Detection)
+
+### Ringkasan Perubahan
+Sebelumnya deteksi GPU cuma ngecek `ffmpeg -encoders` (daftar encoder yg dikompilasi — semua keliatan available). Di-fix pakai WMI (`Get-CimInstance Win32_VideoController`) untuk baca GPU beneran dari hardware, dikombinasikan dengan ffmpeg compiled check. Hasilnya: hanya encoder yg **hardware-nya ada** yg muncul di dropdown.
+
+### Aktivitas Detail
+* **config.py**: `_detect_encoders()` sekarang jalanin PowerShell `Get-CimInstance Win32_VideoController` buat baca vendor GPU (nvidia/intel/amd) dari hardware nyata, lalu AND-kan dengan ffmpeg compiled encoder list. Opsi tanpa hardware jadi otomatis keg-block.
+
+---
+
 ## [2026-06-21 03:00 WIB] — UI/UX Overhaul Frontend & GPU Hardware Encoding dengan Auto-Detect
 
 ### Ringkasan Perubahan
