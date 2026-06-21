@@ -3,6 +3,8 @@
 Blocking calls run via asyncio.to_thread to avoid stalling the event loop.
 """
 import asyncio
+import concurrent.futures
+import redis.exceptions
 import json
 import logging
 from typing import Callable, Dict, List, Optional
@@ -55,7 +57,7 @@ async def run_pipeline(
                     loop,
                 )
                 future.result(timeout=5)
-            except Exception as exc:
+            except (concurrent.futures.TimeoutError, RuntimeError, concurrent.futures.CancelledError, redis.exceptions.RedisError) as exc:
                 _logger.debug("[EMIT] Failed to emit progress: %s", exc)
 
         is_auto = (num_clips == 0)
