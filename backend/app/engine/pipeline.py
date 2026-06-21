@@ -58,8 +58,11 @@ async def run_pipeline(
             except Exception as exc:
                 _logger.debug("[EMIT] Failed to emit progress: %s", exc)
 
+        is_auto = (num_clips == 0)
+        target_limit = 10 if is_auto else num_clips
+
         highlights_result = await asyncio.to_thread(
-            get_highlights, transcript, num_clips, llm_fn, _emit
+            get_highlights, transcript, target_limit, llm_fn, _emit
         )
         all_highlights: List[Dict] = highlights_result.get("highlights", [])
         if not all_highlights:
@@ -75,7 +78,15 @@ async def run_pipeline(
             )
             await store.set_progress(task_id, 45, "ANALYZE", f"Analisis {coverage_pct}% video selesai (ada rate-limit)")
             
-        top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
+        if is_auto:
+            sorted_highlights = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)
+            top = [h for h in sorted_highlights if int(h.get("score", 0)) >= 70]
+            if not top and sorted_highlights:
+                top = sorted_highlights[:1]
+            top = top[:7]
+        else:
+            top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
+            
         await store.set_progress(task_id, 50, "ANALYZE", f"Ditemukan {len(top)} highlight viral")
 
         # ── SUBTITLES stage ──────────────────────────────────────────────────

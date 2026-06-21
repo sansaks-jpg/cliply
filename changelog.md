@@ -11,6 +11,25 @@ This file documents the history of major modifications made to the `cliply` work
 
 ---
 
+## [2026-06-21 22:52 WIB] — v0.1.1: Desktop Tauri Integration, API Key Manager & UI Simplification
+
+### Summary
+Released version `0.1.1` featuring full desktop Tauri integration, custom storage configurations, GUI-based AI API Key manager (per-user OpenAI/Gemini credentials), and simplified UI layouts.
+
+### Changes
+* **Tauri Desktop Shell (Rust & Tauri Helpers)**:
+  * **`frontend/src-tauri/Cargo.toml`**: Added `rfd` dependency for native directory dialog popups.
+  * **`frontend/src-tauri/src/lib.rs`**: Implemented `AppSettings` (storage_dir, first_run, api_keys, base_url, llm_provider) with `settings.json` file storage, automatic process reload, and API keys environmental injection into uvicorn backend.
+  * **`frontend/src/lib/tauri.ts`**: Introduced frontend wrapper helper for settings load/save and backend lifecycle reload commands.
+* **Frontend UI & Setup Wizard**:
+  * **`frontend/src/components/setup-wizard.tsx`**: Created first-run Setup Wizard modal dialog for directory location selection (default AppData vs custom).
+  * **`frontend/src/app/settings/page.tsx`**: Built new desktop `/settings` page containing storage directory settings and LLM API Key inputs.
+  * **`frontend/src/app/page.tsx`**: Integrated Setup Wizard on first run, added settings navigation icon in header (Tauri only), set default target clips to `auto` (options: auto, 3, 5, 10), and deleted language/aspect ratio selector (forcing auto-language and 9:16 vertical aspect ratio). Removed simulated progress bar from subtitle preview.
+* **Backend Engines**:
+  * **`backend/app/routes/tasks.py`**: Updated FastAPI routing validation to support `num_clips=0` representing dynamic auto-moments.
+  * **`backend/app/engine/pipeline.py`**: Configured highlights analyzer to dynamically select clips with virality scores >= 70 when in auto mode.
+  * **`backend/cliply.spec`**: Aligned output executable name to `cliply_server` to match Rust loader search logic.
+
 ## [2026-06-21 20:08 WIB] — Seekable Video Player with Drag Scrubbing & Auto-Hide Controls
 
 ### Summary

@@ -31,7 +31,7 @@ SubtitleStyle = Literal[
 
 class CreateTaskRequest(BaseModel):
     url: str = Field(..., description="YouTube URL (youtu.be or youtube.com).")
-    num_clips: Optional[int] = Field(default=None, ge=1, le=20)
+    num_clips: Optional[int] = Field(default=None, ge=0, le=20)
     aspect_ratio: Optional[str] = Field(default=None, pattern=r"^\d+:\d+$")
     language: Optional[str] = Field(
         default=None, description="ISO-639-1 to force Whisper language; omit for auto."
@@ -67,7 +67,7 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
             detail="URL must be a YouTube link (youtu.be/... or youtube.com/watch?v=...).",
         )
 
-    num_clips = req.num_clips or config.NUM_CLIPS_DEFAULT
+    num_clips = req.num_clips if req.num_clips is not None else 0
     aspect_ratio = req.aspect_ratio or config.ASPECT_RATIO_DEFAULT
 
     encoder = req.encoder or config.FFMPEG_ENCODER

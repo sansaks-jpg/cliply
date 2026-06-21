@@ -20,8 +20,7 @@ import {
   Monitor,
   Check,
   ExternalLink,
-  ChevronDown,
-  Info
+  ChevronDown
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -29,7 +28,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { createTask, deleteTask, getAvailableEncoders } from "@/lib/api";
+import { createTask, deleteTask, getAvailableEncoders, waitForBackend, type BackendStatus } from "@/lib/api";
+import Link from "next/link";
+import { isTauri } from "@/lib/tauri";
+import { SetupWizard } from "@/components/setup-wizard";
 
 const YOUTUBE_RE =
   /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/).+/i;
@@ -47,7 +49,7 @@ export default function Home() {
   const [urlFocused, setUrlFocused] = useState(false);
 
   // Configurations
-  const [numClips, setNumClips] = useState("5");
+  const [numClips, setNumClips] = useState("auto");
   const [aspectRatio, setAspectRatio] = useState("9:16");
   const [language, setLanguage] = useState("auto");
   const [subtitleStyle, setSubtitleStyle] = useState("viral-bold");
@@ -55,12 +57,62 @@ export default function Home() {
   const [encoder, setEncoder] = useState("auto");
   const [availableEncoders, setAvailableEncoders] = useState<string[]>(["auto", "cpu"]);
   const [showAdvanced, setShowAdvanced] = useState(true);
+  const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
+
+  const [isTauriApp, setIsTauriApp] = useState(false);
+  const [settings, setSettings] = useState<any | null>(null);
+  const [showSetup, setShowSetup] = useState(false);
 
   useEffect(() => {
-    getAvailableEncoders().then((res) => {
-      setAvailableEncoders(res.available);
-      setEncoder(res.current);
-    }).catch(() => {});
+    const tauriActive = isTauri();
+    setIsTauriApp(tauriActive);
+    if (tauriActive) {
+      import("@/lib/tauri").then(({ getSettings }) => {
+        getSettings().then((s) => {
+          if (s) {
+            setSettings(s);
+            if (s.first_run) {
+              setShowSetup(true);
+            }
+          }
+        });
+      });
+    }
+  }, []);
+
+  const handleSetupComplete = async (selectedPath: string) => {
+    try {
+      const { setStorageDir, restartBackend } = await import("@/lib/tauri");
+      await setStorageDir(selectedPath);
+      await restartBackend(selectedPath);
+      setShowSetup(false);
+      setSettings((prev: any) => prev ? { ...prev, storage_dir: selectedPath, first_run: false } : null);
+      
+      const status = await waitForBackend(15000, 1000);
+      setBackendStatus(status);
+      toast.success("Setup selesai! Backend berhasil dihubungkan.");
+    } catch (e) {
+      console.error(e);
+      toast.error("Terjadi kesalahan saat menyimpan konfigurasi.");
+    }
+  };
+
+  const handlePickDir = async () => {
+    const { pickStorageDir } = await import("@/lib/tauri");
+    return await pickStorageDir();
+  };
+
+  // Tunggu backend siap sebelum melakukan request lain (penting untuk Tauri)
+  useEffect(() => {
+    waitForBackend(30_000, 1_000).then((status) => {
+      setBackendStatus(status);
+      if (status === "ready") {
+        getAvailableEncoders().then((res) => {
+          setAvailableEncoders(res.available);
+          setEncoder(res.current);
+        }).catch(() => {});
+      }
+    });
   }, []);
 
   const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
@@ -103,9 +155,9 @@ export default function Home() {
     setSubmitting(true);
     try {
       const opts = {
-        num_clips: parseInt(numClips, 10),
-        aspect_ratio: aspectRatio,
-        language: language === "auto" ? undefined : language,
+        num_clips: numClips === "auto" ? 0 : parseInt(numClips, 10),
+        aspect_ratio: "9:16",
+        language: undefined, // Selalu autodeteksi bahasa
         subtitle_style: subtitleStyle,
         face_detector: faceDetector,
         encoder,
@@ -208,6 +260,22 @@ export default function Home() {
     return { fontFamily, primaryColor, highlightColor, boxColor, boxBgColor, outlineColor };
   };
 
+  // Loading screen saat backend sedang boot
+  if (backendStatus === "checking") {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center gap-6 font-sans antialiased">
+        <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+          <div className="absolute top-[-12%] left-[-8%] w-[44rem] h-[44rem] rounded-full blur-[120px] opacity-25 dark:opacity-40 bg-[radial-gradient(circle_at_center,var(--accent-violet),transparent_70%)] animate-blob" />
+        </div>
+        <Loader2 className="w-10 h-10 text-[var(--accent-violet)] animate-spin" />
+        <div className="text-center space-y-2">
+          <p className="text-lg font-semibold">Menghubungkan ke Backend...</p>
+          <p className="text-sm text-muted-foreground">Menunggu server lokal Cliply siap. Ini bisa memakan waktu hingga 30 detik.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col font-sans antialiased overflow-x-hidden relative">
 
@@ -233,12 +301,33 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-3">
             <ThemeToggle />
+            {isTauriApp && (
+              <Link href="/settings" className="p-2 hover:bg-neutral-900 border border-transparent hover:border-neutral-800 rounded-xl transition-all" title="Pengaturan">
+                <Settings className="w-5 h-5 text-neutral-300" />
+              </Link>
+            )}
           </div>
         </div>
       </header>
 
       {/* Main Container */}
       <main className="max-w-5xl w-full mx-auto px-6 py-20 flex-grow flex flex-col gap-16">
+
+        {/* Backend tidak tersedia — tampilkan banner peringatan */}
+        {backendStatus === "unavailable" && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 flex items-start gap-3 animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <span className="text-red-400 text-base font-bold">!</span>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-red-400">Backend tidak dapat dihubungi</p>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Server lokal di <code className="font-mono">localhost:8000</code> tidak merespons.
+                Pastikan backend Python sudah berjalan: <code className="font-mono">uvicorn app.main:app --port 8000</code>
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Hero Section */}
         <section className="text-center space-y-6 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -324,42 +413,22 @@ export default function Home() {
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Parameter Studio</span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="num-clips" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-                        <Film className="w-3.5 h-3.5" />
-                        Target Klip
-                      </Label>
-                      <Select value={numClips} onValueChange={setNumClips}>
-                        <SelectTrigger id="num-clips" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
-                          <SelectValue placeholder="Jumlah Klip" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {[3, 5, 7, 10, 15].map((n) => (
-                            <SelectItem key={n} value={n.toString()}>
-                              {n} Klip Video
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="language" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-                        <Languages className="w-3.5 h-3.5" />
-                        Bahasa
-                      </Label>
-                      <Select value={language} onValueChange={setLanguage}>
-                        <SelectTrigger id="language" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
-                          <SelectValue placeholder="Bahasa" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="auto">Autodeteksi</SelectItem>
-                          <SelectItem value="id">Bahasa Indonesia</SelectItem>
-                          <SelectItem value="en">English</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="num-clips" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                      <Film className="w-3.5 h-3.5" />
+                      Target Klip
+                    </Label>
+                    <Select value={numClips} onValueChange={setNumClips}>
+                      <SelectTrigger id="num-clips" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
+                        <SelectValue placeholder="Jumlah Klip" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto">Auto (Rekomendasi AI)</SelectItem>
+                        <SelectItem value="3">3 Klip Video</SelectItem>
+                        <SelectItem value="5">5 Klip Video</SelectItem>
+                        <SelectItem value="10">10 Klip Video</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -393,317 +462,283 @@ export default function Home() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="yunet">YuNet (Akurat)</SelectItem>
-                          <SelectItem value="ssd">SSD ResNet</SelectItem>
-                          <SelectItem value="opencv">LBP Cascade</SelectItem>
+                          <SelectItem value="mediapipe">MediaPipe BlazeFace (Cepat)</SelectItem>
+                          <SelectItem value="yolov8-face">YOLOv8-Face (Terbaik)</SelectItem>
+                          <SelectItem value="ssd">SSD ResNet (Ringan)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
 
-                  {/* Ratio Selector Button Group */}
-                  <div className="space-y-2 pt-1">
-                    <Label className="text-xs font-bold text-muted-foreground block">
-                      Rasio Aspek Video
-                    </Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setAspectRatio("9:16")}
-                        className={`h-10 rounded-xl border flex items-center justify-center gap-2 text-sm font-bold transition-all cursor-pointer ${
-                          aspectRatio === "9:16"
-                            ? "bg-gradient-violet border-transparent text-white shadow-md glow-accent"
-                            : "bg-background/40 border-border text-muted-foreground hover:bg-secondary/60"
-                        }`}
-                      >
-                        <Smartphone className="w-4 h-4" />
-                        <span>9:16 Vertikal</span>
-                      </button>
+                  {/* Gaya Subtitle Section */}
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-[var(--accent-violet)]" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Gaya Subtitle</span>
+                    </div>
 
-                      <button
-                        type="button"
-                        onClick={() => setAspectRatio("1:1")}
-                        className={`h-10 rounded-xl border flex items-center justify-center gap-2 text-sm font-bold transition-all cursor-pointer ${
-                          aspectRatio === "1:1"
-                            ? "bg-gradient-violet border-transparent text-white shadow-md glow-accent"
-                            : "bg-background/40 border-border text-muted-foreground hover:bg-secondary/60"
-                        }`}
-                      >
-                        <Monitor className="w-4 h-4" />
-                        <span>1:1 Persegi</span>
-                      </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      {(["viral-bold", "tiktok", "word-pop", "clean-minimal", "highlight-box", "minimalist", "neon-glow", "classic-popup"] as const).map((styleKey) => {
+                        const isActive = subtitleStyle === styleKey;
+                        return (
+                          <button
+                            key={styleKey}
+                            type="button"
+                            onClick={() => setSubtitleStyle(styleKey)}
+                            className={`text-xs font-bold px-3 py-2.5 rounded-xl border transition-all text-left flex items-center justify-between cursor-pointer ${
+                              isActive
+                                ? "bg-gradient-violet border-transparent text-white shadow-md glow-accent"
+                                : "bg-background/40 border-border text-muted-foreground hover:bg-secondary/60"
+                            }`}
+                          >
+                            <span className="capitalize">{styleKey.replace(/-/g, " ")}</span>
+                            {isActive && <Check className="w-3.5 h-3.5" />}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
 
-                {/* Right Side: Style Selection + Live 9:16 Phone Preview */}
-                <div className="lg:col-span-5 space-y-5">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-[var(--accent-violet)]" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Gaya Subtitle</span>
+                {/* Right Side: Live 9:16 Phone Preview */}
+                <div className="lg:col-span-5 flex flex-col items-center justify-center space-y-4 py-4 min-h-[360px]">
+                  <div className="text-center w-full">
+                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block mb-2">Live Preview Subtitle</span>
                   </div>
 
-                  {/* Preset Pills */}
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["viral-bold", "tiktok", "word-pop", "clean-minimal", "highlight-box", "minimalist", "neon-glow", "classic-popup"] as const).map((styleKey) => {
-                      const isActive = subtitleStyle === styleKey;
-                      return (
-                        <button
-                          key={styleKey}
-                          type="button"
-                          onClick={() => setSubtitleStyle(styleKey)}
-                          className={`text-xs font-bold px-3 py-2 rounded-xl border transition-all text-left flex items-center justify-between cursor-pointer ${
-                            isActive
-                              ? "bg-gradient-violet border-transparent text-white shadow-md glow-accent"
-                              : "bg-background/40 border-border text-muted-foreground hover:bg-secondary/60"
-                          }`}
-                        >
-                          <span className="capitalize">{styleKey.replace(/-/g, " ")}</span>
-                          {isActive && <Check className="w-3.5 h-3.5" />}
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <div className="relative">
+                    {/* Violet glow halo behind phone */}
+                    <div className="absolute inset-0 rounded-[2.2rem] bg-[var(--accent-violet)] opacity-20 blur-3xl scale-110 pointer-events-none" />
 
-                  {/* Live 9:16 Phone Mock Preview */}
-                  <div className="flex justify-center pt-2">
-                    <div className="relative">
-                      {/* Violet glow halo behind phone */}
-                      <div className="absolute inset-0 rounded-[2rem] bg-[var(--accent-violet)] opacity-20 blur-2xl scale-110 pointer-events-none" />
-
-                      <div className="relative w-[200px] aspect-[9/16] rounded-[2rem] overflow-hidden bg-black border-[3px] border-zinc-800 dark:border-zinc-700/80 shadow-2xl flex flex-col">
-                        {/* Notch */}
-                        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 rounded-full bg-black z-20 flex items-center justify-center">
-                          <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
-                        </div>
-
-                        {/* Simulated abstract video bg */}
-                        <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-[#15101f] to-zinc-950 pointer-events-none" />
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(124,58,237,0.18),transparent_60%)] pointer-events-none" />
-
-                        {/* Top audio bars */}
-                        <div className="absolute top-6 left-3 flex gap-0.5 items-end h-4 pointer-events-none opacity-30">
-                          <div className="w-0.5 bg-white rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
-                          <div className="w-0.5 bg-white rounded-full animate-bounce h-3.5" style={{ animationDelay: "0.3s" }} />
-                          <div className="w-0.5 bg-white rounded-full animate-bounce h-1.5" style={{ animationDelay: "0.5s" }} />
-                          <div className="w-0.5 bg-white rounded-full animate-bounce h-2.5" style={{ animationDelay: "0.2s" }} />
-                        </div>
-
-                        <span className="absolute top-6 right-3 text-[7px] font-bold text-white/40 uppercase tracking-wider z-10">
-                          Live
-                        </span>
-
-                        {/* Rendering Subtitle Text */}
-                        <div className="w-full h-full z-10 flex items-end justify-center text-center pb-12 px-3">
-                          {(() => {
-                            const styleDefinitions: Record<string, {
-                              bold: boolean,
-                              caseTransform: "uppercase" | "lowercase" | "none",
-                              outlineWidth: number,
-                              outlineColor: string,
-                              words: string[],
-                              animation: string
-                            }> = {
-                              "viral-bold": {
-                                bold: true,
-                                caseTransform: "uppercase",
-                                outlineWidth: 3,
-                                outlineColor: "#000000",
-                                words: ["KITA", "TIDAK", "HANYA", "BERPIKIR", "TETAPI", "BERTINDAK", "NYATA", "SEKARANG"],
-                                animation: "karaoke"
-                              },
-                              "tiktok": {
-                                bold: true,
-                                caseTransform: "uppercase",
-                                outlineWidth: 4,
-                                outlineColor: "#000000",
-                                words: ["INILAH", "GAYA", "TEKS", "TIKTOK"],
-                                animation: "karaoke"
-                              },
-                              "word-pop": {
-                                bold: true,
-                                caseTransform: "uppercase",
-                                outlineWidth: 4,
-                                outlineColor: "#000000",
-                                words: ["FOKUS", "CEPAT", "DAN", "SATSET"],
-                                animation: "wordpop"
-                              },
-                              "clean-minimal": {
-                                bold: false,
-                                caseTransform: "lowercase",
-                                outlineWidth: 0,
-                                outlineColor: "transparent",
-                                words: ["gaya", "minimalis", "bersih", "dan", "elegan"],
-                                animation: "fadein"
-                              },
-                              "highlight-box": {
-                                bold: true,
-                                caseTransform: "none",
-                                outlineWidth: 0,
-                                outlineColor: "transparent",
-                                words: ["Momen", "viral", "dalam", "kotak", "highlight"],
-                                animation: "box"
-                              },
-                              "neon-gradient": {
-                                bold: true,
-                                caseTransform: "uppercase",
-                                outlineWidth: 2,
-                                outlineColor: "#FFF000",
-                                words: ["TEKS", "GRADASI", "NEON", "MENYALA"],
-                                animation: "karaoke"
-                              },
-                              "minimalist": {
-                                bold: false,
-                                caseTransform: "none",
-                                outlineWidth: 1,
-                                outlineColor: "#444444",
-                                words: ["Simpel", "tanpa", "banyak", "distraksi"],
-                                animation: "fadein"
-                              },
-                              "neon-glow": {
-                                bold: true,
-                                caseTransform: "none",
-                                outlineWidth: 4,
-                                outlineColor: "#000000",
-                                words: ["Cahaya", "glamur", "efek", "neon", "glow"],
-                                animation: "popup"
-                              },
-                              "classic-popup": {
-                                bold: true,
-                                caseTransform: "none",
-                                outlineWidth: 2,
-                                outlineColor: "#000000",
-                                words: ["Gaya", "klasik", "popup", "animasi", "lembut"],
-                                animation: "popup"
-                              }
-                            };
-
-                            const activeStyle = styleDefinitions[subtitleStyle] || styleDefinitions["viral-bold"];
-                            const preview = getDynamicPreviewStyles(subtitleStyle);
-                            const totalWords = activeStyle.words.length;
-                            const activeWordIdx = wordProgressIndex % totalWords;
-                            const fsize = "11px";
-
-                            const makeTextShadow = (ow: number, oc: string) => {
-                              if (ow === 0) return "none";
-                              const r = Math.min(ow, 4);
-                              const shadows = [];
-                              for (let dx = -r; dx <= r; dx += Math.max(1, Math.floor(r/2))) {
-                                for (let dy = -r; dy <= r; dy += Math.max(1, Math.floor(r/2))) {
-                                  if (dx === 0 && dy === 0) continue;
-                                  shadows.push(`${dx}px ${dy}px 0 ${oc}`);
-                                }
-                              }
-                              return shadows.join(",");
-                            };
-                            const textShadow = makeTextShadow(activeStyle.outlineWidth, activeStyle.outlineColor);
-
-                            const baseWordStyle = {
-                              fontFamily: preview.fontFamily,
-                              fontWeight: activeStyle.bold ? "900" : "400",
-                              fontSize: fsize,
-                              letterSpacing: activeStyle.caseTransform === "uppercase" ? "0.05em" : "normal",
-                              textTransform: activeStyle.caseTransform,
-                              textShadow,
-                              lineHeight: "1.3",
-                            } as React.CSSProperties;
-
-                            return (
-                              <div className="w-full flex items-end justify-center text-center">
-                                {activeStyle.animation === "box" ? (
-                                  <div className="flex flex-wrap justify-center gap-1">
-                                    {activeStyle.words.map((w, i) => {
-                                      const isActive = i === activeWordIdx;
-                                      return (
-                                        <span
-                                          key={i}
-                                          style={{
-                                            ...baseWordStyle,
-                                            color: isActive ? preview.highlightColor : preview.primaryColor,
-                                            padding: "1px 4px",
-                                            borderRadius: "3px",
-                                            boxShadow: isActive ? `inset 0 0 0 1px ${preview.boxColor}` : "none",
-                                            backgroundColor: isActive ? preview.boxBgColor : "transparent",
-                                          }}
-                                        >{w}</span>
-                                      );
-                                    })}
-                                  </div>
-                                ) : activeStyle.animation === "wordpop" ? (
-                                  <span
-                                    key={activeWordIdx}
-                                    className="transition-transform duration-200"
-                                    style={{
-                                      ...baseWordStyle,
-                                      color: preview.highlightColor,
-                                      display: "inline-block",
-                                      transform: "scale(1.2)",
-                                    }}
-                                  >{activeStyle.words[activeWordIdx]}</span>
-                                ) : activeStyle.animation === "popup" ? (
-                                  <div className="flex flex-wrap justify-center gap-1">
-                                    {activeStyle.words.map((w, i) => {
-                                      const isActive = i === activeWordIdx;
-                                      return (
-                                        <span
-                                          key={i}
-                                          className="transition-all duration-200"
-                                          style={{
-                                            ...baseWordStyle,
-                                            display: "inline-block",
-                                            color: isActive ? preview.highlightColor : preview.primaryColor,
-                                            transform: isActive ? "scale(1.2) translateY(-1.5px)" : "scale(1)",
-                                            opacity: isActive ? 1 : 0.65,
-                                          }}
-                                        >{w}</span>
-                                      );
-                                    })}
-                                  </div>
-                                ) : activeStyle.animation === "fadein" ? (
-                                  <div className="flex flex-wrap justify-center gap-1">
-                                    {activeStyle.words.map((w, i) => {
-                                      const isVisible = i <= activeWordIdx;
-                                      return (
-                                        <span
-                                          key={i}
-                                          className="transition-opacity duration-300"
-                                          style={{
-                                            ...baseWordStyle,
-                                            color: preview.primaryColor,
-                                            opacity: isVisible ? 1 : 0.15,
-                                          }}
-                                        >{w}</span>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  // Karaoke Fill
-                                  <div className="flex flex-wrap justify-center gap-1">
-                                    {activeStyle.words.map((w, i) => {
-                                      const isActive = i <= activeWordIdx;
-                                      return (
-                                        <span
-                                          key={i}
-                                          className="transition-all duration-150"
-                                          style={{
-                                            ...baseWordStyle,
-                                            color: isActive ? preview.highlightColor : preview.primaryColor,
-                                            opacity: isActive ? 1 : 0.5,
-                                          }}
-                                        >{w}</span>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
-
-                        {/* Bottom progress bar */}
-                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/10 z-20">
-                          <div className="h-full bg-gradient-violet rounded-r-full transition-all duration-500" style={{ width: `${((wordProgressIndex % 12) / 11) * 100}%` }} />
-                        </div>
+                    <div className="relative w-[210px] aspect-[9/16] rounded-[2.2rem] overflow-hidden bg-black border-[4px] border-zinc-800 dark:border-zinc-700/80 shadow-2xl flex flex-col">
+                      {/* Notch */}
+                      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 rounded-full bg-black z-20 flex items-center justify-center">
+                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
                       </div>
+
+                      {/* Simulated abstract video bg */}
+                      <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-[#15101f] to-zinc-950 pointer-events-none" />
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(124,58,237,0.18),transparent_60%)] pointer-events-none" />
+
+                      {/* Top audio bars */}
+                      <div className="absolute top-6 left-3 flex gap-0.5 items-end h-4 pointer-events-none opacity-30">
+                        <div className="w-0.5 bg-white rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
+                        <div className="w-0.5 bg-white rounded-full animate-bounce h-3.5" style={{ animationDelay: "0.3s" }} />
+                        <div className="w-0.5 bg-white rounded-full animate-bounce h-1.5" style={{ animationDelay: "0.5s" }} />
+                        <div className="w-0.5 bg-white rounded-full animate-bounce h-2.5" style={{ animationDelay: "0.2s" }} />
+                      </div>
+
+                      <span className="absolute top-6 right-3 text-[7px] font-bold text-white/40 uppercase tracking-wider z-10">
+                        Live
+                      </span>
+
+                      {/* Rendering Subtitle Text */}
+                      <div className="w-full h-full z-10 flex items-end justify-center text-center pb-12 px-3">
+                        {(() => {
+                          const styleDefinitions: Record<string, {
+                            bold: boolean,
+                            caseTransform: "uppercase" | "lowercase" | "none",
+                            outlineWidth: number,
+                            outlineColor: string,
+                            words: string[],
+                            animation: string
+                          }> = {
+                            "viral-bold": {
+                              bold: true,
+                              caseTransform: "uppercase",
+                              outlineWidth: 3,
+                              outlineColor: "#000000",
+                              words: ["KITA", "TIDAK", "HANYA", "BERPIKIR", "TETAPI", "BERTINDAK", "NYATA", "SEKARANG"],
+                              animation: "karaoke"
+                            },
+                            "tiktok": {
+                              bold: true,
+                              caseTransform: "uppercase",
+                              outlineWidth: 4,
+                              outlineColor: "#000000",
+                              words: ["INILAH", "GAYA", "TEKS", "TIKTOK"],
+                              animation: "karaoke"
+                            },
+                            "word-pop": {
+                              bold: true,
+                              caseTransform: "uppercase",
+                              outlineWidth: 4,
+                              outlineColor: "#000000",
+                              words: ["FOKUS", "CEPAT", "DAN", "SATSET"],
+                              animation: "wordpop"
+                            },
+                            "clean-minimal": {
+                              bold: false,
+                              caseTransform: "lowercase",
+                              outlineWidth: 0,
+                              outlineColor: "transparent",
+                              words: ["gaya", "minimalis", "bersih", "dan", "elegan"],
+                              animation: "fadein"
+                            },
+                            "highlight-box": {
+                              bold: true,
+                              caseTransform: "none",
+                              outlineWidth: 0,
+                              outlineColor: "transparent",
+                              words: ["Momen", "viral", "dalam", "kotak", "highlight"],
+                              animation: "box"
+                            },
+                            "neon-gradient": {
+                              bold: true,
+                              caseTransform: "uppercase",
+                              outlineWidth: 2,
+                              outlineColor: "#FFF000",
+                              words: ["TEKS", "GRADASI", "NEON", "MENYALA"],
+                              animation: "karaoke"
+                            },
+                            "minimalist": {
+                              bold: false,
+                              caseTransform: "none",
+                              outlineWidth: 1,
+                              outlineColor: "#444444",
+                              words: ["Simpel", "tanpa", "banyak", "distraksi"],
+                              animation: "fadein"
+                            },
+                            "neon-glow": {
+                              bold: true,
+                              caseTransform: "none",
+                              outlineWidth: 4,
+                              outlineColor: "#000000",
+                              words: ["Cahaya", "glamur", "efek", "neon", "glow"],
+                              animation: "popup"
+                            },
+                            "classic-popup": {
+                              bold: true,
+                              caseTransform: "none",
+                              outlineWidth: 2,
+                              outlineColor: "#000000",
+                              words: ["Gaya", "klasik", "popup", "animasi", "lembut"],
+                              animation: "popup"
+                            }
+                          };
+
+                          const activeStyle = styleDefinitions[subtitleStyle] || styleDefinitions["viral-bold"];
+                          const preview = getDynamicPreviewStyles(subtitleStyle);
+                          const totalWords = activeStyle.words.length;
+                          const activeWordIdx = wordProgressIndex % totalWords;
+                          const fsize = "11px";
+
+                          const makeTextShadow = (ow: number, oc: string) => {
+                            if (ow === 0) return "none";
+                            const r = Math.min(ow, 4);
+                            const shadows = [];
+                            for (let dx = -r; dx <= r; dx += Math.max(1, Math.floor(r/2))) {
+                              for (let dy = -r; dy <= r; dy += Math.max(1, Math.floor(r/2))) {
+                                if (dx === 0 && dy === 0) continue;
+                                shadows.push(`${dx}px ${dy}px 0 ${oc}`);
+                              }
+                            }
+                            return shadows.join(",");
+                          };
+                          const textShadow = makeTextShadow(activeStyle.outlineWidth, activeStyle.outlineColor);
+
+                          const baseWordStyle = {
+                            fontFamily: preview.fontFamily,
+                            fontWeight: activeStyle.bold ? "900" : "400",
+                            fontSize: fsize,
+                            letterSpacing: activeStyle.caseTransform === "uppercase" ? "0.05em" : "normal",
+                            textTransform: activeStyle.caseTransform,
+                            textShadow,
+                            lineHeight: "1.3",
+                          } as React.CSSProperties;
+
+                          return (
+                            <div className="w-full flex items-end justify-center text-center">
+                              {activeStyle.animation === "box" ? (
+                                <div className="flex flex-wrap justify-center gap-1">
+                                  {activeStyle.words.map((w, i) => {
+                                    const isActive = i === activeWordIdx;
+                                    return (
+                                      <span
+                                        key={i}
+                                        style={{
+                                          ...baseWordStyle,
+                                          color: isActive ? preview.highlightColor : preview.primaryColor,
+                                          padding: "1px 4px",
+                                          borderRadius: "3px",
+                                          boxShadow: isActive ? `inset 0 0 0 1px ${preview.boxColor}` : "none",
+                                          backgroundColor: isActive ? preview.boxBgColor : "transparent",
+                                        }}
+                                      >{w}</span>
+                                    );
+                                  })}
+                                </div>
+                              ) : activeStyle.animation === "wordpop" ? (
+                                <span
+                                  key={activeWordIdx}
+                                  className="transition-transform duration-200"
+                                  style={{
+                                    ...baseWordStyle,
+                                    color: preview.highlightColor,
+                                    display: "inline-block",
+                                    transform: "scale(1.2)",
+                                  }}
+                                >{activeStyle.words[activeWordIdx]}</span>
+                              ) : activeStyle.animation === "popup" ? (
+                                <div className="flex flex-wrap justify-center gap-1">
+                                  {activeStyle.words.map((w, i) => {
+                                    const isActive = i === activeWordIdx;
+                                    return (
+                                      <span
+                                        key={i}
+                                        className="transition-all duration-200"
+                                        style={{
+                                          ...baseWordStyle,
+                                          display: "inline-block",
+                                          color: isActive ? preview.highlightColor : preview.primaryColor,
+                                          transform: isActive ? "scale(1.2) translateY(-1.5px)" : "scale(1)",
+                                          opacity: isActive ? 1 : 0.65,
+                                        }}
+                                      >{w}</span>
+                                    );
+                                  })}
+                                </div>
+                              ) : activeStyle.animation === "fadein" ? (
+                                <div className="flex flex-wrap justify-center gap-1">
+                                  {activeStyle.words.map((w, i) => {
+                                    const isVisible = i <= activeWordIdx;
+                                    return (
+                                      <span
+                                        key={i}
+                                        className="transition-opacity duration-300"
+                                        style={{
+                                          ...baseWordStyle,
+                                          color: preview.primaryColor,
+                                          opacity: isVisible ? 1 : 0.15,
+                                        }}
+                                      >{w}</span>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                // Karaoke Fill
+                                <div className="flex flex-wrap justify-center gap-1">
+                                  {activeStyle.words.map((w, i) => {
+                                    const isActive = i <= activeWordIdx;
+                                    return (
+                                      <span
+                                        key={i}
+                                        className="transition-all duration-150"
+                                        style={{
+                                          ...baseWordStyle,
+                                          color: isActive ? preview.highlightColor : preview.primaryColor,
+                                          opacity: isActive ? 1 : 0.5,
+                                        }}
+                                      >{w}</span>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+
                     </div>
                   </div>
                 </div>
@@ -762,35 +797,20 @@ export default function Home() {
           </section>
         )}
 
-        {/* App Info Panel */}
-        <section className="rounded-2xl glass-panel p-5 flex items-start gap-4 max-w-2xl mx-auto">
-          <div className="w-10 h-10 rounded-xl bg-gradient-violet/15 flex items-center justify-center flex-shrink-0">
-            <Info className="w-5 h-5 text-[var(--accent-violet)]" />
-          </div>
-          <div className="space-y-1.5">
-            <h4 className="text-sm font-bold">Penyimpanan Workspace</h4>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Media dan riwayat tersimpan di backend lokal dan basis data Redis Anda.
-              Sesi browser lokal menyimpan navigasi cepat.
-            </p>
-          </div>
-        </section>
+
       </main>
 
       {/* Footer */}
       <footer className="border-t border-border/60 py-8 text-center text-xs text-muted-foreground">
-        <div className="max-w-4xl mx-auto px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p>© {new Date().getFullYear()} cliply · Studio Klip Shorts Mandiri.</p>
-          <div className="flex items-center gap-3">
-            <span>Uvicorn: 8000</span>
-            <span>·</span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent-violet)] animate-pulse" />
-              Redis Task Queue: Active
-            </span>
-          </div>
-        </div>
+        <p>© {new Date().getFullYear()} cliply</p>
       </footer>
+      {showSetup && settings && (
+        <SetupWizard
+          defaultStorageDir={settings.storage_dir}
+          onPickDir={handlePickDir}
+          onComplete={handleSetupComplete}
+        />
+      )}
     </div>
   );
 }
