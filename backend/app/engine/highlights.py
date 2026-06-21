@@ -221,7 +221,8 @@ def detect_content_type(transcript: Dict, llm_fn: LLMFn) -> Dict[str, str]:
     try:
         raw = llm_fn(prompt)
         return _parse_json_loose(raw)
-    except (json.JSONDecodeError, AttributeError, TypeError, ValueError, KeyError):
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError, KeyError, RuntimeError, ConnectionError, TimeoutError) as e:
+        logger.warning(f"Failed to detect content type: {e}")
         return {"content_type": "other", "density": "medium", "density_shifts": False}
 
 
