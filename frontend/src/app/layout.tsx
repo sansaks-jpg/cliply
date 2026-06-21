@@ -22,8 +22,13 @@ const syne = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "Clip AI — YouTube to Viral Shorts",
+  title: "cliply — YouTube to Viral Shorts",
   description: "Ubah video YouTube jadi klip vertikal 9:16 viral dengan subtitle karaoke AI. Gratis, tanpa daftar.",
+  icons: {
+    icon: "/favicon.png",
+    shortcut: "/favicon.png",
+    apple: "/favicon.png",
+  },
 };
 
 export default function RootLayout({
@@ -38,7 +43,7 @@ export default function RootLayout({
       >
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
+          defaultTheme="dark"
           enableSystem
           disableTransitionOnChange
         >

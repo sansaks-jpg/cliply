@@ -14,7 +14,7 @@ import random
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from .llm import LLMFn, get_llm_fn
 from ..config import HIGHLIGHT_MAX_WORKERS, LLM_PROVIDER
@@ -691,17 +691,38 @@ def get_highlights(
     transcript: Dict,
     num_clips: int = 3,
     llm_fn: LLMFn | None = None,
+    progress_callback: Optional[Callable[[float, str, str], None]] = None,
 ) -> Dict:
+    """Temukan highlight viral dalam transkrip.
+    
+    Args:
+        transcript: Hasil transkripsi.
+        num_clips: Jumlah klip yang diinginkan.
+        llm_fn: Fungsi LLM untuk pemanggilan model.
+        progress_callback: Opsional — dipanggil dengan (pct, stage, message) untuk emit SSE progress.
+    """
+    def _cb(pct: float, stage: str, msg: str) -> None:
+        if progress_callback:
+            try:
+                progress_callback(pct, stage, msg)
+            except Exception:
+                pass
+
     llm_fn = llm_fn or get_llm_fn()
     duration = transcript.get("duration", 0)
     
-    # Stage 1: Content type & density
+    # Sub-step 1: Content type & density
+    _cb(37, "ANALYZE", "Mendeteksi tipe konten & kepadatan narasi…")
     content_info = detect_content_type(transcript, llm_fn=llm_fn)
+    logger.info("[ANALYZE] Content type: %s, density: %s", content_info.get("content_type"), content_info.get("density"))
     
-    # Stage 2: Narrative segmentation
+    # Sub-step 2: Narrative segmentation
+    _cb(40, "ANALYZE", "Memetakan struktur narasi video…")
     narrative_units = segment_narrative(transcript, content_info, llm_fn=llm_fn)
+    logger.info("[ANALYZE] Narrative units: %d", len(narrative_units))
     
-    # Stage 3: Highlight generation
+    # Sub-step 3: Highlight generation
+    _cb(44, "ANALYZE", "Mencari momen viral terbaik…")
     failed_chunks = []
     total_chunks = 1
     coverage_pct = 100
@@ -715,7 +736,8 @@ def get_highlights(
         coverage_pct = chunked_res.get("coverage_pct", 100)
     else:
         highlights = generate_highlights(transcript, narrative_units, content_info, num_clips, llm_fn)
-        
+    
+    _cb(49, "ANALYZE", f"Validasi {len(highlights)} highlight selesai")
     return {
         "highlights": highlights,
         "narrative_units": narrative_units,

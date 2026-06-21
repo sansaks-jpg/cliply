@@ -1236,17 +1236,18 @@ def _reframe_vertical(
     return out_path
 
 
-def _update_render_progress(task_id: str, current: int, total: int, msg: str):
+def _update_render_progress(task_id: str, current: int, total: int, msg: str, stage: str = "RENDER"):
     try:
         import asyncio
         from ..state import store
-        pct = 60.0 + (float(current) / float(total)) * 30.0
-        
+        # Range: 62% (setelah ANALYZE) → 90% (sebelum FINALIZE)
+        pct = 62.0 + (float(current) / float(total)) * 28.0
+
         loop = getattr(store, "loop", None)
-        
+
         if loop and loop.is_running():
             asyncio.run_coroutine_threadsafe(
-                store.set_progress(task_id, pct, "RENDER", msg), loop
+                store.set_progress(task_id, pct, stage, msg), loop
             )
         else:
             print(f"[render progress] Task {task_id}: {pct:.1f}% - {msg}", flush=True)
@@ -1254,7 +1255,7 @@ def _update_render_progress(task_id: str, current: int, total: int, msg: str):
                 if not getattr(store, "_use_redis", False) and task_id in store._mem_tasks:
                     r = store._mem_tasks[task_id]
                     r.progress = float(pct)
-                    r.stage = "RENDER"
+                    r.stage = stage
                     r.message = msg
                     r.status = "processing"
             except Exception:
@@ -1295,7 +1296,7 @@ def render_clips(
 
     # If transcript.json does not exist or has no segments, fall back to segments from main pipeline or cache
     for i, h in enumerate(highlights, 1):
-        _update_render_progress(task_id, i - 1, len(highlights), f"Merender klip {i} dari {len(highlights)}…")
+        _update_render_progress(task_id, i - 1, len(highlights), f"Smart crop klip {i}/{len(highlights)}…", "SMART_CROP")
         out_path = os.path.join(clips_dir, f"short_{i:02d}.mp4")
         cut_path = out_path + ".cut.mp4"
         clip_ass_path = os.path.join(clips_dir, f"short_{i:02d}.ass")
@@ -1361,6 +1362,7 @@ def render_clips(
                     subtitle_color_highlight=subtitle_color_highlight,
                 )
 
+            _update_render_progress(task_id, i - 1, len(highlights), f"Encoding klip {i}/{len(highlights)}…", "RENDER")
             _cut_subclip(source_path, h_start, h_end, cut_path, encoder_args)
             _reframe_vertical(
                 cut_path, out_path, aspect_ratio,

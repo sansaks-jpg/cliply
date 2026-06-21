@@ -11,6 +11,161 @@ This file documents the history of major modifications made to the `clip-ai` wor
 
 ---
 
+## [2026-06-21 20:08 WIB] — Seekable Video Player with Drag Scrubbing & Auto-Hide Controls
+
+### Summary
+Rebuilt the `VerticalPlayer` component from scratch to add a full-featured seekbar with drag support, buffered progress indicator, timestamp display, and auto-hiding controls — matching the UX of TikTok/Reels native players.
+
+### Changes
+* **`frontend/src/components/vertical-player.tsx`**:
+  * Added a draggable seekbar at the bottom of the player with three-layer track: played (white), buffered (translucent white), and unplayed (dim).
+  * Added a circular thumb that scales up on hover (`group-hover/bar:scale-125`) for easier grabbing.
+  * Added `currentTime / duration` timestamp display (`0:12 / 1:34`) above the seekbar.
+  * Implemented both **mouse drag** and **touch drag** seek via `window` event listeners (`mousemove`/`mouseup`, `touchmove`/`touchend`).
+  * Moved the mute toggle button inline next to the seekbar (right side) for a compact, unified control strip.
+  * Controls auto-hide after **2.5 seconds** of playback via `setTimeout`; re-appear instantly on any `mousemove` or `touchstart` event.
+  * Replaced the large center play button with a smaller frosted-glass button (`bg-white/20 backdrop-blur-md`) to match modern short-video aesthetics.
+  * Seekbar click area uses `data-seekbar` attribute to prevent bubbling to the parent `onClick` (play/pause toggle).
+
+---
+
+## [2026-06-21 20:06 WIB] — Backend Pipeline: Granular SSE Progress Events per Sub-Stage
+
+### Summary
+Fixed a long-standing UX bug where the frontend log panel was stuck showing "Finding viral moments…" even after the pipeline had progressed to Smart Crop / Render stages. Root cause: the `ANALYZE` stage emitted a single progress event at the start then ran silently in a thread pool for 1–3 minutes.
+
+### Changes
+* **`backend/app/engine/pipeline.py`**:
+  * Added `_emit(pct, stage, message)` — a thread-safe SSE emitter using `asyncio.run_coroutine_threadsafe` that can be called from inside thread pool workers.
+  * Passes `_emit` as `progress_callback` to `get_highlights()`.
+  * Added explicit `SMART_CROP` stage progress event (62%) before render loop begins.
+  * Translated all user-facing progress messages to Indonesian for consistency with frontend locale.
+  * Cleaned up inline `import logging` / `import json` into top-level imports.
+
+* **`backend/app/engine/highlights.py`**:
+  * `get_highlights()` now accepts an optional `progress_callback: Callable[[float, str, str], None]`.
+  * Emits three granular sub-step progress events during `ANALYZE`:
+    * **37%** — "Mendeteksi tipe konten & kepadatan narasi…" (content type detection)
+    * **40%** — "Memetakan struktur narasi video…" (narrative segmentation)
+    * **44%** — "Mencari momen viral terbaik…" (highlight generation)
+    * **49%** — "Validasi N highlight selesai" (post-validation summary)
+  * Added `logger.info` calls after each sub-step for server-side log observability.
+
+* **`backend/app/engine/render.py`**:
+  * `_update_render_progress()` now accepts an optional `stage` parameter (default `"RENDER"`) so it can emit `SMART_CROP` or `RENDER` stages independently.
+  * Progress range adjusted from `60–90%` to `62–90%` to align with the new pipeline sequence.
+  * Per-clip loop now emits `SMART_CROP` (face scan phase) at loop start, then `RENDER` (ffmpeg encoding phase) immediately before `_cut_subclip` is called — giving the user two distinct status updates per clip instead of one generic "Rendering clip N" message.
+
+---
+
+## [2026-06-21 20:00 WIB] — Task Page: Compact Split Layout — Video Fills Available Height
+
+### Summary
+Redesigned the completed-task layout so the left panel (video) fills as much vertical space as possible while keeping the download button and AI analysis permanently visible without any scrolling.
+
+### Changes
+* **`frontend/src/app/tasks/[id]/page.tsx`**:
+  * Left panel changed from fixed-size (`w-[220px] h-[391px]`) to `flex-1 min-h-0` with `style={{ aspectRatio: "9/16", maxHeight: "100%" }}` — the phone frame now scales to fill whatever vertical space remains after the label, download button, and AI analysis card.
+  * Removed the `AIAnalysisPanel` accordion component (was in right panel). AI analysis is now always-visible in the left panel below the download button using `flex-shrink-0`, `line-clamp-2` for hook and `line-clamp-3` for virality reason.
+  * Left panel uses `flex flex-col overflow-hidden` — nothing overflows or requires scrolling.
+  * Right panel clip list simplified: removed the per-clip inline `AIAnalysisPanel` expansion; each clip row is a flat, compact card.
+  * Header height reduced (`py-3` from `py-4`), buttons resized (`h-8`).
+  * Left panel width increased to `lg:w-[380px] xl:w-[420px]` to accommodate the taller video.
+
+---
+
+## [2026-06-21 19:56 WIB] — Task Page: Compact No-Scroll Layout & AI Analysis Moved to Left Panel
+
+### Summary
+Refactored the completed-task view to eliminate all scrolling from the left panel. AI analysis (hook sentence + virality reason) was moved from the right-panel accordion to a compact always-visible card below the download button on the left.
+
+### Changes
+* **`frontend/src/app/tasks/[id]/page.tsx`**:
+  * Removed `AIAnalysisPanel` accordion component entirely.
+  * Moved AI analysis inline into the left panel as a `flex-shrink-0` card with `line-clamp` text truncation — no scroll required.
+  * Right panel clip list returned to a simple flat list without accordion expansion per clip.
+  * Processing view clip grid changed from `grid-cols-3` to `grid-cols-4` for a more compact in-progress display.
+
+---
+
+## [2026-06-21 18:00 WIB] — Implementasi Soft Dark Mode yang Nyaman di Mata
+
+### Ringkasan Perubahan
+Menurunkan tingkat kepekatan warna hitam gelap gulita pada tema gelap (`.dark`) menjadi abu-abu arang/zinc-900 redup (`oklch(0.18 0 0)`) guna mengurangi kontras yang terlalu tinggi dan meningkatkan kenyamanan mata saat menatap layar lama, serupa dengan kenyamanan Discord atau GitHub dark mode.
+
+### Aktivitas Detail
+* **globals.css — `.dark`**:
+  * Mengganti `--background` dari `oklch(0.09 0 0)` (hitam pekat ekstrem) menjadi `oklch(0.18 0 0)` (abu-abu arang redup / zinc-900).
+  * Mengganti kontainer elevasi `--card`, `--popover`, dan `--sidebar` ke `oklch(0.22 0 0)` (abu-abu arang sedikit lebih terang / zinc-800).
+  * Menyesuaikan variabel warna interaksi `--secondary`, `--muted`, dan `--accent` ke `oklch(0.26 0 0)`.
+  * Menyesuaikan `--border` dan `--input` di `.dark` ke `oklch(0.28 0 0 / 60%)` agar tetap nampak bergradasi halus di atas latar belakang baru yang lebih lembut.
+
+## [2026-06-21 17:55 WIB] — Kalibrasi Warna Dark Mode Monokromatik Premium Terpadu
+
+### Ringkasan Perubahan
+Mengubah variabel warna CSS untuk tema gelap (`.dark`) pada `globals.css` agar menggunakan palet monokromatik murni (chroma 0, hitam pekat `#09090b` dan abu-abu arang batu `#121212`) yang terinspirasi dari Vercel/Linear, menggantikan warna zaitun/cokelat kusam lumpur bawaan lama yang kurang kontras.
+
+### Aktivitas Detail
+* **globals.css — `.dark`**:
+  * Mengganti `--background` dari `oklch(0.147 0.004 49.25)` (kuning-cokelat kusam) menjadi `oklch(0.09 0 0)` (hitam pekat minimalis).
+  * Mengganti `--card`, `--popover`, dan `--sidebar` dari rona kecokelatan kusam lama menjadi `oklch(0.12 0 0)` (abu-abu arang batu pekat elevasi).
+  * Menetapkan `--foreground` ke putih bersih gading netral `oklch(0.98 0 0)`.
+  * Menyelaraskan `--border` dan `--input` di `.dark` ke abu-abu tipis netral `oklch(0.20 0 0 / 60%)`.
+  * Memperbaiki `--primary` (tombol utama di dark mode) menjadi `oklch(0.98 0 0)` (putih bersih) dengan teks hitam pekat `oklch(0.09 0 0)` (`--primary-foreground`), serta membersihkan warna kusam pada variabel charts dan sidebar.
+
+## [2026-06-21 17:50 WIB] — Restrukturisasi Tata Letak Studio Split-Viewport pada Detail Tugas
+
+### Ringkasan Perubahan
+Mengunci tinggi halaman detail tugas (`[id]/page.tsx`) setinggi viewport (`h-screen overflow-hidden`) dan membagi area kerja menjadi dua kolom dengan scrolling independen. Hal ini menjaga pemutar video di sisi kiri tetap diam (sticky) sehingga pengguna bisa men-scroll daftar klip yang sangat banyak di sisi kanan dan mengkliknya tanpa kehilangan pandangan pada player utama.
+
+### Aktivitas Detail
+* **Halaman Detail Tugas — tasks/[id]/page.tsx**:
+  * Mengatur tinggi wadah halaman terluar menjadi `h-screen overflow-hidden` saat status `completed` agar tidak terjadi window scroll global.
+  * Memisahkan layout menjadi dua kolom scrollable independen:
+    * **Kolom Kiri (Visual Cinema Hub - 35% s.d 40% lebar)**: Berisi mockup pemutar video vertical 9:16 dan kartu detail analitik AI (Hook kalimat pembuka & konteks alur). Kolom ini dikunci diam di posisinya (fixed/sticky) dan selalu nampak utuh di layar.
+    * **Kolom Kanan (Selector Panel - 60% s.d 65% lebar)**: Berisi pengantar sumber URL dan daftar vertical scrollable untuk seluruh klip video hasil render.
+  * Menghilangkan fenomena scrolling bolak-balik atas-bawah yang melelahkan. Pengguna kini dapat dengan nyaman menggulir puluhan klip ke bawah di sisi kanan, lalu mengkliknya untuk langsung memicu pemutaran video di sisi kiri secara instan.
+
+## [2026-06-21 17:45 WIB] — Redesain Skema Warna Minimalis Monokromatik & Pembersihan Elemen "AI Slop"
+
+### Ringkasan Perubahan
+Mengubah seluruh skema warna pada halaman beranda dan detail tugas ke warna monokromatik bersih (putih bersih/hitam arang dengan aksen perak/zinc tipis) sekelas **Vercel/Linear** untuk menyajikan estetika minimalis profesional, serta membuang seluruh elemen gradasi pelangi mencolok dan glowing blobs yang memicu kesan "AI slop".
+
+### Aktivitas Detail
+* **Beranda — page.tsx**:
+  * Menghapus seluruh absolute blur blobs warna-warni (ungu, kuning, rose) mengambang di belakang konten agar background tetap bersih dengan grid halus.
+  * Menghapus warna gradasi pelangi `violet-500 → rose-500` pada teks judul Hero, digantikan dengan warna solid hitam kontras (`text-zinc-950`) di tema terang, dan putih kontras (`text-zinc-50`) di tema gelap.
+  * Mengubah focus ring dan border input URL dari ungu menyala menjadi warna netral hitam kontras / perak netral.
+  * Mengubah warna tombol "Buat Klip" utama dari gradasi ungu-violet ke warna solid hitam kontras (`bg-zinc-900` / `dark:bg-white`) yang sangat bersih.
+  * Menyederhanakan pemutar pratinjau subtitle mini dengan latar belakang gradasi gelap statis netral (`from-zinc-900 to-zinc-900/90`) yang menyerupai monitor video nyata, bukan gradasi warna-warni bergerak.
+  * Merestrukturisasi selector aspek rasio dan preset gaya subtitle agar menggunakan aksen warna terpilih hitam/putih solid yang bersih.
+* **Halaman Detail Tugas — tasks/[id]/page.tsx**:
+  * Menghapus aksen warna ungu menyala pada pipeline stepper, digantikan dengan warna kontras netral (hitam/putih/abu-abu).
+  * Slider progres bar menggunakan warna solid hitam kontras (`bg-zinc-900` / `dark:bg-white`) bukan gradasi violet.
+  * Menghapus shadow glow ungu pada mockup smartphone 9:16, digantikan dengan bayangan tipis netral yang realistis.
+  * Tombol download klip video diubah dari gradasi ungu-violet ke warna solid hitam kontras / putih kontras netral.
+  * Item klip terpilih pada daftar selector sisi kanan menggunakan aksen border kontras hitam/putih (`border-zinc-900` / `dark:border-zinc-300`) dan latar abu-abu halus, bukan warna ungu bercahaya.
+  * Score badge dan analisis data menggunakan warna monokromatik netral.
+
+## [2026-06-21 17:40 WIB] — Desain Studio UI/UX Modern Terintegrasi (v2.0) & Refactoring Navigasi Workspace
+
+### Ringkasan Perubahan
+Melakukan overhaul terhadap tata letak dan interaksi UI/UX di halaman beranda (`page.tsx`) dan halaman detail tugas (`[id]/page.tsx`) untuk memberikan pengalaman workspace studio premium kelas dunia (saas-look) yang bersih, "satset", bebas dari kesan "AI slop", dengan optimalisasi pemakaian memori peramban secara signifikan.
+
+### Aktivitas Detail
+* **Beranda — page.tsx**:
+  * Mengganti layout split sidebar kiri-kanan yang kaku dengan layout **Unified Studio Workspace** terpusat yang sangat elegan.
+  * Input URL YouTube diletakkan di tengah dengan card glassmorphic menonjol berukuran besar yang responsif untuk fokus aksi instan.
+  * Opsi parameter AI dipindah ke panel laci lipat/accordion *"Konfigurasi & Gaya Studio"* terintegrasi di bawah kolom input URL.
+  * Menyematkan **Interactive Subtitle Canvas** (simulasi media player 16:9) yang di-render secara interaktif dengan gelombang audio CSS, latar belakang gradasi dinamis `animate-gradient`, dan rendering teks karaoke real-time yang berganti animasi secara otomatis berdasarkan preset gaya terpilih.
+  * Menata riwayat proyek terbaru dalam bentuk Grid Card minimalis yang menawan dengan detail metadata jam pemrosesan dan tombol hapus/buka yang responsif.
+* **Halaman Detail Tugas — tasks/[id]/page.tsx**:
+  * Mengubah model rendering multipel tag video yang memboroskan memori GPU (satu player per klip) menjadi model **Studio Workspace Split-Screen**.
+  * Sisi Kiri (Cinema Hub): Menampilkan satu **Vertical Player Utama** yang besar di dalam frame mockup smartphone 9:16 yang realistis (dilengkapi notch + shadow 3D melayang).
+  * Sisi Kanan (Selector Panel): Menampilkan daftar klip hasil render dalam bentuk panel list vertical yang bersih. Mengklik klip di daftar kanan akan langsung memuat dan memutar klip tersebut di player utama sebelah kiri.
+  * Mengintegrasikan kartu analitis detail (*Analisis Klip Aktif*) berisi kalimat hook pembuka dan dinamika alur viral yang memperbarui isinya secara dinamis mengikuti klip aktif yang dipilih.
+  * Mendesain ulang visualisasi stepper progres pengolahan pipeline (Download, Transkripsi, Highlights, Smart Crop, Render, Finalize) menjadi panel indikator status menyala berurutan dengan spinner loader.
+
 ## [2026-06-21 17:25 WIB] — Perbaikan Bug Visual Layout Subtitle ASS, Overhaul Performa Rendering Blur, dan Efek Ease-Out Pop-Up
 
 ### Ringkasan Perubahan
