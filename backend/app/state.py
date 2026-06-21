@@ -388,14 +388,12 @@ class TaskStore:
     async def delete(self, task_id: str) -> bool:
         from .config import STORAGE_DIR
         import shutil
-        import os
-        
         task_dir = STORAGE_DIR / task_id
         if task_dir.exists() and task_dir.is_dir():
             try:
                 await asyncio.to_thread(shutil.rmtree, task_dir)
                 log.info("Deleted storage directory for task %s", task_id)
-            except Exception as e:
+            except OSError as e:
                 log.error("Failed to delete storage directory %s: %s", task_dir, e)
 
         if await self._ensure_backend():
