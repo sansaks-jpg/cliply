@@ -388,7 +388,7 @@ class TaskStore:
     async def delete(self, task_id: str) -> bool:
         from .config import STORAGE_DIR
         import shutil
-        import os
+
         
         task_dir = STORAGE_DIR / task_id
         if task_dir.exists() and task_dir.is_dir():
