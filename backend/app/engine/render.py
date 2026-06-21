@@ -737,7 +737,7 @@ def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: i
         scenes.append(current_scene)
         
     # 2. Terapkan moving average di dalam masing-masing scene secara terpisah
-    window_size = 3  # FIX: Turunin ke 3 biar gak telat ngerender pergerakan
+    window_size = 3
     half_w = window_size // 2
     
     for scene in scenes:
