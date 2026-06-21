@@ -7,6 +7,7 @@ from typing import Dict
 
 from . import muapi
 from .downloader import _extract_video_url
+from .muapi import MuAPIError
 
 
 def crop_clip(source_video_url: str, start_time: float, end_time: float, aspect_ratio: str = "9:16") -> str:
@@ -35,7 +36,7 @@ def crop_highlights(source_video_url: str, highlights: list, aspect_ratio: str =
                 aspect_ratio=aspect_ratio,
             )
             out.append({**h, "clip_url": url})
-        except Exception as e:
+        except (MuAPIError, RuntimeError, KeyError, ValueError) as e:
             print(f"[clip] {i} failed: {e}", flush=True)
             out.append({**h, "clip_url": None, "error": str(e)})
     return out
