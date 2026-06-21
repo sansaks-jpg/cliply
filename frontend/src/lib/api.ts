@@ -4,7 +4,7 @@
  * http://localhost:8000; in docker-compose it's the backend service name.
  */
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 export interface TaskClip {
   title: string;
