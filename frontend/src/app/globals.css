@@ -3,7 +3,6 @@
 @import "tw-animate-css";
 @import "tw-shimmer";
 
-
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -124,51 +123,102 @@
     -webkit-user-select: none;
     user-select: none;
   }
+  html {
+    scroll-behavior: smooth;
+  }
 }
 
+/* ── Glassmorphism ──────────────────────────────────────────────── */
+.glass {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.dark .glass {
+  background: rgba(23, 23, 23, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.glass-strong {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+.dark .glass-strong {
+  background: rgba(23, 23, 23, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
 
-/* Landing page animations */
+/* ── Animated background blobs ───────────────────────────────────── */
+@keyframes blob-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(30px, -40px) scale(1.05); }
+  50% { transform: translate(-20px, 20px) scale(0.95); }
+  75% { transform: translate(40px, 30px) scale(1.02); }
+}
+@keyframes blob-float-2 {
+  0%, 100% { transform: translate(0, 0) scale(1) rotate(0deg); }
+  33% { transform: translate(-40px, -30px) scale(1.1) rotate(5deg); }
+  66% { transform: translate(20px, 40px) scale(0.9) rotate(-3deg); }
+}
+@keyframes blob-float-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-30px, -50px) scale(1.08); }
+}
+.animate-blob { animation: blob-float 18s ease-in-out infinite; }
+.animate-blob-2 { animation: blob-float-2 22s ease-in-out infinite; }
+.animate-blob-3 { animation: blob-float-3 16s ease-in-out infinite; }
+.animation-delay-2000 { animation-delay: 2s; }
+.animation-delay-4000 { animation-delay: 4s; }
+
+/* ── Gradient text shimmer ───────────────────────────────────────── */
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradient-shift 4s ease infinite;
+}
+
+/* ── Glow ring ───────────────────────────────────────────────────── */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+}
+
+/* ── Existing animations ─────────────────────────────────────────── */
 @keyframes landing-fade-in-up {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes landing-float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-6px); }
 }
-
 @keyframes landing-scan-line {
   0% { left: 5%; opacity: 0; }
   10% { opacity: 1; }
   90% { opacity: 1; }
   100% { left: 90%; opacity: 0; }
 }
-
 @keyframes landing-clip-pulse {
   0%, 100% { border-color: oklch(0.216 0.006 56.043 / 0.15); }
   50% { border-color: oklch(0.216 0.006 56.043 / 0.45); }
 }
-
-/* Batch command bar */
 @keyframes command-bar-in {
-  from {
-    opacity: 0;
-    transform: translateY(100%) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
+  from { opacity: 0; transform: translateY(100%) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
-
 @keyframes command-bar-pulse {
   0%, 100% { box-shadow: 0 -4px 30px oklch(0.216 0.006 56.043 / 0.12); }
   50% { box-shadow: 0 -4px 30px oklch(0.216 0.006 56.043 / 0.22); }
 }
+
+/* ── Scrollbar ───────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: oklch(0.8 0.01 50 / 0.3); border-radius: 3px; }
+.dark ::-webkit-scrollbar-thumb { background: oklch(0.3 0.01 50 / 0.4); }

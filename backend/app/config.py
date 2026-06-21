@@ -45,6 +45,65 @@ LONG_VIDEO_THRESHOLD = _get_int("LONG_VIDEO_THRESHOLD", 1800)
 CHUNK_SIZE_SECONDS = _get_int("CHUNK_SIZE_SECONDS", 1200)
 CHUNK_OVERLAP_SECONDS = _get_int("CHUNK_OVERLAP_SECONDS", 60)
 
+# --- FFmpeg encoder ----------------------------------------------------------
+FFMPEG_ENCODER = _get("FFMPEG_ENCODER", "auto").lower()
+
+ENCODER_MAP: dict[str, str] = {
+    "nvidia": "h264_nvenc -preset p4 -rc vbr -cq 20",
+    "intel":  "h264_qsv -global_quality 20",
+    "amd":    "h264_amf -quality quality -usage transcoding",
+    "cpu":    "libx264 -preset fast -crf 20",
+}
+
+
+_ENCODER_CACHE: dict[str, bool] | None = None
+
+
+def _detect_encoders() -> dict[str, bool]:
+    global _ENCODER_CACHE
+    if _ENCODER_CACHE is not None:
+        return _ENCODER_CACHE
+    import subprocess
+    result: dict[str, bool] = {"nvidia": False, "intel": False, "amd": False}
+    try:
+        out = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.lower()
+        result["nvidia"] = "nvenc" in out
+        result["intel"] = "qsv" in out
+        result["amd"] = "amf" in out
+    except Exception:
+        pass
+    _ENCODER_CACHE = result
+    return result
+
+
+def get_available_encoders() -> list[str]:
+    """Return list of encoder keys available on this machine."""
+    avail = _detect_encoders()
+    keys = ["auto"]
+    for k in ("nvidia", "intel", "amd"):
+        if avail.get(k):
+            keys.append(k)
+    keys.append("cpu")
+    return keys
+
+
+def resolve_encoder(encoder: str) -> str:
+    """Return ffmpeg `-c:v ...` args string for the given encoder key.
+    
+    'auto' → picks first available HW encoder, falls back to libx264.
+    """
+    if encoder == "auto":
+        avail = _detect_encoders()
+        for hw in ("nvidia", "intel", "amd"):
+            if avail.get(hw):
+                return ENCODER_MAP[hw]
+        return ENCODER_MAP["cpu"]
+    return ENCODER_MAP.get(encoder, ENCODER_MAP["cpu"])
+
+
 # --- Infra -------------------------------------------------------------------
 REDIS_URL = _get("REDIS_URL", "redis://localhost:6379")
 # Storage dir is resolved relative to the repo root and created lazily.

@@ -5,7 +5,7 @@ Blocking calls run via asyncio.to_thread to avoid stalling the event loop.
 import asyncio
 from typing import Dict, List, Optional
 
-from ..config import FONTS_DIR, SUBTITLE_STYLE_DEFAULT, STORAGE_DIR
+from ..config import FONTS_DIR, SUBTITLE_STYLE_DEFAULT, STORAGE_DIR, FFMPEG_ENCODER
 from ..state import store
 from .downloader import download_video
 from .highlights import get_highlights
@@ -23,6 +23,7 @@ async def run_pipeline(
     language: Optional[str],
     subtitle_style: Optional[str] = None,
     face_detector: str = "yunet",
+    encoder: str = "auto",
 ) -> None:
     try:
         await store.set_progress(task_id, 0, "DOWNLOAD", "Starting download…")
@@ -71,6 +72,9 @@ async def run_pipeline(
         )
         await store.set_progress(task_id, 60, "SUBTITLES", "Subtitles ready")
 
+        # Get encoder from task record (allow override per-task)
+        s_encoder = getattr(record, "encoder", None) or encoder
+
         # Stage 6: Render vertical clips with subtitle burn-in
         clips = await asyncio.to_thread(
             render_clips,
@@ -85,6 +89,7 @@ async def run_pipeline(
             subtitle_font=s_font,
             subtitle_color_primary=s_color_primary,
             subtitle_color_highlight=s_color_highlight,
+            encoder=s_encoder,
         )
 
         clip_count = sum(1 for c in clips if c.get("clip_url"))

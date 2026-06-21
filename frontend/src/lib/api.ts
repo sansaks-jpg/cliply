@@ -29,6 +29,7 @@ export interface Task {
   subtitle_font: string | null;
   subtitle_color_primary: string | null;
   subtitle_color_highlight: string | null;
+  encoder: string | null;
   status: "queued" | "processing" | "completed" | "error" | "cancelled";
   progress: number;
   stage: string;
@@ -52,6 +53,18 @@ export interface CreateTaskOptions {
   subtitle_font?: string;
   subtitle_color_primary?: string;
   subtitle_color_highlight?: string;
+  encoder?: string;
+}
+
+export interface AvailableEncoders {
+  available: string[];
+  current: string;
+}
+
+export async function getAvailableEncoders(): Promise<AvailableEncoders> {
+  const res = await fetch(`${API_URL}/encoders`);
+  if (!res.ok) return { available: ["auto", "cpu"], current: "auto" };
+  return res.json();
 }
 
 /** Resolve a clip_url returned by the backend into an absolute URL.

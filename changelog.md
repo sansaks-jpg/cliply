@@ -11,7 +11,60 @@ This file documents the history of major modifications made to the `clip-ai` wor
 
 ---
 
-## [2026-06-21 02:06 WIB] — Perbaikan 4 Bug ASS Terverifikasi: Blur, Karaoke Sweep, Word Box Highlight, dan Header Shadow
+## [2026-06-21 03:00 WIB] — UI/UX Overhaul Frontend & GPU Hardware Encoding dengan Auto-Detect
+
+### Ringkasan Perubahan
+Redesain total tampilan frontend menjadi lebih modern dengan glassmorphism, animasi background, dan interaksi yang lebih halus. Menambahkan dukungan GPU hardware encoding (NVIDIA NVENC, Intel QSV, AMD AMF) dengan auto-detect, bisa dipilih langsung dari pengaturan frontend.
+
+### Aktivitas Detail
+
+* **Redesain Homepage (`page.tsx`)**:
+  * Menambahkan background animasi gradient blobs mengambang sebagai latar hero
+  * Mengganti navbar solid dengan glassmorphism (`backdrop-blur` + border transparan) dan logo gradient
+  * Input URL sekarang punya glow effect (shadow amber + border highlight) saat focus
+  * Tombol submit diganti gradient `amber → rose → violet` dengan shadow glow
+  * Kartu template subtitle dikasih efek scan-line, label gradient, checkmark lebih premium
+  * Riwayat tugas pakai glass cards dengan hover animation, delete button muncul pas di-hover
+  * Hero badge pake glass effect, heading pake `animate-gradient` biar warnanya bergerak
+
+* **Redesain Task Page (`tasks/[id]/page.tsx`)**:
+  * Navbar, metadata card, progress card, clip cards — semuanya pake glassmorphism
+  * Status badge processing pake animated ping dot (bukan spinner biasa)
+  * Tombol download clip pake gradient `amber → rose` dengan shadow
+  * State "completed" punya badge "Selesai" glass + heading gradient animasi
+  * Terminal log panel dikasih `backdrop-blur`
+
+* **Custom Video Player (`vertical-player.tsx`)**:
+  * Play/pause overlay dengan backdrop blur
+  * Mute/unmute toggle
+  * Gradient hitam di bawah video
+  * Overlay auto-hide saat video diputar
+
+* **CSS Utilities (`globals.css`)**:
+  * Kelas `.glass` dan `.glass-strong` untuk glassmorphism reusable
+  * Animasi blob (`animate-blob`, `animate-blob-2`, `animate-blob-3`) dengan parallax
+  * `animate-gradient` untuk background gradient yang bergerak
+  * `glow-pulse` untuk efek ring
+  * Custom scrollbar styling
+  * `scroll-behavior: smooth`
+
+* **Metadata Layout (`layout.tsx`)**:
+  * Memperbaiki title & description jadi lebih deskriptif
+
+* **GPU Hardware Encoding dengan Auto-Detect**:
+  * **config.py**: Menambahkan `ENCODER_MAP` untuk 4 mode (NVIDIA/intel/amd/cpu) + fungsi `_detect_encoders()` yang menjalankan `ffmpeg -encoders` sekali saat startup (dicache) untuk mendeteksi encoder HW yang tersedia
+  * **config.py**: `resolve_encoder()` — memilih HW encoder pertama yang available saat mode "auto", fallback ke libx264 jika tidak ada GPU
+  * **config.py**: `get_available_encoders()` — return list encoder keys yang terdeteksi, digunakan frontend untuk render dropdown
+  * **render.py**: `_cut_subclip`, `_mux_with_subtitles`, `_reframe_vertical`, `render_clips` — semua fungsi ffmpeg sekarang terima `encoder_args` dinamis, bukan hardcoded `libx264 -preset fast -crf 20`
+  * **state.py**: Field `encoder` ditambahkan di `TaskRecord`, `to_dict()`, `create()`, `_record_from_dict()`
+  * **queue.py**: `enqueue_task()` dan `_run_pipeline_wrapper()` pass `encoder` ke pipeline
+  * **pipeline.py**: `run_pipeline()` pass `encoder` ke `render_clips()`, mengambil dari task record
+  * **routes/tasks.py**: Field `encoder` di `CreateTaskRequest`, dikirim ke `store.create()`
+  * **main.py**: Endpoint `GET /encoders` untuk frontend auto-detect
+  * **frontend api.ts**: Fungsi `getAvailableEncoders()`, field `encoder` di `CreateTaskOptions` dan `Task`
+  * **frontend page.tsx**: Dropdown "Encoder GPU/CPU" di pengaturan krucial (5 kolom), otomatis mendeteksi HW yang tersedia saat halaman dimuat dan menampilkan hanya opsi yang relevan (auto, nvidia, intel, amd, cpu)
+
+---
 
 ### Ringkasan Perubahan
 Memperbaiki empat bug pada implementasi ASS (`subtitles.py`) yang terverifikasi tidak sesuai spesifikasi libass/ASS: (1) parameter `blur` salah di-map ke field `Shadow` header, bukan inline tag `\blur`; (2) `karaoke_sweep` identik dengan `karaoke_fill`; (3) `word_box_highlight` tidak menghasilkan box per-kata yang sesungguhnya; (4) komentar kode menyebut "Shadow doubles as blur" yang tidak akurat secara spesifikasi ASS.

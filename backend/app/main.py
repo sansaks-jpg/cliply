@@ -61,3 +61,12 @@ async def health() -> dict:
         "storage_ok": storage_ok,
         "llm_provider": config.LLM_PROVIDER,
     }
+
+
+@app.get("/encoders")
+async def list_encoders() -> dict:
+    """Detect available ffmpeg encoders on this machine."""
+    return {
+        "available": config.get_available_encoders(),
+        "current": config.FFMPEG_ENCODER,
+    }

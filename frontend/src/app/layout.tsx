@@ -22,8 +22,8 @@ const syne = Syne({
 });
 
 export const metadata: Metadata = {
-  title: "Clip AI",
-  description: "Turn long videos into viral-ready 9:16 shorts.",
+  title: "Clip AI — YouTube to Viral Shorts",
+  description: "Ubah video YouTube jadi klip vertikal 9:16 viral dengan subtitle karaoke AI. Gratis, tanpa daftar.",
 };
 
 export default function RootLayout({

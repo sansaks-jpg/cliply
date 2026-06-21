@@ -10,7 +10,6 @@ import {
   CheckCircle,
   AlertCircle,
   Zap,
-  Play,
   Scissors,
   FileVideo,
   Sparkles,
@@ -19,7 +18,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { API_URL, getTask, type Task, type TaskClip } from "@/lib/api";
 import { VerticalPlayer } from "@/components/vertical-player";
@@ -55,7 +53,7 @@ function ClipCard({ clip }: { clip: TaskClip }) {
       : `${API_URL}${clip.clip_url.startsWith("/") ? "" : "/"}${clip.clip_url}`
     : "";
   return (
-    <div className="group rounded-2xl border border-stone-200/80 dark:border-stone-850 overflow-hidden bg-white dark:bg-stone-900 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col h-full">
+    <div className="group rounded-2xl border border-stone-200/60 dark:border-stone-800/60 overflow-hidden bg-white/70 dark:bg-stone-900/70 backdrop-blur-sm shadow-sm hover:shadow-xl hover:-translate-y-1.5 transition-all duration-300 flex flex-col h-full">
       <div className="relative aspect-[9/16] w-full bg-stone-950 flex-shrink-0">
         {href ? (
           <VerticalPlayer src={href} />
@@ -112,7 +110,7 @@ function ClipCard({ clip }: { clip: TaskClip }) {
             </Alert>
           ) : (
             href && (
-              <Button asChild size="sm" className="w-full h-10 rounded-xl bg-stone-900 hover:bg-stone-800 dark:bg-stone-100 dark:hover:bg-stone-200 dark:text-stone-900 font-medium transition-all shadow-sm">
+              <Button asChild size="sm" className="w-full h-10 rounded-xl bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 dark:from-amber-400 dark:to-rose-400 dark:hover:from-amber-500 dark:hover:to-rose-500 text-white font-semibold transition-all shadow-md shadow-amber-500/20 hover:shadow-lg hover:shadow-amber-500/30">
                 <a href={href} download={`clip-${clip.title?.toLowerCase().replace(/[^a-z0-9]/g, "-") || "short"}.mp4`}>
                   <Download className="w-4 h-4 mr-2" />
                   Unduh MP4
@@ -144,8 +142,8 @@ function ProgressView({ task }: { task: Task }) {
   };
 
   return (
-    <div className="max-w-md mx-auto bg-white dark:bg-stone-900 border border-stone-200/80 dark:border-stone-800/80 rounded-2xl p-8 shadow-lg dark:shadow-stone-950/30 text-center space-y-6 my-8 animate-in fade-in slide-in-from-bottom-6 duration-500">
-      <div className="w-14 h-14 mx-auto rounded-full bg-stone-50 dark:bg-stone-950 flex items-center justify-center border border-stone-100 dark:border-stone-850 shadow-inner">
+    <div className="max-w-md mx-auto glass-strong rounded-2xl p-8 shadow-lg dark:shadow-stone-950/30 text-center space-y-6 my-8 animate-in fade-in slide-in-from-bottom-6 duration-500 hover:shadow-xl transition-shadow">
+      <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-stone-50 to-stone-100 dark:from-stone-950 dark:to-stone-900 flex items-center justify-center border border-stone-200 dark:border-stone-800 shadow-inner">
         {getStageIcon(task.stage || "")}
       </div>
 
@@ -160,9 +158,9 @@ function ProgressView({ task }: { task: Task }) {
 
       {pct > 0 && (
         <div className="space-y-2 pt-2">
-          <div className="h-2 bg-stone-100 dark:bg-stone-950 rounded-full overflow-hidden border border-stone-200/20 dark:border-stone-850/50">
+          <div className="h-2.5 bg-stone-100 dark:bg-stone-950 rounded-full overflow-hidden border border-stone-200/20 dark:border-stone-850/50 shadow-inner">
             <div
-              className="h-full bg-gradient-to-r from-amber-500 via-rose-500 to-violet-600 dark:from-amber-400 dark:via-rose-400 dark:to-violet-500 transition-all duration-700 ease-out"
+              className="h-full bg-gradient-to-r from-amber-500 via-rose-500 to-violet-600 dark:from-amber-400 dark:via-rose-400 dark:to-violet-500 transition-all duration-700 ease-out rounded-full"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -397,27 +395,27 @@ export default function TaskPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-stone-50 via-white to-stone-100/50 dark:from-stone-950 dark:via-stone-900 dark:to-stone-950 text-foreground transition-colors duration-300">
       {/* Top Navbar */}
-      <div className="border-b border-stone-200/50 dark:border-stone-850/80 sticky top-0 bg-white/80 dark:bg-stone-900/80 backdrop-blur-md z-10 transition-colors">
+      <div className="border-b border-stone-200/40 dark:border-stone-850/60 sticky top-0 z-10 glass-strong transition-colors">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/">
-            <Button variant="ghost" size="sm" className="rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Klip Baru
+            <Button variant="ghost" size="sm" className="rounded-lg hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors gap-1.5">
+              <ArrowLeft className="w-4 h-4" />
+              <span className="hidden sm:inline">Klip Baru</span>
             </Button>
           </Link>
           
           <div className="flex items-center gap-3">
-            <span className="text-xs text-stone-400 dark:text-stone-500 max-w-[200px] truncate hidden sm:inline-block">
-              Task ID: {task.task_id}
+            <span className="text-xs text-stone-400 dark:text-stone-500 max-w-[200px] truncate hidden sm:inline-block font-mono">
+              {task.task_id.slice(0, 8)}...
             </span>
             <Badge
               variant="outline"
-              className={`px-2.5 py-1 rounded-full text-xs font-semibold capitalize transition-all ${
+              className={`px-3 py-1 rounded-full text-xs font-semibold capitalize transition-all ${
                 task.status === "completed"
                   ? "border-emerald-300 text-emerald-700 bg-emerald-50 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30"
                   : task.status === "error"
                     ? "border-rose-300 text-rose-700 bg-rose-50 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30"
-                    : "border-stone-300 text-stone-700 bg-stone-50 dark:bg-stone-950/20 dark:text-stone-400 dark:border-stone-800"
+                    : "border-amber-300 text-amber-700 bg-amber-50 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900/30"
               }`}
             >
               {task.status === "completed" ? (
@@ -425,7 +423,10 @@ export default function TaskPage() {
               ) : task.status === "error" ? (
                 <AlertCircle className="w-3.5 h-3.5 mr-1" />
               ) : (
-                <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                <div className="mr-1 relative flex h-3 w-3 items-center justify-center">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                </div>
               )}
               {task.status}
             </Badge>
@@ -437,7 +438,7 @@ export default function TaskPage() {
                 className="rounded-lg text-xs gap-1.5 border-stone-200 dark:border-stone-800 hover:bg-stone-50 dark:hover:bg-stone-850 h-8 font-medium transition-all"
               >
                 <Terminal className="w-3.5 h-3.5 text-stone-500 dark:text-stone-400" />
-                {showLogs ? "Sembunyikan Log" : "Tampilkan Log"}
+                {showLogs ? "Sembunyikan" : "Log"}
               </Button>
             )}
             <ThemeToggle />
@@ -448,7 +449,7 @@ export default function TaskPage() {
 
       <div className="max-w-6xl mx-auto px-6 py-12">
         {/* Task Info & Original Video Metadata */}
-        <div className="bg-white dark:bg-stone-900/40 border border-stone-200/50 dark:border-stone-850 p-6 rounded-2xl shadow-sm space-y-3 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="glass-strong rounded-2xl p-6 space-y-3 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex items-center gap-2.5 text-stone-500 dark:text-stone-400 text-xs uppercase tracking-wider font-bold">
             <FileVideo className="w-4 h-4 text-rose-500" />
             <span>Video Asli</span>
@@ -491,7 +492,7 @@ export default function TaskPage() {
 
               {/* Detailed Logs Panel */}
               {showLogs && (
-                <div className="bg-stone-950 text-stone-200 border border-stone-800 dark:border-stone-900 rounded-2xl shadow-xl p-5 font-mono text-[11px] flex flex-col h-[320px] lg:h-[350px] animate-in slide-in-from-right-4 duration-300">
+                <div className="bg-stone-950/95 text-stone-200 border border-stone-800/80 dark:border-stone-900 rounded-2xl shadow-2xl p-5 font-mono text-[11px] flex flex-col h-[320px] lg:h-[350px] animate-in slide-in-from-right-4 duration-300 backdrop-blur-sm">
                   <div className="flex items-center justify-between border-b border-stone-800 pb-3 mb-3">
                     <div className="flex items-center gap-2">
                       <span className="relative flex h-2 w-2">
@@ -586,8 +587,12 @@ export default function TaskPage() {
               </Alert>
             ) : (
               <div className="space-y-6">
-                <div className="text-center space-y-2 mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-amber-500 to-rose-500">Klip Viral Siap Diunduh!</h2>
+                <div className="text-center space-y-3 mb-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full glass text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-2">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    <span>Selesai</span>
+                  </div>
+                  <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-amber-500 via-rose-500 to-violet-600 dark:from-amber-400 dark:via-rose-400 dark:to-violet-500 animate-gradient">Klip Viral Siap Diunduh!</h2>
                   <p className="text-sm text-stone-500 dark:text-stone-400">
                     AI berhasil mengekstrak {task.clips?.length ?? 0} klip viral dengan pelacakan wajah cerdas dan subtitle karaoke otomatis.
                   </p>

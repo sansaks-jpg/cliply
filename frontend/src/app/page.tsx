@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { createTask, deleteTask } from "@/lib/api";
+import { createTask, deleteTask, getAvailableEncoders } from "@/lib/api";
 
 const YOUTUBE_RE =
   /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|shorts\/|embed\/|live\/)|youtu\.be\/).+/i;
@@ -24,6 +24,7 @@ export default function Home() {
   const router = useRouter();
   const [url, setUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [urlFocused, setUrlFocused] = useState(false);
   
   // Advanced Options state
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -33,6 +34,16 @@ export default function Home() {
   const [language, setLanguage] = useState("auto");
   const [subtitleStyle, setSubtitleStyle] = useState("viral-bold");
   const [faceDetector, setFaceDetector] = useState("yunet");
+  const [encoder, setEncoder] = useState("auto");
+  const [availableEncoders, setAvailableEncoders] = useState<string[]>(["auto", "cpu"]);
+
+  // Fetch available encoders on mount
+  useEffect(() => {
+    getAvailableEncoders().then((res) => {
+      setAvailableEncoders(res.available);
+      setEncoder(res.current);
+    }).catch(() => {});
+  }, []);
 
   // Custom Style overrides state
   const [customStyle, setCustomStyle] = useState(false);
@@ -79,6 +90,7 @@ export default function Home() {
         language: language === "auto" ? undefined : language,
         subtitle_style: subtitleStyle,
         face_detector: faceDetector,
+        encoder,
         ...(customStyle ? {
           subtitle_font: subtitleFont,
           subtitle_color_primary: subtitleColorPrimary,
@@ -200,15 +212,22 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-stone-50 via-white to-stone-100/50 dark:from-stone-950 dark:via-stone-900 dark:to-stone-950 text-foreground transition-colors duration-300">
+    <main className="min-h-screen bg-gradient-to-b from-stone-50 via-white to-stone-100/50 dark:from-stone-950 dark:via-stone-900 dark:to-stone-950 text-foreground transition-colors duration-300 relative overflow-x-hidden">
+      {/* Animated Background Blobs */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
+        <div className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full bg-gradient-to-br from-amber-200/30 via-rose-200/20 to-transparent dark:from-amber-500/5 dark:via-rose-500/5 blur-3xl animate-blob" />
+        <div className="absolute -bottom-40 -right-40 w-[600px] h-[600px] rounded-full bg-gradient-to-tl from-violet-200/30 via-fuchsia-200/20 to-transparent dark:from-violet-500/5 dark:via-fuchsia-500/5 blur-3xl animate-blob-2 animation-delay-2000" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] rounded-full bg-gradient-to-r from-cyan-200/20 to-sky-200/20 dark:from-cyan-500/5 dark:to-sky-500/5 blur-3xl animate-blob-3 animation-delay-4000" />
+      </div>
+
       {/* Top Navbar */}
-      <header className="border-b border-stone-200/50 dark:border-stone-855 sticky top-0 bg-white/80 dark:bg-stone-900/80 backdrop-blur-md z-10 transition-colors">
+      <header className="border-b border-stone-200/50 dark:border-stone-855 sticky top-0 z-10 glass-strong transition-colors">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-stone-900 dark:bg-stone-100 flex items-center justify-center">
-              <Sparkles className="w-4.5 h-4.5 text-white dark:text-stone-900 animate-pulse" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-rose-500 flex items-center justify-center shadow-lg shadow-amber-500/20">
+              <Sparkles className="w-5 h-5 text-white" />
             </div>
-            <span className="font-extrabold text-lg tracking-tight font-syne text-stone-900 dark:text-white">
+            <span className="font-extrabold text-xl tracking-tight font-syne bg-clip-text text-transparent bg-gradient-to-r from-stone-900 to-stone-600 dark:from-white dark:to-stone-400">
               Clip AI
             </span>
           </div>
@@ -216,36 +235,42 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-6 py-12 sm:py-16">
-        {/* Header Section */}
-        <div className="text-center mb-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="inline-flex items-center gap-2 mb-4 px-3 py-1 rounded-full bg-stone-100 dark:bg-stone-800 text-xs font-medium text-stone-600 dark:text-stone-300 border border-stone-200/50 dark:border-stone-700/50 shadow-sm transition-all duration-300 hover:scale-105">
-            <Sparkles className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
-            <span>AI Viral Short Video Clipper</span>
+      <div className="max-w-4xl mx-auto px-6 py-12 sm:py-16 relative">
+        {/* Hero Section */}
+        <div className="text-center mb-14 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="inline-flex items-center gap-2 mb-5 px-4 py-1.5 rounded-full glass text-xs font-semibold text-stone-600 dark:text-stone-300 shadow-sm hover:scale-105 transition-all duration-300">
+            <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+            <span>AI-Powered Viral Short Video Clipper</span>
           </div>
-          <h1 className="text-4xl sm:text-6xl font-extrabold text-stone-900 dark:text-white mb-4 tracking-tight leading-none">
+          <h1 className="text-5xl sm:text-7xl font-extrabold text-stone-900 dark:text-white mb-5 tracking-tight leading-[1.05]">
             Tempel Link YouTube.
             <br />
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-500 via-rose-500 to-violet-600 dark:from-amber-400 dark:via-rose-400 dark:to-violet-500">
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-amber-500 via-rose-500 to-violet-600 dark:from-amber-400 dark:via-rose-400 dark:to-violet-500 animate-gradient">
               Hasilkan Video Viral 9:16.
             </span>
           </h1>
-          <p className="text-stone-500 dark:text-stone-400 max-w-xl mx-auto text-base sm:text-lg font-light leading-relaxed">
-            AI kami akan mengunduh, mentranskripsi, mendeteksi momen paling seru, dan memotong video secara vertikal menggunakan pelacakan wajah cerdas.
+          <p className="text-stone-500 dark:text-stone-400 max-w-2xl mx-auto text-base sm:text-lg font-light leading-relaxed">
+            AI akan mengunduh, mentranskripsi, mendeteksi momen viral, melacak wajah, dan memotong video vertikal dengan subtitle karaoke — semuanya otomatis.
           </p>
         </div>
 
         {/* Input Form & Config Box */}
-        <div className="bg-white dark:bg-stone-900/60 backdrop-blur-xl border border-stone-200/80 dark:border-stone-800/80 rounded-2xl p-6 sm:p-8 shadow-xl dark:shadow-stone-950/20 mb-12 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-100">
+        <div className="glass-strong rounded-2xl p-6 sm:p-8 shadow-xl dark:shadow-stone-950/30 mb-12 animate-in fade-in slide-in-from-bottom-6 duration-700 delay-100 hover:shadow-2xl transition-shadow duration-500">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="relative group">
-              <Youtube className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400 dark:text-stone-500 group-focus-within:text-red-500 transition-colors" />
+              <Youtube className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-stone-400 dark:text-stone-500 group-focus-within:text-red-500 transition-all duration-300 group-focus-within:scale-110" />
               <Input
                 type="url"
                 placeholder="https://www.youtube.com/watch?v=..."
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                className="h-14 pl-12 pr-4 text-base rounded-xl border-stone-200 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-950/30 focus:border-stone-400 dark:focus:border-stone-700 focus:bg-white dark:focus:bg-stone-950 transition-all shadow-inner focus:ring-1 focus:ring-stone-400/20"
+                onFocus={() => setUrlFocused(true)}
+                onBlur={() => setUrlFocused(false)}
+                className={`h-14 pl-12 pr-4 text-base rounded-xl border-2 transition-all duration-300 bg-stone-50/50 dark:bg-stone-950/30 ${
+                  urlFocused
+                    ? "border-amber-500/50 dark:border-amber-400/50 bg-white dark:bg-stone-950 shadow-[0_0_20px_-5px_rgba(245,158,11,0.3)]"
+                    : "border-stone-200 dark:border-stone-800 focus:border-stone-400 dark:focus:border-stone-700"
+                }`}
                 autoFocus
               />
             </div>
@@ -293,7 +318,7 @@ export default function Home() {
 
                   {/* Crucial Category Panel */}
                   {activeCategory === "crucial" && (
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 animate-in fade-in duration-200">
                       <div className="space-y-2">
                         <Label htmlFor="num-clips" className="text-xs text-stone-500 dark:text-stone-400">Jumlah Klip</Label>
                         <Select value={numClips} onValueChange={setNumClips}>
@@ -349,6 +374,22 @@ export default function Home() {
                             <SelectItem value="mediapipe">MediaPipe BlazeFace</SelectItem>
                             <SelectItem value="yolov8-face">YOLOv8-Face Nano</SelectItem>
                             <SelectItem value="ssd">Caffe SSD ResNet-10</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="encoder" className="text-xs text-stone-500 dark:text-stone-400">Encoder GPU/CPU</Label>
+                        <Select value={encoder} onValueChange={setEncoder}>
+                          <SelectTrigger id="encoder" className="bg-white dark:bg-stone-900 border-stone-200 dark:border-stone-850">
+                            <SelectValue placeholder="Pilih Encoder" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableEncoders.includes("auto") && <SelectItem value="auto">Auto-detect</SelectItem>}
+                            {availableEncoders.includes("nvidia") && <SelectItem value="nvidia">NVIDIA NVENC</SelectItem>}
+                            {availableEncoders.includes("intel") && <SelectItem value="intel">Intel QSV</SelectItem>}
+                            {availableEncoders.includes("amd") && <SelectItem value="amd">AMD AMF</SelectItem>}
+                            {availableEncoders.includes("cpu") && <SelectItem value="cpu">CPU (libx264)</SelectItem>}
                           </SelectContent>
                         </Select>
                       </div>
@@ -602,15 +643,17 @@ export default function Home() {
                                 onClick={() => setSubtitleStyle(style.key)}
                                 className={`relative group rounded-xl overflow-hidden border-2 transition-all duration-200 cursor-pointer ${
                                   subtitleStyle === style.key
-                                    ? "border-amber-500 ring-2 ring-amber-500/30 scale-[1.02]"
-                                    : "border-stone-200 dark:border-stone-700 hover:border-stone-400 dark:hover:border-stone-500"
+                                    ? "border-amber-500 ring-2 ring-amber-500/30 scale-[1.02] shadow-lg shadow-amber-500/10"
+                                    : "border-stone-200 dark:border-stone-700/50 hover:border-stone-400 dark:hover:border-stone-500 hover:shadow-md"
                                 }`}
                               >
                                 {/* Preview mockup — aspect-[9/16] simulates real 9:16 video */}
                                 <div className={`aspect-[9/16] bg-gradient-to-b ${style.bg} relative overflow-hidden`}>
+                                  {/* scan line effect */}
+                                  <div className="absolute inset-0 bg-[repeating-linear-gradient(0deg,transparent,transparent_2px,rgba(255,255,255,0.015)_2px,rgba(255,255,255,0.015)_4px)] pointer-events-none" />
                                   {/* fake video silhouette */}
                                   <div className="absolute inset-0 flex items-center justify-center">
-                                    <svg className="w-5 h-5 text-white/15" fill="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-6 h-6 text-white/10" fill="currentColor" viewBox="0 0 24 24">
                                       <path d="M8 6.82v10.36c0 .79.87 1.27 1.54.84l8.14-5.18a1 1 0 000-1.69L9.54 5.98A.998.998 0 008 6.82z"/>
                                     </svg>
                                   </div>
@@ -722,16 +765,16 @@ export default function Home() {
                                   </div>
                                 </div>
                                 {/* Label */}
-                                <div className={`px-2 py-1.5 text-[10px] font-semibold text-center transition-colors ${
+                                <div className={`px-2 py-2 text-[10px] font-semibold text-center tracking-wide transition-colors ${
                                   subtitleStyle === style.key
-                                    ? "bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300"
-                                    : "bg-white dark:bg-stone-900 text-stone-600 dark:text-stone-400"
+                                    ? "bg-gradient-to-r from-amber-50 to-amber-100 dark:from-amber-950/50 dark:to-amber-900/30 text-amber-700 dark:text-amber-300"
+                                    : "bg-white/80 dark:bg-stone-900/80 text-stone-600 dark:text-stone-400"
                                 }`}>
                                   {style.label}
                                 </div>
                                 {/* Checkmark */}
                                 {subtitleStyle === style.key && (
-                                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center shadow-md">
+                                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-lg shadow-amber-500/40">
                                     <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                                     </svg>
@@ -751,7 +794,7 @@ export default function Home() {
             <Button
               type="submit"
               size="lg"
-              className="w-full h-12 text-base rounded-xl font-medium bg-stone-900 hover:bg-stone-800 dark:bg-stone-100 dark:hover:bg-stone-200 dark:text-stone-900 text-white transition-all shadow-md active:scale-[0.99] disabled:opacity-50"
+              className="w-full h-12 text-base rounded-xl font-semibold bg-gradient-to-r from-amber-500 via-rose-500 to-violet-600 hover:from-amber-600 hover:via-rose-600 hover:to-violet-700 dark:from-amber-400 dark:via-rose-400 dark:to-violet-500 dark:hover:from-amber-500 dark:hover:via-rose-500 dark:hover:to-violet-600 text-white transition-all shadow-lg shadow-amber-500/20 hover:shadow-xl hover:shadow-amber-500/30 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!isValid || submitting}
             >
               {submitting ? (
@@ -772,23 +815,24 @@ export default function Home() {
         {/* Recent Tasks List */}
         {recentTasks.length > 0 && (
           <div className="space-y-4 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-200">
-            <div className="flex items-center gap-2 text-stone-700 dark:text-stone-300 font-semibold border-b border-stone-200/50 dark:border-stone-800 pb-2">
-              <History className="w-4 h-4 text-stone-400" />
-              <h2>Riwayat Pembuatan Klip Anda</h2>
+            <div className="flex items-center gap-2 text-stone-700 dark:text-stone-300 font-semibold pb-2">
+              <History className="w-4 h-4 text-amber-500" />
+              <h2>Riwayat Pembuatan Klip</h2>
+              <span className="ml-auto text-[11px] text-stone-400 font-normal">{recentTasks.length} tugas</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {recentTasks.map((t) => (
                 <div
                   key={t.id}
                   onClick={() => router.push(`/tasks/${t.id}`)}
-                  className="flex items-center justify-between p-4 rounded-xl border border-stone-205 dark:border-stone-800/80 bg-white/50 dark:bg-stone-900/30 hover:bg-white dark:hover:bg-stone-900 hover:shadow-md cursor-pointer transition-all group duration-300"
+                  className="flex items-center justify-between p-4 rounded-xl glass-strong hover:bg-white/90 dark:hover:bg-stone-800/80 hover:shadow-lg hover:-translate-y-0.5 cursor-pointer transition-all group duration-300"
                 >
                   <div className="flex items-center gap-3 overflow-hidden">
-                    <div className="w-10 h-10 rounded-lg bg-red-50 dark:bg-red-950/20 flex items-center justify-center border border-red-100 dark:border-red-900/30 flex-shrink-0 group-hover:scale-105 transition-transform">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-950/30 dark:to-rose-950/20 flex items-center justify-center border border-red-100 dark:border-red-900/20 flex-shrink-0 group-hover:scale-110 group-hover:rotate-[-5deg] transition-all duration-300">
                       <Video className="w-5 h-5 text-red-500 dark:text-red-400" />
                     </div>
                     <div className="overflow-hidden">
-                      <p className="text-sm font-medium text-stone-850 dark:text-stone-200 truncate pr-2">
+                      <p className="text-sm font-medium text-stone-800 dark:text-stone-200 truncate pr-2">
                         {getCleanUrlLabel(t.url)}
                       </p>
                       <span className="flex items-center gap-1 text-[11px] text-stone-400">
@@ -804,7 +848,7 @@ export default function Home() {
                     variant="ghost"
                     size="icon"
                     onClick={(e) => removeRecentTask(t.id, e)}
-                    className="text-stone-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 w-8 h-8 rounded-lg"
+                    className="text-stone-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 w-8 h-8 rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200"
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>

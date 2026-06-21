@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 
 from scenedetect import detect, ContentDetector
-from ..config import STORAGE_DIR
+from ..config import STORAGE_DIR, resolve_encoder
 
 log = logging.getLogger(__name__)
 
@@ -85,14 +85,15 @@ def _ratio(aspect_ratio: str) -> float:
         return 9.0 / 16.0
 
 
-def _cut_subclip(source_path: str, start: float, end: float, out_path: str) -> str:
+def _cut_subclip(source_path: str, start: float, end: float, out_path: str,
+                 encoder_args: str = "libx264 -preset fast -crf 20") -> str:
     duration = end - start
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-ss", f"{start:.3f}",
         "-i", source_path,
         "-t", f"{duration:.3f}",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+        "-c:v", *encoder_args.split(),
         "-c:a", "aac", "-b:a", "128k",
         out_path,
     ]
@@ -1115,6 +1116,7 @@ def _mux_with_subtitles(
     out_path: str,
     subtitle_path: Optional[str] = None,
     fonts_dir: Optional[str] = None,
+    encoder_args: str = "libx264 -preset fast -crf 20",
 ) -> None:
     """Single ffmpeg call: re-encode video with optional ASS burn-in + audio mux.
 
@@ -1137,24 +1139,16 @@ def _mux_with_subtitles(
         cmd += ["-i", silent_path]
         cmd += ["-i", audio_source]
         cmd += ["-vf", ",".join(vf_parts)]
-        cmd += [
-            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-            "-c:a", "aac", "-b:a", "128k",
-            "-map", "0:v:0", "-map", "1:a:0?",
-            "-shortest",
-            out_path,
-        ]
+        cmd += ["-c:v", *encoder_args.split(), "-c:a", "aac", "-b:a", "128k",
+                "-map", "0:v:0", "-map", "1:a:0?",
+                "-shortest", out_path]
     else:
         # No subtitles → stream copy (fast, lossless)
         cmd += ["-i", silent_path]
         cmd += ["-i", audio_source]
-        cmd += [
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "128k",
-            "-map", "0:v:0", "-map", "1:a:0?",
-            "-shortest",
-            out_path,
-        ]
+        cmd += ["-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+                "-map", "0:v:0", "-map", "1:a:0?",
+                "-shortest", out_path]
 
     subprocess.run(cmd, check=True)
 
@@ -1167,6 +1161,7 @@ def _reframe_vertical(
     subtitle_path: Optional[str] = None,
     fonts_dir: Optional[str] = None,
     face_detector: str = "yunet",
+    encoder_args: str = "libx264 -preset fast -crf 20",
 ) -> str:
     """Two-pass smart crop using ground-truth camera segments and non-causal smoothing."""
     if is_master:
@@ -1218,7 +1213,7 @@ def _reframe_vertical(
                     pass
 
     # Final mux: audio + optional subtitle burn-in (single re-encode if subtitles)
-    _mux_with_subtitles(silent_path, in_path, out_path, subtitle_path, fonts_dir)
+    _mux_with_subtitles(silent_path, in_path, out_path, subtitle_path, fonts_dir, encoder_args)
 
     # Preserve intermediate for potential restyle (don't delete silent_path)
     return out_path
@@ -1263,7 +1258,9 @@ def render_clips(
     subtitle_font: Optional[str] = None,
     subtitle_color_primary: Optional[str] = None,
     subtitle_color_highlight: Optional[str] = None,
+    encoder: str = "auto",
 ) -> List[Dict]:
+    encoder_args = resolve_encoder(encoder)
     clips_dir = str(STORAGE_DIR / task_id / "clips")
     os.makedirs(clips_dir, exist_ok=True)
     results = []
@@ -1347,12 +1344,13 @@ def render_clips(
                     subtitle_color_highlight=subtitle_color_highlight,
                 )
 
-            _cut_subclip(source_path, h_start, h_end, cut_path)
+            _cut_subclip(source_path, h_start, h_end, cut_path, encoder_args)
             _reframe_vertical(
                 cut_path, out_path, aspect_ratio,
                 subtitle_path=resolved_subtitle_path,
                 fonts_dir=fonts_dir,
                 face_detector=face_detector,
+                encoder_args=encoder_args,
             )
             results.append({**h, "clip_url": f"/clips/{task_id}/short_{i:02d}.mp4"})
         except Exception as e:

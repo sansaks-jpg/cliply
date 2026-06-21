@@ -47,6 +47,7 @@ class CreateTaskRequest(BaseModel):
     subtitle_font: Optional[str] = Field(default=None, description="Custom font override.")
     subtitle_color_primary: Optional[str] = Field(default=None, description="Custom primary text color override (#RRGGBB).")
     subtitle_color_highlight: Optional[str] = Field(default=None, description="Custom highlight color override (#RRGGBB).")
+    encoder: Optional[str] = Field(default=None, description="Encoder: auto | nvidia | intel | amd | cpu")
 
 
 class TaskCreatedResponse(BaseModel):
@@ -69,6 +70,8 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
     num_clips = req.num_clips or config.NUM_CLIPS_DEFAULT
     aspect_ratio = req.aspect_ratio or config.ASPECT_RATIO_DEFAULT
 
+    encoder = req.encoder or config.FFMPEG_ENCODER
+
     task_id = await store.create(
         url=req.url,
         num_clips=num_clips,
@@ -79,6 +82,7 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
         subtitle_font=req.subtitle_font,
         subtitle_color_primary=req.subtitle_color_primary,
         subtitle_color_highlight=req.subtitle_color_highlight,
+        encoder=encoder,
     )
 
     # Enqueue the background pipeline (no-op stub in Fase 0; real in Fase 1).
