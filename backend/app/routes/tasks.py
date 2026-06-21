@@ -10,6 +10,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, HttpUrl
+from redis.exceptions import RedisError
 
 from .. import config
 from ..state import store
@@ -114,7 +115,7 @@ async def recover_tasks() -> dict:
             "total_tasks": len(records),
             "message": f"{recovered} task(s) berhasil di-recover dari storage.",
         }
-    except Exception as e:
+    except (OSError, RedisError) as e:
         raise HTTPException(status_code=500, detail=f"Recovery gagal: {e}")
 
 
