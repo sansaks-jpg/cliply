@@ -226,11 +226,13 @@ def call_highlight_api(
         raw = llm_fn(prompt)
         try:
             parsed = _parse_json_loose(raw)
-            highlights = _sanitize_highlights(parsed.get("highlights"), duration=duration)
+            if not isinstance(parsed, dict):
+                raise ValueError("Parsed JSON is not a dictionary")
+            highlights = _sanitize_highlights(parsed.get("highlights", []), duration=duration)
             if highlights:
                 return {"highlights": highlights}
             last_error = "no valid highlights in response"
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError, AttributeError) as e:
             last_error = str(e)
 
         if attempt < MAX_HIGHLIGHT_API_ATTEMPTS:
