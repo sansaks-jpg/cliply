@@ -812,7 +812,7 @@ def _generate_camera_segments(source_path: str, detector, face_detector: str) ->
             ret, frame = _read_bgr_frame(cap)
             if not ret or frame is None:
                 break
-            # FIX 1: Turunkan threshold jadi 0.25 khusus buat ngecek scene
+            # Turunkan threshold jadi 0.25 khusus buat ngecek scene
             # biar muka yg jauh/nengok di kamera master gak gampang hilang
             faces = _detect_faces(detector, face_detector, frame, conf_threshold=0.25)
             raw_frames.append({
