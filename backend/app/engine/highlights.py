@@ -221,7 +221,7 @@ def detect_content_type(transcript: Dict, llm_fn: LLMFn) -> Dict[str, str]:
     try:
         raw = llm_fn(prompt)
         return _parse_json_loose(raw)
-    except Exception:
+    except (json.JSONDecodeError, AttributeError, TypeError, ValueError, KeyError):
         return {"content_type": "other", "density": "medium", "density_shifts": False}
 
 
@@ -250,7 +250,7 @@ def segment_narrative(transcript: Dict, content_info: Dict, llm_fn: LLMFn) -> Li
                 err_msg = "no valid units after validation (possibly segment mapping failed)"
             else:
                 err_msg = "empty units array or incorrect JSON format"
-        except Exception as e:
+        except (json.JSONDecodeError, AttributeError, TypeError, ValueError, KeyError) as e:
             err_msg = f"JSON parse error: {e}"
         
         last_errors.append(f"Attempt {attempt} failed: {err_msg}")
@@ -425,7 +425,7 @@ def generate_highlights(
                 err_msg = "no valid highlights after validation (possibly failed narrative unit bounds constraint)"
             else:
                 err_msg = "empty highlights array or incorrect JSON format"
-        except Exception as e:
+        except (json.JSONDecodeError, AttributeError, TypeError, ValueError, KeyError) as e:
             err_msg = f"JSON parse/validation error: {e}"
             logger.warning(f"[HIGHLIGHTS] Attempt {attempt}: error: {e}")
         
