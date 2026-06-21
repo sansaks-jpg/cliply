@@ -75,7 +75,7 @@ def _detect_encoders() -> dict[str, bool]:
             capture_output=True, text=True, timeout=10,
         ).stdout.lower()
         gpu_vendors.update(re.findall(r"(nvidia|intel|amd|advanced micro devices|ati radeon)", output))
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
         pass
 
     has_nvidia_hw = any(k in gpu_vendors for k in ("nvidia",))
@@ -92,7 +92,7 @@ def _detect_encoders() -> dict[str, bool]:
         ff_nvenc = "nvenc" in out
         ff_qsv   = "qsv" in out
         ff_amf   = "amf" in out
-    except Exception:
+    except (OSError, subprocess.TimeoutExpired):
         pass
 
     result: dict[str, bool] = {
