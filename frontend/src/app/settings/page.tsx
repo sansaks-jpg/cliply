@@ -50,6 +50,7 @@ export default function SettingsPage() {
   // States untuk update
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
   const [updateAvailable, setUpdateAvailable] = useState<any | null>(null);
+  const [appVersion, setAppVersion] = useState<string>("0.1.1");
 
   const handleCheckUpdate = async () => {
     if (checkingUpdate || restarting) return;
@@ -125,6 +126,9 @@ export default function SettingsPage() {
           setOpenaiBaseUrl(s.openai_base_url || "");
         }
       });
+      import("@tauri-apps/api/app").then(({ getVersion }) => {
+        getVersion().then(setAppVersion).catch(console.error);
+      }).catch(console.error);
       checkBackend();
     }
   }, []);
@@ -345,7 +349,7 @@ export default function SettingsPage() {
                 {checkingUpdate ? "Memeriksa..." : "Periksa Pembaruan"}
               </Button>
               <span className="text-xs text-neutral-500 font-mono">
-                Versi Saat Ini: v{settings?.version || "0.1.1"}
+                Versi Saat Ini: v{appVersion}
               </span>
             </div>
           )}
