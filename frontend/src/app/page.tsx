@@ -58,6 +58,7 @@ export default function Home() {
   const [availableEncoders, setAvailableEncoders] = useState<string[]>(["auto", "cpu"]);
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
+  const [backendError, setBackendError] = useState<string | null>(null);
 
   const [isTauriApp, setIsTauriApp] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -114,6 +115,30 @@ export default function Home() {
       }
     });
   }, []);
+
+  // Listen for Tauri backend events
+  useEffect(() => {
+    if (!isTauriApp) return;
+    let unlisten: (() => void) | undefined;
+
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<string>("backend-ready", () => {
+        setBackendStatus("ready");
+        setBackendError(null);
+        getAvailableEncoders().then((res) => {
+          setAvailableEncoders(res.available);
+          setEncoder(res.current);
+        }).catch(() => {});
+      }).then((fn) => { unlisten = fn; });
+
+      listen<string>("backend-error", (event) => {
+        setBackendStatus("unavailable");
+        setBackendError(event.payload);
+      });
+    });
+
+    return () => { unlisten?.(); };
+  }, [isTauriApp]);
 
   const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
 
@@ -319,12 +344,18 @@ export default function Home() {
             <div className="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
               <span className="text-red-400 text-base font-bold">!</span>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 min-w-0">
               <p className="text-sm font-semibold text-red-400">Backend tidak dapat dihubungi</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Server lokal di <code className="font-mono">localhost:8000</code> tidak merespons.
-                Pastikan backend Python sudah berjalan: <code className="font-mono">uvicorn app.main:app --port 8000</code>
-              </p>
+              {backendError ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-red-300/80 leading-relaxed break-words">{backendError}</p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Server lokal di <code className="font-mono">localhost:8000</code> tidak merespons.
+                  Pastikan backend Python sudah berjalan: <code className="font-mono">uvicorn app.main:app --port 8000</code>
+                </p>
+              )}
             </div>
           </div>
         )}

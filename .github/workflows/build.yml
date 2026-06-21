@@ -41,13 +41,35 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-local.txt
-          pip install pyinstaller
+          pip install -r requirements-bundle.txt -r requirements-local.txt
         working-directory: backend
 
       - name: Build Python backend executable
         run: pyinstaller cliply.spec --noconfirm
         working-directory: backend
+
+      - name: Verify backend executable
+        shell: pwsh
+        run: |
+          $proc = Start-Process -FilePath "dist\cliply_server.exe" -NoNewWindow -PassThru
+          $timeout = 20
+          $ok = $false
+          for ($i = 0; $i -lt $timeout; $i++) {
+            Start-Sleep -Seconds 1
+            try {
+              $health = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -UseBasicParsing
+              if ($health.StatusCode -eq 200) {
+                $encoders = Invoke-WebRequest -Uri "http://127.0.0.1:8000/encoders" -UseBasicParsing
+                if ($encoders.StatusCode -eq 200) {
+                  $ok = $true; break
+                }
+              }
+            } catch {}
+          }
+          $proc.Kill()
+          $proc.WaitForExit()
+          if (-not $ok) { throw "Backend smoke test FAILED: /health or /encoders not responding" }
+          Write-Host "Backend smoke test PASSED"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

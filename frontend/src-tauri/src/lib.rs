@@ -1,10 +1,18 @@
 use std::fs;
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+const BACKEND_START_TIMEOUT: Duration = Duration::from_secs(30);
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub struct BackendState(pub Mutex<Option<Child>>);
 
@@ -125,6 +133,14 @@ fn get_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(config_dir.join("settings.json"))
 }
 
+fn get_log_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let log_dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    if !log_dir.exists() {
+        fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+    }
+    Ok(log_dir.join("backend.log"))
+}
+
 fn load_settings(app: &tauri::AppHandle) -> AppSettings {
     let default_storage = app
         .path()
@@ -182,78 +198,184 @@ fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), S
     Ok(())
 }
 
+fn log_line(file: &mut fs::File, msg: &str) {
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let _ = writeln!(file, "{} [INFO] {}", ts, msg);
+}
+
+fn stream_to_log<R: BufRead + Send + 'static>(reader: R, mut log_file: fs::File, prefix: &'static str) {
+    thread::spawn(move || {
+        let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        for line in reader.lines() {
+            if let Ok(l) = line {
+                let _ = writeln!(log_file, "{} [{}] {}", ts, prefix, l);
+            }
+        }
+    });
+}
+
 fn start_backend_process(
     app: &tauri::AppHandle,
     state: &tauri::State<'_, BackendState>,
     storage_dir: &str,
     settings: &AppSettings,
 ) -> Result<(), String> {
-    // 1. Kill old process if any
+    // 1. Open log file
+    let log_path = get_log_path(app)?;
+    let mut log_file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_path)
+        .map_err(|e| format!("Cannot open log file {:?}: {}", log_path, e))?;
+
+    log_line(&mut log_file, "=== Cliply Backend ===");
+    log_line(&mut log_file, &format!("Log file: {:?}", log_path));
+
+    // 2. Kill old process if any
     {
         let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
         if let Some(mut child) = proc_guard.take() {
+            log_line(&mut log_file, "Killing previous backend process...");
             let _ = child.kill();
             let _ = child.wait();
         }
     }
 
-    // 2. Locate backend directory
+    // 3. Locate backend directory
     let backend_dir = find_backend_dir(app).ok_or_else(|| "Backend directory not found".to_string())?;
+    log_line(&mut log_file, &format!("Backend directory: {:?}", backend_dir));
 
-    // 3. Check for compiled cliply_server executable
+    // 4. Check for compiled cliply_server executable
     let exe_name = if cfg!(target_os = "windows") { "cliply_server.exe" } else { "cliply_server" };
     let compiled_exe = backend_dir.join(exe_name);
     let dist_dir = backend_dir.join("dist").join(exe_name);
 
     let mut cmd = if compiled_exe.exists() {
-        log::info!("Menggunakan backend executable di {:?}", compiled_exe);
+        log_line(&mut log_file, &format!("Using executable: {:?}", compiled_exe));
         let mut c = Command::new(&compiled_exe);
         c.args(["--storage-dir", storage_dir, "--port", "8000"]);
         c
     } else if dist_dir.exists() {
-        log::info!("Menggunakan backend executable di {:?}", dist_dir);
+        log_line(&mut log_file, &format!("Using executable: {:?}", dist_dir));
         let mut c = Command::new(&dist_dir);
         c.args(["--storage-dir", storage_dir, "--port", "8000"]);
         c
     } else {
-        // Fallback to python script run
         let python = find_python(&backend_dir).ok_or_else(|| "Python tidak ditemukan".to_string())?;
-        log::info!("Menggunakan script Python via {:?}", python);
+        log_line(&mut log_file, &format!("Using Python: {:?}", python));
         let mut c = Command::new(&python);
-        c.args([
-            "-m",
-            "uvicorn",
-            "app.main:app",
-            "--port",
-            "8000",
-            "--host",
-            "127.0.0.1",
-        ]);
+        c.args(["-m", "uvicorn", "app.main:app", "--port", "8000", "--host", "127.0.0.1"]);
         c
     };
 
-    cmd.current_dir(&backend_dir)
+    // 5. Capture stdout + stderr
+    cmd.stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .current_dir(&backend_dir)
         .env("STORAGE_DIR", storage_dir)
         .env("GEMINI_API_KEY", &settings.gemini_api_key)
         .env("OPENAI_API_KEY", &settings.openai_api_key)
         .env("OPENAI_BASE_URL", &settings.openai_base_url)
         .env("LLM_PROVIDER", &settings.llm_provider);
 
-    match cmd.spawn() {
-        Ok(child) => {
-            log::info!("Backend dimulai dengan PID {}", child.id());
-            let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
-            *proc_guard = Some(child);
-            
-            // Beri waktu startup
-            thread::sleep(Duration::from_millis(1500));
-            Ok(())
+    #[cfg(windows)]
+    cmd.creation_flags(CREATE_NO_WINDOW);
+
+    // 6. Spawn
+    let mut child = match cmd.spawn() {
+        Ok(c) => {
+            log_line(&mut log_file, &format!("Backend started with PID {}", c.id()));
+            c
         }
         Err(e) => {
-            let err_msg = format!("Gagal menjalankan backend: {}", e);
-            log::error!("{}", err_msg);
-            Err(err_msg)
+            let err = format!("Failed to spawn backend: {}", e);
+            log_line(&mut log_file, &err);
+            return Err(err);
         }
+    };
+
+    // 7. Check immediate exit
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            let err = format!("Backend exited immediately (code: {:?})", status.code());
+            log_line(&mut log_file, &err);
+            return Err(err);
+        }
+        Ok(None) => {} // still running, good
+        Err(e) => {
+            let err = format!("Error checking backend process: {}", e);
+            log_line(&mut log_file, &err);
+            return Err(err);
+        }
+    }
+
+    // 8. Save child process
+    {
+        let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
+        *proc_guard = Some(child.try_clone().map_err(|e| e.to_string())?);
+    }
+
+    // 9. Pipe stdout + stderr to log (in background threads)
+    if let Some(stdout) = child.stdout.take() {
+        let log_file_stdout = log_file.try_clone().map_err(|e| e.to_string())?;
+        stream_to_log(BufReader::new(stdout), log_file_stdout, "STDOUT");
+    }
+    if let Some(stderr) = child.stderr.take() {
+        let log_file_stderr = log_file.try_clone().map_err(|e| e.to_string())?;
+        stream_to_log(BufReader::new(stderr), log_file_stderr, "STDERR");
+    }
+
+    // 10. Poll /health endpoint
+    let start = Instant::now();
+    log_line(&mut log_file, "Waiting for backend to become ready...");
+    let health_url = "http://127.0.0.1:8000/health";
+    let mut last_error = String::new();
+
+    loop {
+        // a) Check if process died
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let err = format!(
+                    "Backend crashed during startup (exit code: {:?}). Check log: {:?}",
+                    status.code(),
+                    log_path
+                );
+                log_line(&mut log_file, &err);
+                return Err(err);
+            }
+            Ok(None) => {} // still alive
+            Err(_) => {}
+        }
+
+        // b) Try health endpoint
+        match ureq::get(health_url).timeout(Duration::from_secs(2)).call() {
+            Ok(resp) if resp.status() == 200 => {
+                log_line(&mut log_file, "Backend is ready (health check passed)");
+                let _ = app.emit("backend-ready", true);
+                return Ok(());
+            }
+            Ok(resp) => {
+                let body = resp.into_string().unwrap_or_default();
+                last_error = format!("Health check returned {}: {}", resp.status(), body);
+            }
+            Err(e) => {
+                last_error = format!("Health check failed: {}", e);
+            }
+        }
+
+        // c) Timeout
+        if start.elapsed() >= BACKEND_START_TIMEOUT {
+            let err = format!(
+                "Backend did not become ready within {}s. Last error: {}. Log: {:?}",
+                BACKEND_START_TIMEOUT.as_secs(),
+                last_error,
+                log_path,
+            );
+            log_line(&mut log_file, &err);
+            return Err(err);
+        }
+
+        thread::sleep(Duration::from_millis(500));
     }
 }
 
@@ -341,20 +463,23 @@ pub fn run() {
             .build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
-            let handle = app.handle().clone();
-
             // Register backend state
             let state = BackendState(Mutex::new(None));
             app.manage(state);
 
             // Load settings and start backend
-            let settings = load_settings(&handle);
+            let settings = load_settings(app.handle());
             log::info!("Loaded settings: {:?}", settings);
 
             let state_ref = app.state::<BackendState>();
-            if let Err(e) = start_backend_process(&handle, &state_ref, &settings.storage_dir, &settings) {
+            if let Err(e) = start_backend_process(app.handle(), &state_ref, &settings.storage_dir, &settings) {
                 log::error!("Gagal menjalankan backend saat startup: {}", e);
-                let _ = handle.emit("backend-error", e);
+                let log_path = get_log_path(app.handle()).unwrap_or_default();
+                let payload = serde_json::json!({
+                    "error": e,
+                    "log_path": log_path.to_string_lossy(),
+                });
+                let _ = app.handle().emit("backend-error", payload.to_string());
             }
 
             Ok(())
