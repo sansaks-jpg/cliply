@@ -1,9 +1,5 @@
 "use client";
 
-export function generateStaticParams() {
-  return [{ id: "blank" }];
-}
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
