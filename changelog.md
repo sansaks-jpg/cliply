@@ -11,6 +11,17 @@ This file documents the history of major modifications made to the `cliply` work
 
 ---
 
+## [2026-06-21 23:10 WIB] — CI Build Fixes for v0.1.1 Release
+
+### Summary
+Memperbaiki kegagalan build CI GitHub Actions dengan menyinkronkan frontend lockfile dan menyelesaikan kesalahan kompilasi tipe data TypeScript pada halaman Settings.
+
+### Changes
+* **Sinkronisasi Lockfile**:
+  * **`frontend/pnpm-lock.yaml`**: Memperbarui lockfile untuk memasukkan dependensi `@tauri-apps/plugin-updater` yang baru ditambahkan, mencegah error ketidakcocokan lockfile (frozen-lockfile) pada build CI.
+* **Perbaikan Tipe Data TypeScript**:
+  * **`frontend/src/app/settings/page.tsx`**: Mengatasi error tipe data `Property 'version' does not exist on type 'AppSettings'`. Membuat state `appVersion` dan mengisinya secara dinamis di dalam `useEffect` menggunakan dynamic import `@tauri-apps/api/app` (`getVersion()`) saat berjalan di lingkungan Tauri, guna menghindari error SSR dan kegagalan kompilasi TypeScript.
+
 ## [2026-06-21 22:52 WIB] — v0.1.1: Desktop Tauri Integration, API Key Manager & UI Simplification
 
 ### Summary
