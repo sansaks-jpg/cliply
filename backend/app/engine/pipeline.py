@@ -3,9 +3,12 @@
 Blocking calls run via asyncio.to_thread to avoid stalling the event loop.
 """
 import asyncio
+import concurrent.futures
 import json
 import logging
 from typing import Callable, Dict, List, Optional
+
+import redis.exceptions
 
 from ..config import FONTS_DIR, SUBTITLE_STYLE_DEFAULT, STORAGE_DIR, FFMPEG_ENCODER
 from ..state import store
@@ -17,6 +20,10 @@ from .subtitles import generate_ass
 from .transcriber import transcribe_video
 
 _logger = logging.getLogger(__name__)
+
+
+class PipelineError(Exception):
+    """Custom exception for pipeline errors."""
 
 
 async def run_pipeline(
@@ -55,7 +62,7 @@ async def run_pipeline(
                     loop,
                 )
                 future.result(timeout=5)
-            except Exception as exc:
+            except (concurrent.futures.TimeoutError, RuntimeError, concurrent.futures.CancelledError, redis.exceptions.RedisError) as exc:
                 _logger.debug("[EMIT] Failed to emit progress: %s", exc)
 
         is_auto = (num_clips == 0)
@@ -156,5 +163,4 @@ async def run_pipeline(
         await store.publish(task_id, "done", {"clips": clip_count})
 
     except Exception as e:
-        await store.update(task_id, status="error", error=str(e))
-        await store.publish(task_id, "error", {"error": str(e)})
+        raise PipelineError(str(e)) from e
