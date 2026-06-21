@@ -53,6 +53,23 @@ fn find_backend_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
         .and_then(|p| p.parent().map(|pp| pp.to_path_buf()))
         .map(|p| p.join("backend"));
 
+    #[cfg(debug_assertions)]
+    let dev_source_based = Some(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("backend"),
+    );
+
+    #[cfg(debug_assertions)]
+    let candidates: Vec<PathBuf> = [resource_based, exe_based, cwd_based, parent_based, dev_source_based]
+        .into_iter()
+        .flatten()
+        .collect();
+
+    #[cfg(not(debug_assertions))]
     let candidates: Vec<PathBuf> = [resource_based, exe_based, cwd_based, parent_based]
         .into_iter()
         .flatten()

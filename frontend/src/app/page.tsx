@@ -431,43 +431,22 @@ export default function Home() {
                     </Select>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="encoder" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-                        <Cpu className="w-3.5 h-3.5" />
-                        Akselerasi GPU
-                      </Label>
-                      <Select value={encoder} onValueChange={setEncoder}>
-                        <SelectTrigger id="encoder" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
-                          <SelectValue placeholder="Encoder" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {availableEncoders.includes("auto") && <SelectItem value="auto">Auto GPU Detect</SelectItem>}
-                          {availableEncoders.includes("nvidia") && <SelectItem value="nvidia">NVIDIA NVENC</SelectItem>}
-                          {availableEncoders.includes("intel") && <SelectItem value="intel">Intel QSV</SelectItem>}
-                          {availableEncoders.includes("amd") && <SelectItem value="amd">AMD AMF</SelectItem>}
-                          {availableEncoders.includes("cpu") && <SelectItem value="cpu">CPU Standard</SelectItem>}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="face-detector" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5" />
-                        Face Tracker
-                      </Label>
-                      <Select value={faceDetector} onValueChange={setFaceDetector}>
-                        <SelectTrigger id="face-detector" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
-                          <SelectValue placeholder="Detektor Wajah" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="yunet">YuNet (Akurat)</SelectItem>
-                          <SelectItem value="mediapipe">MediaPipe BlazeFace (Cepat)</SelectItem>
-                          <SelectItem value="yolov8-face">YOLOv8-Face (Terbaik)</SelectItem>
-                          <SelectItem value="ssd">SSD ResNet (Ringan)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="face-detector" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5" />
+                      Face Tracker
+                    </Label>
+                    <Select value={faceDetector} onValueChange={setFaceDetector}>
+                      <SelectTrigger id="face-detector" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
+                        <SelectValue placeholder="Detektor Wajah" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="yunet">YuNet (Akurat)</SelectItem>
+                        <SelectItem value="mediapipe">MediaPipe BlazeFace (Cepat)</SelectItem>
+                        <SelectItem value="yolov8-face">YOLOv8-Face (Terbaik)</SelectItem>
+                        <SelectItem value="ssd">SSD ResNet (Ringan)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   {/* Gaya Subtitle Section */}

@@ -4,7 +4,7 @@ const http = require("http");
 
 // Fungsi untuk memeriksa apakah backend sudah berjalan di port 8000
 function checkBackend(callback) {
-  const req = http.get("http://localhost:8000/health", (res) => {
+  const req = http.get("http://127.0.0.1:8000/health", (res) => {
     if (res.statusCode === 200) {
       callback(true);
     } else {
