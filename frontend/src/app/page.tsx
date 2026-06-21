@@ -738,8 +738,7 @@ export default function Home() {
               {recentTasks.map((t) => (
                 <div
                   key={t.id}
-                  onClick={() => router.push(`/tasks/${t.id}`)}
-                  className="group rounded-2xl glass-panel p-4 hover:glow-accent hover:border-[var(--accent-violet)]/30 cursor-pointer transition-all duration-300 flex items-center justify-between gap-4"
+                  className="relative group rounded-2xl glass-panel p-4 hover:glow-accent hover:border-[var(--accent-violet)]/30 transition-all duration-300 flex items-center justify-between gap-4 focus-within:ring-2 focus-within:ring-[var(--accent-violet)]"
                 >
                   <div className="space-y-2 overflow-hidden flex-grow">
                     <div className="flex items-center gap-3">
@@ -748,7 +747,9 @@ export default function Home() {
                       </div>
                       <div className="overflow-hidden">
                         <h4 className="text-sm font-bold truncate">
-                          {getCleanUrlLabel(t.url)}
+                          <Link href={`/tasks/${t.id}`} className="focus-visible:outline-none before:absolute before:inset-0">
+                            {getCleanUrlLabel(t.url)}
+                          </Link>
                         </h4>
                         <span className="text-xs text-muted-foreground font-mono block">
                           ID: {t.id.slice(0, 8)}...
@@ -757,12 +758,14 @@ export default function Home() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 flex-shrink-0">
+                  <div className="relative z-10 flex items-center gap-1 flex-shrink-0">
                     <Button
                       variant="ghost"
                       size="icon"
                       onClick={(e) => removeRecentTask(t.id, e)}
-                      className="text-muted-foreground hover:text-red-500 hover:bg-red-500/10 w-9 h-9 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label="Delete history"
+                      title="Delete history"
+                      className="text-muted-foreground hover:text-red-500 hover:bg-red-500/10 w-9 h-9 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
