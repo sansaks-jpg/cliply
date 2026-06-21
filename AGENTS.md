@@ -127,3 +127,6 @@ When a user submits a YouTube video link to the `/tasks` endpoint, the backend t
 2. **Asynchronous Code**: Execute all heavy blocking operations (yt-dlp downloads, transcription, video rendering) inside a thread pool using `run_in_threadpool` to prevent blocking the async FastAPI event loop.
 3. **Double Caching**: When modifying transcription or highlight engines, ensure the fallback reading of `.json` (speaker metadata) and `.srt` cache files remains functional to avoid calling expensive external APIs.
 4. **No Secrets**: Never commit real API keys to the repository. Always use `.env.example` as a template.
+5. **Strict Commit & Push Rules**:
+   - **Check Before Committing**: Never perform automatic commits or pushes. Always check if there are major/large changes first, or wait for direct explicit instructions from the user before committing and pushing code.
+   - **Tidy Git Commit Messages**: Write neat, structured, and detailed commit messages (e.g., using prefix-convention like `feat:`, `fix:`, `refactor:`) describing exactly what was modified so that the history remains clear on GitHub.
