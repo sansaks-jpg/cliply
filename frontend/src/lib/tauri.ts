@@ -10,7 +10,10 @@ export interface AppSettings {
 }
 
 export function isTauri(): boolean {
-  return typeof window !== 'undefined' && !!(window as unknown as { __TAURI__: unknown }).__TAURI__;
+  return typeof window !== 'undefined' && (
+    !!(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ ||
+    !!(window as unknown as { __TAURI__: unknown }).__TAURI__
+  );
 }
 
 async function getInvoke() {

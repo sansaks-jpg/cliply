@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec untuk Cliply backend
 # Build: pyinstaller cliply.spec
+from PyInstaller.utils.hooks import collect_submodules
 
 block_cipher = None
 
@@ -14,50 +15,23 @@ a = Analysis(
         ('models', 'models'),
     ],
     hiddenimports=[
-        # uvicorn internals
-        'uvicorn',
-        'uvicorn.logging',
-        'uvicorn.loops',
-        'uvicorn.loops.auto',
-        'uvicorn.loops.asyncio',
-        'uvicorn.protocols',
-        'uvicorn.protocols.http',
-        'uvicorn.protocols.http.auto',
-        'uvicorn.protocols.http.h11_impl',
-        'uvicorn.protocols.http.httptools_impl',
-        'uvicorn.protocols.websockets',
-        'uvicorn.protocols.websockets.auto',
-        'uvicorn.protocols.websockets.websockets_impl',
-        'uvicorn.lifespan',
-        'uvicorn.lifespan.on',
-        # fastapi / starlette
-        'fastapi',
-        'starlette',
-        'starlette.middleware',
-        'starlette.middleware.cors',
-        'sse_starlette',
-        'sse_starlette.sse',
-        # config / env
-        'dotenv',
-        'python_dotenv',
-        # storage / networking
-        'redis',
-        'redis.asyncio',
-        'requests',
-        # AI APIs
-        'openai',
-        'anthropic',
-        'google.generativeai',
-        'google.ai.generativelanguage',
-        # video / audio
-        'yt_dlp',
-        'cv2',
-        'mediapipe',
-        'numpy',
-        'scenedetect',
-        'scenedetect.detectors',
-        # youtube transcript
-        'youtube_transcript_api',
+        *collect_submodules("fastapi"),
+        *collect_submodules("starlette"),
+        *collect_submodules("uvicorn"),
+        *collect_submodules("sse_starlette"),
+        *collect_submodules("dotenv"),
+        *collect_submodules("redis"),
+        *collect_submodules("requests"),
+        *collect_submodules("openai"),
+        *collect_submodules("anthropic"),
+        *collect_submodules("google.generativeai"),
+        *collect_submodules("google.ai.generativelanguage"),
+        *collect_submodules("yt_dlp"),
+        *collect_submodules("cv2"),
+        *collect_submodules("mediapipe"),
+        *collect_submodules("numpy"),
+        *collect_submodules("scenedetect"),
+        *collect_submodules("youtube_transcript_api"),
     ],
     hookspath=[],
     hooksconfig={},
