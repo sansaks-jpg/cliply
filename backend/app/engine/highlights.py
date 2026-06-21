@@ -8,12 +8,11 @@
 Key improvement: model works from a narrative map, not raw transcript.
 Segment IDs prevent timestamp hallucination.
 """
+import asyncio
 import json
 import logging
 import random
 import re
-import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional
 
 from .llm import LLMFn, get_llm_fn
@@ -650,7 +649,13 @@ def _is_rate_limit_error(e: Exception) -> bool:
     return False
 
 
-def _process_chunk_with_retry(
+
+
+
+# ── Main Entry Point ─────────────────────────────────────────────
+
+
+async def _process_chunk_with_retry_async(
     chunk_transcript: Dict,
     chunk_units_mapped: List[Dict],
     content_info: Dict,
@@ -665,7 +670,8 @@ def _process_chunk_with_retry(
     
     for attempt in range(1, max_rate_limit_retries + 1):
         try:
-            return generate_highlights(
+            return await asyncio.to_thread(
+                generate_highlights,
                 chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn
             )
         except Exception as e:
@@ -679,86 +685,21 @@ def _process_chunk_with_retry(
                     f"[CHUNK PROCESSOR] Rate limit hit on chunk starting at {start_val}s. "
                     f"Retrying in {delay:.1f}s... (Attempt {attempt}/{max_rate_limit_retries}) Error: {e}"
                 )
-                time.sleep(delay)
+                await asyncio.sleep(delay)
             else:
                 # Re-raise standard/uncaught exceptions or when retries are exhausted
                 raise e
 
 
-# ── Main Entry Point ─────────────────────────────────────────────
 
-def get_highlights(
-    transcript: Dict,
-    num_clips: int = 3,
-    llm_fn: LLMFn | None = None,
-    progress_callback: Optional[Callable[[float, str, str], None]] = None,
-) -> Dict:
-    """Temukan highlight viral dalam transkrip.
-    
-    Args:
-        transcript: Hasil transkripsi.
-        num_clips: Jumlah klip yang diinginkan.
-        llm_fn: Fungsi LLM untuk pemanggilan model.
-        progress_callback: Opsional — dipanggil dengan (pct, stage, message) untuk emit SSE progress.
-    """
-    def _cb(pct: float, stage: str, msg: str) -> None:
-        if progress_callback:
-            try:
-                progress_callback(pct, stage, msg)
-            except Exception:
-                pass
-
-    llm_fn = llm_fn or get_llm_fn()
-    duration = transcript.get("duration", 0)
-    
-    # Sub-step 1: Content type & density
-    _cb(37, "ANALYZE", "Mendeteksi tipe konten & kepadatan narasi…")
-    content_info = detect_content_type(transcript, llm_fn=llm_fn)
-    logger.info("[ANALYZE] Content type: %s, density: %s", content_info.get("content_type"), content_info.get("density"))
-    
-    # Sub-step 2: Narrative segmentation
-    _cb(40, "ANALYZE", "Memetakan struktur narasi video…")
-    narrative_units = segment_narrative(transcript, content_info, llm_fn=llm_fn)
-    logger.info("[ANALYZE] Narrative units: %d", len(narrative_units))
-    
-    # Sub-step 3: Highlight generation
-    _cb(44, "ANALYZE", "Mencari momen viral terbaik…")
-    failed_chunks = []
-    total_chunks = 1
-    coverage_pct = 100
-    
-    if duration >= LONG_VIDEO_THRESHOLD:
-        # Chunking untuk video panjang
-        chunked_res = _generate_chunked(transcript, narrative_units, content_info, num_clips, llm_fn)
-        highlights = chunked_res.get("highlights", [])
-        failed_chunks = chunked_res.get("failed_chunks", [])
-        total_chunks = chunked_res.get("total_chunks", 1)
-        coverage_pct = chunked_res.get("coverage_pct", 100)
-    else:
-        highlights = generate_highlights(transcript, narrative_units, content_info, num_clips, llm_fn)
-    
-    _cb(49, "ANALYZE", f"Validasi {len(highlights)} highlight selesai")
-    return {
-        "highlights": highlights,
-        "narrative_units": narrative_units,
-        "failed_chunks": failed_chunks,
-        "total_chunks": total_chunks,
-        "coverage_pct": coverage_pct
-    }
-
-
-def _generate_chunked(
+async def _generate_chunked_async(
     transcript: Dict,
     narrative_units: List[Dict],
     content_info: Dict,
     num_clips: int,
     llm_fn: LLMFn,
 ) -> Dict:
-    """Process long videos by chunking narrative units with a hybrid sequential-parallel strategy.
-    
-    Ensures prompt caching is warmed (if Anthropic is active) by processing the first chunk sequentially first.
-    Subsequent chunks (or all chunks for other providers) are processed in parallel via ThreadPoolExecutor.
-    """
+    """Process long videos by chunking narrative units with a hybrid sequential-parallel strategy using asyncio."""
     segments = transcript.get("segments", [])
     duration = transcript.get("duration", 0)
     
@@ -815,8 +756,6 @@ def _generate_chunked(
     is_anthropic = (LLM_PROVIDER or "openai").strip().lower() == "anthropic"
 
     # 2. Hybrid Execution Strategy:
-    # Jika menggunakan Anthropic, proses chunk pertama secara sequential untuk warm-up prompt cache.
-    # Jika OpenAI/Gemini, proses semua chunk secara paralel penuh untuk latensi minimal.
     tasks_to_parallel = chunk_tasks
     
     if is_anthropic:
@@ -825,7 +764,7 @@ def _generate_chunked(
         
         logger.info(f"[HIGHLIGHTS] Warm caching: Processing first chunk (start={start_val}s) sequentially...")
         try:
-            first_highlights = _process_chunk_with_retry(
+            first_highlights = await _process_chunk_with_retry_async(
                 chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val
             )
             # Map back segment IDs dan timestamps relatif ke global asli
@@ -853,21 +792,17 @@ def _generate_chunked(
         mode_str = "parallel (cache warmed)" if is_anthropic else "parallel full"
         logger.info(f"[HIGHLIGHTS] Processing remaining {len(tasks_to_parallel)} chunks in {mode_str}...")
         
-        with ThreadPoolExecutor(max_workers=min(len(tasks_to_parallel), HIGHLIGHT_MAX_WORKERS)) as executor:
-            futures = {
-                executor.submit(
-                    _process_chunk_with_retry,
-                    task[0], task[1], content_info, num_clips, llm_fn, task[2]
-                ): task
-                for task in tasks_to_parallel
-            }
-            
-            for future in futures:
-                task = futures[future]
-                start_val, relative_to_global_map, chunk_segment_indices = task[2], task[3], task[4]
+        sem = asyncio.Semaphore(HIGHLIGHT_MAX_WORKERS)
+
+        async def run_task(task):
+            chunk_transcript, chunk_units_mapped, start_val, relative_to_global_map, chunk_segment_indices = task
+            async with sem:
                 try:
-                    chunk_highlights = future.result()
+                    chunk_highlights = await _process_chunk_with_retry_async(
+                        chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val
+                    )
                     # Map back segment IDs dan timestamps relatif ke global asli
+                    mapped_highlights = []
                     for h in chunk_highlights:
                         rel_start = h["start_segment_id"]
                         rel_end = h["end_segment_id"]
@@ -879,11 +814,19 @@ def _generate_chunked(
                         h["end_segment_id"] = glob_end
                         h["start_time"] = segments[glob_start]["start"]
                         h["end_time"] = segments[glob_end]["end"]
-                        
-                        all_highlights.append(h)
+                        mapped_highlights.append(h)
+                    return ("success", start_val, mapped_highlights)
                 except Exception as e:
-                    failed_chunks.append(start_val)
                     logger.error(f"Failed to generate highlights for chunk starting at {start_val}s: {e}")
+                    return ("error", start_val, e)
+
+        results = await asyncio.gather(*(run_task(task) for task in tasks_to_parallel))
+
+        for status, start_val, res in results:
+            if status == "success":
+                all_highlights.extend(res)
+            else:
+                failed_chunks.append(start_val)
 
     # 4. Deteksi kegagalan sistemik (100% chunk gagal)
     if len(failed_chunks) == total_chunks_count:
@@ -901,6 +844,67 @@ def _generate_chunked(
     }
 
 
-def chunk_transcript(transcript: Dict) -> List[Dict]:
-    """Legacy function for compatibility."""
-    return [transcript]
+
+async def get_highlights_async(
+    transcript: Dict,
+    num_clips: int = 3,
+    llm_fn: LLMFn | None = None,
+    progress_callback: Optional[Callable[[float, str, str], None]] = None,
+) -> Dict:
+    """Temukan highlight viral dalam transkrip secara asynchronous.
+
+    Args:
+        transcript: Hasil transkripsi.
+        num_clips: Jumlah klip yang diinginkan.
+        llm_fn: Fungsi LLM untuk pemanggilan model.
+        progress_callback: Opsional — dipanggil dengan (pct, stage, message) untuk emit SSE progress.
+    """
+    if llm_fn is None:
+        llm_fn = get_llm_fn()
+
+    def _cb(pct: float, stage: str, msg: str) -> None:
+        if progress_callback:
+            progress_callback(pct, stage, msg)
+
+    segments = transcript.get("segments", [])
+    duration = transcript.get("duration", 0)
+
+    if not segments or duration <= 0:
+        return {"highlights": [], "narrative_units": [], "failed_chunks": [], "total_chunks": 0, "coverage_pct": 0}
+
+    # Sub-step 1: Detect Content Type
+    _cb(35, "ANALYZE", "Mendeteksi format konten…")
+    content_info = await asyncio.to_thread(detect_content_type, transcript, llm_fn=llm_fn)
+    logger.info("[ANALYZE] Content Info: %s", content_info)
+
+    # Sub-step 2: Narrative segmentation
+    _cb(40, "ANALYZE", "Memetakan struktur narasi video…")
+    narrative_units = await asyncio.to_thread(segment_narrative, transcript, content_info, llm_fn=llm_fn)
+    logger.info("[ANALYZE] Narrative units: %d", len(narrative_units))
+
+    # Sub-step 3: Highlight generation
+    _cb(44, "ANALYZE", "Mencari momen viral terbaik…")
+    failed_chunks = []
+    total_chunks = 1
+    coverage_pct = 100
+
+    if duration >= LONG_VIDEO_THRESHOLD:
+        # Chunking untuk video panjang
+        chunked_res = await _generate_chunked_async(transcript, narrative_units, content_info, num_clips, llm_fn)
+        highlights = chunked_res.get("highlights", [])
+        failed_chunks = chunked_res.get("failed_chunks", [])
+        total_chunks = chunked_res.get("total_chunks", 1)
+        coverage_pct = chunked_res.get("coverage_pct", 100)
+    else:
+        highlights = await asyncio.to_thread(
+            generate_highlights, transcript, narrative_units, content_info, num_clips, llm_fn
+        )
+
+    _cb(49, "ANALYZE", f"Validasi {len(highlights)} highlight selesai")
+    return {
+        "highlights": highlights,
+        "narrative_units": narrative_units,
+        "failed_chunks": failed_chunks,
+        "total_chunks": total_chunks,
+        "coverage_pct": coverage_pct
+    }

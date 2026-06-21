@@ -10,7 +10,7 @@ from typing import Callable, Dict, List, Optional
 from ..config import FONTS_DIR, SUBTITLE_STYLE_DEFAULT, STORAGE_DIR, FFMPEG_ENCODER
 from ..state import store
 from .downloader import download_video
-from .highlights import get_highlights
+from .highlights import get_highlights_async
 from .llm import get_llm_fn
 from .render import render_clips
 from .subtitles import generate_ass
@@ -61,9 +61,7 @@ async def run_pipeline(
         is_auto = (num_clips == 0)
         target_limit = 10 if is_auto else num_clips
 
-        highlights_result = await asyncio.to_thread(
-            get_highlights, transcript, target_limit, llm_fn, _emit
-        )
+        highlights_result = await get_highlights_async(transcript, target_limit, llm_fn, _emit)
         all_highlights: List[Dict] = highlights_result.get("highlights", [])
         if not all_highlights:
             raise RuntimeError("No viral highlights found.")
