@@ -53,7 +53,7 @@ def _to_gray(frame: np.ndarray) -> np.ndarray:
 
 def _read_bgr_frame(cap) -> Tuple[bool, Optional[np.ndarray]]:
     """Read a frame and guarantee it has 3 channels (BGR), converting from grayscale if necessary."""
-    ret, frame = cap.retrieve()
+    ret, frame = cap.read()
     if not ret or frame is None:
         return False, None
     if len(frame.shape) == 2:
@@ -423,8 +423,8 @@ def _analyze_video(
         n_segments = len(camera_segments)
         
         while True:
-            ret = cap.grab()
-            if not ret:
+            ret, frame = _read_bgr_frame(cap)
+            if not ret or frame is None:
                 break
             
             t = frame_idx / fps
@@ -457,9 +457,6 @@ def _analyze_video(
             should_sample = is_cut or (frame_idx - last_sample_frame_idx >= sample_interval)
             
             if should_sample:
-                ret, frame = _read_bgr_frame(cap)
-                if not ret or frame is None:
-                    break
                 last_sample_frame_idx = frame_idx
                 last_sample_seg_idx = active_seg_idx
                 
@@ -740,7 +737,7 @@ def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: i
         scenes.append(current_scene)
         
     # 2. Terapkan moving average di dalam masing-masing scene secara terpisah
-    window_size = 3
+    window_size = 3  # FIX: Turunin ke 3 biar gak telat ngerender pergerakan
     half_w = window_size // 2
     
     for scene in scenes:
@@ -799,8 +796,8 @@ def _generate_camera_segments(source_path: str, detector, face_detector: str) ->
     raw_frames = []
     
     while True:
-        ret = cap.grab()
-        if not ret:
+        ret, frame = _read_bgr_frame(cap)
+        if not ret or frame is None:
             break
             
         t = frame_idx / fps
@@ -809,9 +806,6 @@ def _generate_camera_segments(source_path: str, detector, face_detector: str) ->
         is_cut = frame_idx in cut_frames
         
         if frame_idx % interval == 0 or is_cut:
-            ret, frame = _read_bgr_frame(cap)
-            if not ret or frame is None:
-                break
             # FIX 1: Turunkan threshold jadi 0.25 khusus buat ngecek scene
             # biar muka yg jauh/nengok di kamera master gak gampang hilang
             faces = _detect_faces(detector, face_detector, frame, conf_threshold=0.25)
@@ -991,13 +985,9 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
             sample_pointer = 0
             
             while True:
-                ret, frame = cap.read()
+                ret, frame = _read_bgr_frame(cap)
                 if not ret or frame is None:
                     break
-                if len(frame.shape) == 2:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                elif len(frame.shape) == 3 and frame.shape[2] == 1:
-                    frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
                 
                 t = frame_idx / fps
                 
@@ -1115,13 +1105,9 @@ def _render_master_letterbox(in_path: str, out_path: str, aspect_ratio: str) -> 
         raise RuntimeError(f"Could not open VideoWriter for path: {silent_path}")
     
     while True:
-        ret, frame = cap.read()
+        ret, frame = _read_bgr_frame(cap)
         if not ret or frame is None:
             break
-        if len(frame.shape) == 2:
-            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-        elif len(frame.shape) == 3 and frame.shape[2] == 1:
-            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
         cropped = _letterbox(frame, crop_w, crop_h)
         writer.write(cropped)
         
