@@ -1,0 +1,14 @@
+--- backend/app/engine/render.py
++++ backend/app/engine/render.py
+@@ -1090,7 +1090,10 @@
+         raise RuntimeError(f"Could not open VideoWriter for path: {silent_path}")
+
+     while True:
+-        ret, frame = _read_bgr_frame(cap)
++        ret = cap.grab()
++        if not ret:
++            break
++        ret, frame = _read_bgr_frame(cap)
+         if not ret or frame is None:
+             break
+         cropped = _letterbox(frame, crop_w, crop_h)

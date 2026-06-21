@@ -1,0 +1,13 @@
+--- backend/app/engine/render.py
++++ backend/app/engine/render.py
+@@ -980,7 +980,10 @@
+             sample_pointer = 0
+
+             while True:
+-                ret, frame = _read_bgr_frame(cap)
++                ret = cap.grab()
++                if not ret:
++                    break
++                ret, frame = _read_bgr_frame(cap)
+                 if not ret or frame is None:
+                     break

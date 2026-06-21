@@ -1,0 +1,67 @@
+--- backend/app/engine/render.py
++++ backend/app/engine/render.py
+@@ -436,11 +436,9 @@
+         last_sample_seg_idx = 0
+         n_segments = len(camera_segments)
+
+         while True:
+-            ret, frame = _read_bgr_frame(cap)
+-            if not ret or frame is None:
+-                break
+-
+             t = frame_idx / fps
+             t_source = t + clip_start_offset
+
+@@ -467,6 +465,10 @@
+             should_sample = is_cut or (frame_idx - last_sample_frame_idx >= sample_interval)
+
+             if should_sample:
++                ret, frame = _read_bgr_frame(cap)
++                if not ret or frame is None:
++                    break
++
+                 last_sample_frame_idx = frame_idx
+                 last_sample_seg_idx = active_seg_idx
+
+@@ -628,6 +630,10 @@
+
+                 # Simpan frame sampel saat ini sebagai histori sampel berikutnya
+                 frame_prev_sample = frame.copy() if frame is not None else None
+
++            else:
++                ret = cap.grab()
++                if not ret:
++                    break
++
+             frame_idx += 1
+     finally:
+@@ -672,12 +678,14 @@
+     raw_frames = []
+
+     while True:
+-        ret, frame = _read_bgr_frame(cap)
+-        if not ret or frame is None:
+-            break
+-
+         t = frame_idx / fps
+
+         # Pemicu scene cut berdasarkan indeks frame dari PySceneDetect
+         is_cut = frame_idx in cut_frames
+
+         if frame_idx % interval == 0 or is_cut:
++            ret, frame = _read_bgr_frame(cap)
++            if not ret or frame is None:
++                break
++
+             # FIX 1: Turunkan threshold jadi 0.25 khusus buat ngecek scene
+             # biar muka yg jauh/nengok di kamera master gak gampang hilang
+@@ -691,6 +699,10 @@
+                 "face_ratios": [face[3] for face in faces] if faces else [] # Ambil data ukuran muka
+             })
+
++        else:
++            ret = cap.grab()
++            if not ret:
++                break
++
+         frame_idx += 1
