@@ -41,8 +41,15 @@ jobs:
         run: pnpm tauri build
         working-directory: frontend
 
-      - name: Upload installer
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cliply-windows
+          name: cliply-windows-${{ github.ref_name }}
           path: frontend/src-tauri/target/release/bundle/msi/*.msi
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: frontend/src-tauri/target/release/bundle/msi/*.msi
+          generate_release_notes: true
