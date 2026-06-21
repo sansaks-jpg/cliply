@@ -40,6 +40,11 @@ async def lifespan(app: FastAPI):
     except (OSError, RedisError) as exc:
         logging.getLogger(__name__).warning("Boot recovery failed: %s", exc)
     yield
+    # --- shutdown ---
+    try:
+        await store.close()
+    except Exception:
+        logging.getLogger(__name__).warning("Error closing store", exc_info=True)
 
 
 class _SuppressConnectionResetError(logging.Filter):
@@ -83,10 +88,17 @@ app.include_router(media.router)
 async def health() -> dict:
     """Liveness + dependency probe."""
     storage_ok = Path(config.STORAGE_DIR).exists()
+    redis_ok = False
+    try:
+        redis_ok = await store.ping_redis()
+    except Exception:
+        pass
     return {
         "status": "ok",
+        "ready": True,
         "storage": str(config.STORAGE_DIR),
         "storage_ok": storage_ok,
+        "redis": redis_ok,
         "llm_provider": config.LLM_PROVIDER,
     }
 

@@ -109,6 +109,26 @@ class TaskStore:
                     self._use_redis = False
         return self._use_redis
 
+    async def ping_redis(self) -> bool:
+        """Check Redis connectivity. Returns False if Redis is not in use or unreachable."""
+        if self._redis is not None:
+            try:
+                await self._redis.ping()
+                return True
+            except Exception:
+                return False
+        return False
+
+    async def close(self) -> None:
+        """Close the Redis connection if open."""
+        if self._redis is not None:
+            try:
+                await self._redis.close()
+            except Exception:
+                pass
+            self._redis = None
+            self._use_redis = False
+
     async def create(
         self,
         url: str,
@@ -176,22 +196,37 @@ class TaskStore:
 
     async def list(self) -> List[TaskRecord]:
         if await self._ensure_backend():
-            keys = await self._redis.keys(_TASK.format("*"))
-            records = []
+            # Use SCAN instead of KEYS (non-blocking)
+            keys = []
+            async for key in self._redis.scan_iter(match=_TASK.format("*")):
+                keys.append(key)
+            records_data = []
             orphaned_ids = []
-            for key in keys:
-                data = await self._redis.hgetall(key)
-                if data:
+            # Batch HGETALL via pipeline (avoid N+1)
+            if keys:
+                pipe = self._redis.pipeline()
+                for key in keys:
+                    pipe.hgetall(key)
+                hgetall_results = await pipe.execute()
+                for data in hgetall_results:
+                    if not data:
+                        continue
                     tid = data.get("task_id", "")
-                    # Auto-clean tasks whose storage directory was manually deleted
                     task_dir = STORAGE_DIR / tid
                     if not task_dir.exists() and data.get("status") not in ("queued", "processing"):
                         orphaned_ids.append(tid)
                         continue
-                    clips = await self._redis.lrange(_CLIPS.format(tid), 0, -1)
-                    if clips:
-                        data["clips"] = [json.loads(c) for c in clips]
-                    records.append(self._record_from_dict(data))
+                    records_data.append(data)
+                # Batch LRANGE via pipeline
+                if records_data:
+                    clips_pipe = self._redis.pipeline()
+                    for data in records_data:
+                        clips_pipe.lrange(_CLIPS.format(data.get("task_id", "")), 0, -1)
+                    clips_results = await clips_pipe.execute()
+                    for data, clips_raw in zip(records_data, clips_results):
+                        if clips_raw:
+                            data["clips"] = [json.loads(c) for c in clips_raw]
+            records = [self._record_from_dict(d) for d in records_data]
             # Clean orphaned records from Redis
             for tid in orphaned_ids:
                 await self._redis.delete(_TASK.format(tid), _CLIPS.format(tid))

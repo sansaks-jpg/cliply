@@ -119,16 +119,30 @@ class RedisTaskStore:
 
     async def list(self) -> List[TaskRecord]:
         r = await self._r()
-        keys = await r.keys(_TASK + "*")
-        records = []
-        for key in keys:
-            data = await r.hgetall(key)
-            if data:
-                task_id = data.get("task_id", "")
-                clips = await r.lrange(_CLIPS + task_id, 0, -1)
-                if clips:
-                    data["clips"] = [json.loads(c) for c in clips]
-                records.append(TaskRecord.from_dict(data))
+        # SCAN instead of KEYS (non-blocking)
+        keys = []
+        async for key in r.scan_iter(match=_TASK + "*"):
+            keys.append(key)
+        records_data = []
+        if keys:
+            pipe = r.pipeline()
+            for key in keys:
+                pipe.hgetall(key)
+            hgetall_results = await pipe.execute()
+            for data in hgetall_results:
+                if not data:
+                    continue
+                records_data.append(data)
+            # Batch LRANGE
+            if records_data:
+                clips_pipe = r.pipeline()
+                for data in records_data:
+                    clips_pipe.lrange(_CLIPS + data.get("task_id", ""), 0, -1)
+                clips_results = await clips_pipe.execute()
+                for data, clips_raw in zip(records_data, clips_results):
+                    if clips_raw:
+                        data["clips"] = [json.loads(c) for c in clips_raw]
+        records = [TaskRecord.from_dict(d) for d in records_data]
         return sorted(records, key=lambda r: r.created_at, reverse=True)
 
     async def update(self, task_id: str, **fields: Any) -> Optional[TaskRecord]:

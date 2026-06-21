@@ -3,14 +3,19 @@
 All settings come from environment variables (loaded from `.env` at import).
 # Defaults match the values in `backend/.env.example`.
 """
+import logging
 import os
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+log = logging.getLogger(__name__)
+
 # Load .env from the repo root (backend/.env)
+# override=False prevents .env from overwriting env vars already set by
+# the runtime (Docker, CI, systemd), which are considered authoritative.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_REPO_ROOT / ".env", override=True)
+load_dotenv(_REPO_ROOT / ".env", override=False)
 
 
 def _get(key: str, default: str = "") -> str:
@@ -22,6 +27,11 @@ def _get_int(key: str, default: int) -> int:
         return int(_get(key, str(default)))
     except ValueError:
         return default
+
+
+def _get_positive_int(key: str, default: int) -> int:
+    value = _get_int(key, default)
+    return value if value > 0 else default
 
 
 # --- LLM (pluggable) ---------------------------------------------------------
@@ -41,12 +51,14 @@ SUBTITLE_STYLE_DEFAULT = _get("SUBTITLE_STYLE_DEFAULT", "viral-bold")
 DOWNLOAD_FORMAT = _get("DOWNLOAD_FORMAT", "1080")
 WHISPER_MODEL = _get("WHISPER_MODEL", "base")
 WHISPER_DEVICE = _get("WHISPER_DEVICE", "auto")
-LONG_VIDEO_THRESHOLD = _get_int("LONG_VIDEO_THRESHOLD", 1800)
-CHUNK_SIZE_SECONDS = _get_int("CHUNK_SIZE_SECONDS", 1200)
+LONG_VIDEO_THRESHOLD = _get_positive_int("LONG_VIDEO_THRESHOLD", 1800)
+CHUNK_SIZE_SECONDS = _get_positive_int("CHUNK_SIZE_SECONDS", 1200)
 CHUNK_OVERLAP_SECONDS = _get_int("CHUNK_OVERLAP_SECONDS", 60)
-HIGHLIGHT_MAX_WORKERS = _get_int("HIGHLIGHT_MAX_WORKERS", 8)
+HIGHLIGHT_MAX_WORKERS = _get_positive_int("HIGHLIGHT_MAX_WORKERS", 8)
 
 # --- FFmpeg encoder ----------------------------------------------------------
+from .services.encoder_detection import detect_encoders as _detect_encoders
+
 FFMPEG_ENCODER = _get("FFMPEG_ENCODER", "auto").lower()
 
 ENCODER_MAP: dict[str, str] = {
@@ -55,53 +67,6 @@ ENCODER_MAP: dict[str, str] = {
     "amd":    "h264_amf -quality quality -usage transcoding",
     "cpu":    "libx264 -preset fast -crf 20",
 }
-
-
-_ENCODER_CACHE: dict[str, bool] | None = None
-
-
-def _detect_encoders() -> dict[str, bool]:
-    global _ENCODER_CACHE
-    if _ENCODER_CACHE is not None:
-        return _ENCODER_CACHE
-    import subprocess, re
-
-    # --- WMI: detect GPU vendors from actual hardware ---
-    gpu_vendors: set[str] = set()
-    try:
-        output = subprocess.run(
-            ["powershell", "-Command",
-             "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
-            capture_output=True, text=True, timeout=10,
-        ).stdout.lower()
-        gpu_vendors.update(re.findall(r"(nvidia|intel|amd|advanced micro devices|ati radeon)", output))
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-
-    has_nvidia_hw = any(k in gpu_vendors for k in ("nvidia",))
-    has_intel_hw  = any(k in gpu_vendors for k in ("intel",))
-    has_amd_hw    = any(k in gpu_vendors for k in ("amd", "advanced micro devices", "ati radeon"))
-
-    # --- ffmpeg: check if encoder is compiled in ---
-    ff_nvenc = ff_qsv = ff_amf = False
-    try:
-        out = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-encoders"],
-            capture_output=True, text=True, timeout=10,
-        ).stdout.lower()
-        ff_nvenc = "nvenc" in out
-        ff_qsv   = "qsv" in out
-        ff_amf   = "amf" in out
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-
-    result: dict[str, bool] = {
-        "nvidia": has_nvidia_hw and ff_nvenc,
-        "intel":  has_intel_hw and ff_qsv,
-        "amd":    has_amd_hw and ff_amf,
-    }
-    _ENCODER_CACHE = result
-    return result
 
 
 def get_available_encoders() -> list[str]:
@@ -145,7 +110,7 @@ CORS_ORIGINS = [
     for origin in _get("CORS_ORIGINS", "http://localhost:3107").split(",")
     if origin.strip()
 ]
-BACKEND_PORT = _get_int("BACKEND_PORT", 8000)
+BACKEND_PORT = _get_positive_int("BACKEND_PORT", 8000)
 
 
 def require_llm_key() -> str:

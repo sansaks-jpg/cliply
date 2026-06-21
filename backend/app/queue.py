@@ -42,3 +42,7 @@ async def _run_pipeline_wrapper(
         log.exception("pipeline crashed for task %s", task_id)
         await store.update(task_id, status="error", error=str(e))
         await store.publish(task_id, "error", {"error": str(e)})
+    except Exception as e:
+        log.exception("unexpected error for task %s", task_id)
+        await store.update(task_id, status="error", error=str(e))
+        await store.publish(task_id, "error", {"error": str(e)})

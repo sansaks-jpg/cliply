@@ -11,6 +11,9 @@ use tauri::{Emitter, Manager};
 use std::os::windows::process::CommandExt;
 
 const BACKEND_START_TIMEOUT: Duration = Duration::from_secs(30);
+const BACKEND_POLL_INTERVAL: Duration = Duration::from_millis(500);
+const LOG_MAX_SIZE: u64 = 5 * 1024 * 1024; // 5 MB
+const LOG_MAX_FILES: u32 = 3;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -214,24 +217,88 @@ fn stream_to_log<R: BufRead + Send + 'static>(reader: R, mut log_file: fs::File,
     });
 }
 
+fn rotate_logs(log_path: &PathBuf) {
+    if !log_path.exists() {
+        return;
+    }
+    if let Ok(meta) = log_path.metadata() {
+        if meta.len() < LOG_MAX_SIZE {
+            return;
+        }
+    }
+    // Shift existing backups: backend.2.log → gone, backend.1.log → backend.2.log, etc.
+    for i in (1..LOG_MAX_FILES).rev() {
+        let old = log_path.with_extension(format!("{}.log", i));
+        let new = log_path.with_extension(format!("{}.log", i + 1));
+        if old.exists() {
+            let _ = fs::rename(&old, &new);
+        }
+    }
+    // Rotate current → backend.1.log
+    let first = log_path.with_extension("1.log");
+    let _ = fs::rename(log_path, &first);
+}
+
+fn spawn_backend_monitor(app: &tauri::AppHandle, child_clone: Child) {
+    let app_clone = app.clone();
+    thread::spawn(move || {
+        let mut child = child_clone;
+        loop {
+            thread::sleep(Duration::from_secs(3));
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let code = status.code().unwrap_or(-1);
+                    let _ = app_clone.emit("backend-crashed", code);
+                    return;
+                }
+                Ok(None) => continue,
+                Err(_) => return,
+            }
+        }
+    });
+}
+
 fn start_backend_process(
     app: &tauri::AppHandle,
     state: &tauri::State<'_, BackendState>,
     storage_dir: &str,
     settings: &AppSettings,
 ) -> Result<(), String> {
-    // 1. Open log file
+    // 0. Initial diagnostics
     let log_path = get_log_path(app)?;
+    {
+        let mut f = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .map_err(|e| format!("Cannot open log file {:?}: {}", log_path, e))?;
+        log_line(&mut f, "=== Cliply Backend ===");
+    }
+
+    // 1. Rotate logs if needed
+    rotate_logs(&log_path);
+
+    // 2. Open log file (fresh or after rotation)
     let mut log_file = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_path)
         .map_err(|e| format!("Cannot open log file {:?}: {}", log_path, e))?;
 
-    log_line(&mut log_file, "=== Cliply Backend ===");
     log_line(&mut log_file, &format!("Log file: {:?}", log_path));
+    log_line(&mut log_file, &format!("Backend version: {}", env!("CARGO_PKG_VERSION")));
+    log_line(&mut log_file, "Port: 8000");
+    if let Ok(res_dir) = app.path().resource_dir() {
+        log_line(&mut log_file, &format!("Resource directory: {:?}", res_dir));
+    }
+    if let Ok(exe_path) = std::env::current_exe() {
+        log_line(&mut log_file, &format!("Tauri executable: {:?}", exe_path));
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        log_line(&mut log_file, &format!("Current directory: {:?}", cwd));
+    }
 
-    // 2. Kill old process if any
+    // 3. Kill old process if any
     {
         let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
         if let Some(mut child) = proc_guard.take() {
@@ -241,11 +308,11 @@ fn start_backend_process(
         }
     }
 
-    // 3. Locate backend directory
+    // 4. Locate backend directory
     let backend_dir = find_backend_dir(app).ok_or_else(|| "Backend directory not found".to_string())?;
     log_line(&mut log_file, &format!("Backend directory: {:?}", backend_dir));
 
-    // 4. Check for compiled cliply_server executable
+    // 5. Check for compiled cliply_server executable
     let exe_name = if cfg!(target_os = "windows") { "cliply_server.exe" } else { "cliply_server" };
     let compiled_exe = backend_dir.join(exe_name);
     let dist_dir = backend_dir.join("dist").join(exe_name);
@@ -268,7 +335,7 @@ fn start_backend_process(
         c
     };
 
-    // 5. Capture stdout + stderr
+    // 6. Capture stdout + stderr
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(&backend_dir)
@@ -281,7 +348,7 @@ fn start_backend_process(
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    // 6. Spawn
+    // 7. Spawn
     let mut child = match cmd.spawn() {
         Ok(c) => {
             log_line(&mut log_file, &format!("Backend started with PID {}", c.id()));
@@ -294,14 +361,14 @@ fn start_backend_process(
         }
     };
 
-    // 7. Check immediate exit
+    // 8. Check immediate exit
     match child.try_wait() {
         Ok(Some(status)) => {
             let err = format!("Backend exited immediately (code: {:?})", status.code());
             log_line(&mut log_file, &err);
             return Err(err);
         }
-        Ok(None) => {} // still running, good
+        Ok(None) => {}
         Err(e) => {
             let err = format!("Error checking backend process: {}", e);
             log_line(&mut log_file, &err);
@@ -309,13 +376,13 @@ fn start_backend_process(
         }
     }
 
-    // 8. Save child process
+    // 9. Save child process
     {
         let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
         *proc_guard = Some(child.try_clone().map_err(|e| e.to_string())?);
     }
 
-    // 9. Pipe stdout + stderr to log (in background threads)
+    // 10. Pipe stdout + stderr to log (in background threads)
     if let Some(stdout) = child.stdout.take() {
         let log_file_stdout = log_file.try_clone().map_err(|e| e.to_string())?;
         stream_to_log(BufReader::new(stdout), log_file_stdout, "STDOUT");
@@ -325,14 +392,13 @@ fn start_backend_process(
         stream_to_log(BufReader::new(stderr), log_file_stderr, "STDERR");
     }
 
-    // 10. Poll /health endpoint
+    // 11. Poll /health endpoint
     let start = Instant::now();
     log_line(&mut log_file, "Waiting for backend to become ready...");
     let health_url = "http://127.0.0.1:8000/health";
     let mut last_error = String::new();
 
     loop {
-        // a) Check if process died
         match child.try_wait() {
             Ok(Some(status)) => {
                 let err = format!(
@@ -343,14 +409,18 @@ fn start_backend_process(
                 log_line(&mut log_file, &err);
                 return Err(err);
             }
-            Ok(None) => {} // still alive
+            Ok(None) => {}
             Err(_) => {}
         }
 
-        // b) Try health endpoint
         match ureq::get(health_url).timeout(Duration::from_secs(2)).call() {
             Ok(resp) if resp.status() == 200 => {
                 log_line(&mut log_file, "Backend is ready (health check passed)");
+
+                if let Ok(monitor_child) = child.try_clone() {
+                    spawn_backend_monitor(app, monitor_child);
+                }
+
                 let _ = app.emit("backend-ready", true);
                 return Ok(());
             }
@@ -363,7 +433,6 @@ fn start_backend_process(
             }
         }
 
-        // c) Timeout
         if start.elapsed() >= BACKEND_START_TIMEOUT {
             let err = format!(
                 "Backend did not become ready within {}s. Last error: {}. Log: {:?}",
@@ -375,7 +444,7 @@ fn start_backend_process(
             return Err(err);
         }
 
-        thread::sleep(Duration::from_millis(500));
+        thread::sleep(BACKEND_POLL_INTERVAL);
     }
 }
 
