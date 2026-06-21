@@ -19,7 +19,7 @@ from ..config import STORAGE_DIR, resolve_encoder
 log = logging.getLogger(__name__)
 
 # ── tuning knobs ──────────────────────────────────────────────────
-SAMPLE_FPS = 4
+SAMPLE_FPS = 2
 EMA_FACTOR = 0.15
 CONFIDENCE_THRESHOLD = 0.30
 CLOSEUP_THRESHOLD = 0.30
@@ -109,7 +109,7 @@ def _letterbox(frame: np.ndarray, crop_w: int, crop_h: int) -> np.ndarray:
     
     # Optimasi Blur Background via Downscaling (Beban CPU turun 99%+)
     small_w = 128
-    small_h = int(small_w * (crop_h / crop_w))
+    small_h = int(small_w * (h / w))
     small_bg = cv2.resize(frame, (small_w, small_h))
     small_bg = cv2.GaussianBlur(small_bg, (9, 9), 0)
     bg = cv2.resize(small_bg, (crop_w, crop_h))
@@ -974,7 +974,7 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
         
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(silent_path, fourcc, fps, (crop_w, crop_h))
+        writer = cv2.VideoWriter(silent_path, cv2.CAP_FFMPEG, fourcc, fps, (crop_w, crop_h))
         if not writer.isOpened():
             raise RuntimeError(f"Could not open VideoWriter for path: {silent_path}")
         try:
@@ -1046,10 +1046,27 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
                         log.warning("Cropped frame kosong pada frame_idx %d. Fallback ke letterbox.", frame_idx)
                         cropped = _letterbox(frame, crop_w, crop_h)
                     else:
-                        if w_z != crop_w or h_z != crop_h:
+                        if w_z != crop_w or h_z != crop_h or cropped.shape[1] != crop_w or cropped.shape[0] != crop_h:
                             cropped = cv2.resize(cropped, (crop_w, crop_h), interpolation=cv2.INTER_LANCZOS4)
                 
-                writer.write(cropped)
+                # Jaminan ekstra dimensi frame tepat sama dengan target VideoWriter
+                if cropped.shape[1] != crop_w or cropped.shape[0] != crop_h:
+                    cropped = cv2.resize(cropped, (crop_w, crop_h), interpolation=cv2.INTER_LANCZOS4)
+                
+                # Jaminan memori contiguous untuk mencegah crash C++ di OpenCV VideoWriter (non-contiguous numpy views)
+                cropped = np.ascontiguousarray(cropped)
+                
+                try:
+                    writer.write(cropped)
+                except Exception as e:
+                    log.error(
+                        "OpenCV write crash pada frame_idx=%d. "
+                        "cropped.shape=%s, cropped.dtype=%s, crop_w=%d, crop_h=%d, error=%s",
+                        frame_idx, cropped.shape if cropped is not None else None,
+                        cropped.dtype if cropped is not None else None,
+                        crop_w, crop_h, e
+                    )
+                    raise e
                 frame_idx += 1
         finally:
             writer.release()
@@ -1083,7 +1100,7 @@ def _render_master_letterbox(in_path: str, out_path: str, aspect_ratio: str) -> 
     
     silent_path = out_path + ".silent.mp4"
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(silent_path, fourcc, fps, (crop_w, crop_h))
+    writer = cv2.VideoWriter(silent_path, cv2.CAP_FFMPEG, fourcc, fps, (crop_w, crop_h))
     if not writer.isOpened():
         raise RuntimeError(f"Could not open VideoWriter for path: {silent_path}")
     

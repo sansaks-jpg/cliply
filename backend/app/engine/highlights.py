@@ -10,10 +10,14 @@ Segment IDs prevent timestamp hallucination.
 """
 import json
 import logging
+import random
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
 from .llm import LLMFn, get_llm_fn
+from ..config import HIGHLIGHT_MAX_WORKERS, LLM_PROVIDER
 
 logger = logging.getLogger(__name__)
 
@@ -51,10 +55,11 @@ For each unit, determine:
 Content type: {content_type} | Density: {density}
 
 Rules:
-- Unit length is determined by where the topic actually starts/ends — NOT by any target duration
-- If a unit has arc_complete=false, merge it with adjacent units until the merged span
-  resolves (arc_complete=true), unless the thread genuinely never resolves in this video
-- Every segment must belong to exactly one unit — cover the full transcript
+- Unit length is determined by where the topic actually starts/ends — NOT by any target duration.
+- Max duration of a narrative unit should not exceed 180 seconds. If a topic is longer than 180 seconds, split it into multiple units (e.g., topic part 1, part 2).
+- If a unit has arc_complete=false and is short, merge it with adjacent units until the merged span
+  resolves (arc_complete=true), unless the thread genuinely never resolves in this video or it would exceed 180 seconds.
+- Every segment must belong to exactly one unit — cover the full transcript without gaps or overlaps.
 
 Respond ONLY with valid JSON:
 {{"units":[{{"start_segment_id":int,"end_segment_id":int,"topic":"string","arc_type":"string","arc_complete":bool,"intensity":int}}]}}
@@ -104,7 +109,7 @@ Selection rules:
 For each highlight:
 - "reasoning": 2-3 sentences — what's the complete arc here, why these exact boundaries,
   what breaks if you cut earlier or later
-- "hook_sentence": exact opening line (quoted from transcript) that earns the first 3 seconds
+- "hook_sentence": exact opening line (quoted verbatim from transcript) that earns the first 3 seconds
 - "virality_reason": one sentence
 - "score": 0-100 viral potential (not general quality)
 
@@ -231,9 +236,10 @@ def segment_narrative(transcript: Dict, content_info: Dict, llm_fn: LLMFn) -> Li
         transcript=transcript_text,
     )
     
-    last_error = "unknown"
+    last_errors = []
+    current_prompt = prompt
     for attempt in range(1, MAX_HIGHLIGHT_ATTEMPTS + 1):
-        raw = llm_fn(prompt)
+        raw = llm_fn(current_prompt)
         try:
             parsed = _parse_json_loose(raw)
             units = parsed.get("units", [])
@@ -241,16 +247,26 @@ def segment_narrative(transcript: Dict, content_info: Dict, llm_fn: LLMFn) -> Li
                 validated = _validate_units(units, transcript)
                 if validated:
                     return validated
-                last_error = "no valid units after validation"
+                err_msg = "no valid units after validation (possibly segment mapping failed)"
             else:
-                last_error = "empty units array"
+                err_msg = "empty units array or incorrect JSON format"
         except Exception as e:
-            last_error = str(e)
+            err_msg = f"JSON parse error: {e}"
+        
+        last_errors.append(f"Attempt {attempt} failed: {err_msg}")
+        logger.warning(f"[SEGMENTATION] Attempt {attempt} failed: {err_msg}")
         
         if attempt < MAX_HIGHLIGHT_ATTEMPTS:
-            prompt = f"{prompt}\n\nIMPORTANT: Return ONLY valid JSON with a top-level 'units' array. Each item must include: start_segment_id (int), end_segment_id (int), topic (string), arc_type (string), arc_complete (bool), intensity (0-100). No markdown fences."
+            feedback_str = "\n".join(last_errors)
+            current_prompt = (
+                f"{prompt}\n\n"
+                f"[PREVIOUS ATTEMPTS FEEDBACK]\n"
+                f"Your previous output(s) failed validation with the following errors:\n"
+                f"{feedback_str}\n\n"
+                f"Please correct these mistakes. Return ONLY valid JSON with a top-level 'units' array conforming to the specifications. Ensure all segment IDs are correct and cover the full transcript."
+            )
     
-    raise RuntimeError(f"Narrative segmentation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts: {last_error}")
+    raise RuntimeError(f"Narrative segmentation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts: {last_errors[-1]}")
 
 
 def _validate_units(units: List[Dict], transcript: Dict) -> List[Dict]:
@@ -276,20 +292,101 @@ def _validate_units(units: List[Dict], transcript: Dict) -> List[Dict]:
         arc_type = str(u.get("arc_type", "single_point")).strip().lower()
         if arc_type not in valid_types:
             arc_type = "single_point"
+            
+        intensity = max(0, min(100, _coerce_int(u.get("intensity"), 50)))
         
+        # ── Forced Split jika unit melebihi MAX_DURATION ────────────────────────
+        # Cap durasi unit agar tidak membuat unit raksasa
+        unit_segments = list(range(start_id, end_id + 1))
+        current_sub_start = start_id
+        
+        for seg_idx in unit_segments:
+            seg_start = segments[current_sub_start]["start"]
+            seg_end = segments[seg_idx]["end"]
+            
+            # Jika seg_idx adalah segmen terakhir dalam unit, atau jika menambahkan segmen berikutnya melampaui MAX_DURATION
+            is_last = (seg_idx == end_id)
+            if not is_last:
+                next_seg_end = segments[seg_idx + 1]["end"]
+                if next_seg_end - seg_start > MAX_DURATION:
+                    # Potong di seg_idx saat ini
+                    validated.append({
+                        "start_segment_id": current_sub_start,
+                        "end_segment_id": seg_idx,
+                        "start_time": seg_start,
+                        "end_time": seg_end,
+                        "topic": f"{u.get('topic', '')} (Part {len(validated)+1})",
+                        "arc_type": arc_type,
+                        "arc_complete": False, # Dipaksa split
+                        "intensity": intensity,
+                    })
+                    current_sub_start = seg_idx + 1
+            else:
+                # Masukkan sisa unit
+                validated.append({
+                    "start_segment_id": current_sub_start,
+                    "end_segment_id": seg_idx,
+                    "start_time": seg_start,
+                    "end_time": seg_end,
+                    "topic": u.get("topic", "") if current_sub_start == start_id else f"{u.get('topic', '')} (Part {len(validated)+1})",
+                    "arc_type": arc_type,
+                    "arc_complete": bool(u.get("arc_complete", False)) if current_sub_start == start_id else False,
+                    "intensity": intensity,
+                })
+
+    if not validated:
+        # Fallback jika tidak ada unit valid: buat satu unit raksasa yang mencakup seluruh segmen
         validated.append({
-            "start_segment_id": start_id,
-            "end_segment_id": end_id,
-            "start_time": segments[start_id]["start"],
-            "end_time": segments[end_id]["end"],
-            "topic": str(u.get("topic", "")).strip(),
-            "arc_type": arc_type,
-            "arc_complete": bool(u.get("arc_complete", False)),
-            "intensity": max(0, min(100, _coerce_int(u.get("intensity"), 50))),
+            "start_segment_id": 0,
+            "end_segment_id": n_segments - 1,
+            "start_time": segments[0]["start"],
+            "end_time": segments[-1]["end"],
+            "topic": "Full Transcript (Auto-fallback)",
+            "arc_type": "filler",
+            "arc_complete": False,
+            "intensity": 50,
         })
+        return validated
+
+    # ── Gap & Overlap Resolution ───────────────────────────────────────────
+    # 1. Urutkan berdasarkan start_segment_id
+    validated.sort(key=lambda x: x["start_segment_id"])
     
-    logger.info(f"[UNITS] Validation done: {len(validated)}/{len(units)} passed")
-    return validated
+    # 2. Tangani gap di awal (jika unit pertama tidak mulai dari 0)
+    if validated[0]["start_segment_id"] > 0:
+        validated[0]["start_segment_id"] = 0
+        validated[0]["start_time"] = segments[0]["start"]
+
+    # 3. Tangani overlap dan gap antar unit berurutan
+    cleaned = []
+    for i in range(len(validated) - 1):
+        curr_unit = validated[i]
+        next_unit = validated[i+1]
+        
+        curr_end = curr_unit["end_segment_id"]
+        next_start = next_unit["start_segment_id"]
+        
+        if curr_end >= next_start:
+            # Overlap! Potong unit saat ini agar berakhir tepat sebelum unit berikutnya dimulai
+            new_end = max(curr_unit["start_segment_id"], next_start - 1)
+            curr_unit["end_segment_id"] = new_end
+            curr_unit["end_time"] = segments[new_end]["end"]
+        elif curr_end < next_start - 1:
+            # Gap! Perluas unit saat ini agar mengisi gap sampai sebelum unit berikutnya
+            new_end = next_start - 1
+            curr_unit["end_segment_id"] = new_end
+            curr_unit["end_time"] = segments[new_end]["end"]
+            
+        cleaned.append(curr_unit)
+    cleaned.append(validated[-1])
+    
+    # 4. Tangani gap di akhir (jika unit terakhir tidak sampai n_segments - 1)
+    if cleaned[-1]["end_segment_id"] < n_segments - 1:
+        cleaned[-1]["end_segment_id"] = n_segments - 1
+        cleaned[-1]["end_time"] = segments[-1]["end"]
+
+    logger.info(f"[UNITS] Validation done: {len(cleaned)} units clean and contiguous")
+    return cleaned
 
 
 # ── Stage 3: Highlight Generation ────────────────────────────────
@@ -312,33 +409,159 @@ def generate_highlights(
         transcript=transcript_text,
     )
     
-    last_error = "unknown"
+    last_errors = []
+    current_prompt = prompt
     for attempt in range(1, MAX_HIGHLIGHT_ATTEMPTS + 1):
-        raw = llm_fn(prompt)
+        raw = llm_fn(current_prompt)
         logger.info(f"[HIGHLIGHTS] Attempt {attempt}: LLM returned {len(raw)} chars")
         try:
             parsed = _parse_json_loose(raw)
             highlights = parsed.get("highlights", [])
             logger.info(f"[HIGHLIGHTS] Attempt {attempt}: parsed {len(highlights)} raw highlights")
             if highlights:
-                validated = _validate_highlights(highlights, transcript, num_clips)
+                validated = _validate_highlights(highlights, transcript, num_clips, narrative_units)
                 if validated:
                     return validated
-                last_error = "no valid highlights after validation"
+                err_msg = "no valid highlights after validation (possibly failed narrative unit bounds constraint)"
             else:
-                last_error = "empty highlights array"
+                err_msg = "empty highlights array or incorrect JSON format"
         except Exception as e:
-            last_error = str(e)
-            logger.warning(f"[HIGHLIGHTS] Attempt {attempt}: parse error: {e}")
+            err_msg = f"JSON parse/validation error: {e}"
+            logger.warning(f"[HIGHLIGHTS] Attempt {attempt}: error: {e}")
+        
+        last_errors.append(f"Attempt {attempt} failed: {err_msg}")
         
         if attempt < MAX_HIGHLIGHT_ATTEMPTS:
-            prompt = f"{prompt}\n\nIMPORTANT: Return ONLY valid JSON with a top-level 'highlights' array. Each item must include: title, start_segment_id (int), end_segment_id (int), reasoning (2-3 sentences), score (0-100), hook_sentence (exact quote from transcript), virality_reason. No markdown fences."
+            feedback_str = "\n".join(last_errors)
+            current_prompt = (
+                f"{prompt}\n\n"
+                f"[PREVIOUS ATTEMPTS FEEDBACK]\n"
+                f"Your previous output(s) failed validation with the following errors:\n"
+                f"{feedback_str}\n\n"
+                f"Please correct these mistakes. Ensure all highlights align with the provided narrative units (either fully within a single unit, or exact merges of contiguous units), hook sentences match the transcript verbatim, and overlap doesn't exceed 20% cumulative. Respond ONLY with valid JSON."
+            )
     
-    raise RuntimeError(f"Highlight generation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts: {last_error}")
+    raise RuntimeError(f"Highlight generation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts: {last_errors[-1]}")
 
 
-def _validate_highlights(highlights: List[Dict], transcript: Dict, num_clips: int) -> List[Dict]:
-    """Validate highlights: segment IDs, duration, overlap."""
+# ── Alignment Helpers ─────────────────────────────────────────────────
+
+def _align_highlight_to_units(start_id: int, end_id: int, units: List[Dict]) -> tuple[int, int]:
+    """Snap start_id and end_id to align with narrative unit boundaries if they are close (within 3 segments)."""
+    if not units:
+        return start_id, end_id
+        
+    intersecting_units = [
+        u for u in units
+        if max(start_id, u["start_segment_id"]) <= min(end_id, u["end_segment_id"])
+    ]
+    if not intersecting_units:
+        return start_id, end_id
+        
+    intersecting_units.sort(key=lambda x: x["start_segment_id"])
+    
+    # Kasus 1: Berada dalam satu unit narrative
+    if len(intersecting_units) == 1:
+        u = intersecting_units[0]
+        if u["arc_complete"]:
+            # Snap ke batas unit penuh jika selisihnya tipis
+            if abs(start_id - u["start_segment_id"]) <= 3 and abs(end_id - u["end_segment_id"]) <= 3:
+                return u["start_segment_id"], u["end_segment_id"]
+        return start_id, end_id
+        
+    # Kasus 2: Lintas beberapa unit
+    first_u = intersecting_units[0]
+    last_u = intersecting_units[-1]
+    
+    new_start = start_id
+    new_end = end_id
+    
+    # Snap ke batas luar unit pertama
+    if abs(start_id - first_u["start_segment_id"]) <= 3:
+        new_start = first_u["start_segment_id"]
+        
+    # Snap ke batas luar unit terakhir
+    if abs(end_id - last_u["end_segment_id"]) <= 3:
+        new_end = last_u["end_segment_id"]
+        
+    return new_start, new_end
+
+
+def _is_aligned_with_units(start_id: int, end_id: int, units: List[Dict]) -> bool:
+    """Verify if the segment range is strictly aligned with narrative unit boundaries."""
+    if not units:
+        return True
+        
+    intersecting_units = [
+        u for u in units
+        if max(start_id, u["start_segment_id"]) <= min(end_id, u["end_segment_id"])
+    ]
+    if not intersecting_units:
+        return False
+        
+    intersecting_units.sort(key=lambda x: x["start_segment_id"])
+    
+    # Kasus 1: Berada dalam satu unit narrative
+    if len(intersecting_units) == 1:
+        u = intersecting_units[0]
+        # Jika unit tersebut lengkap (arc_complete=true), highlight tidak boleh memotongnya setengah jalan
+        if u["arc_complete"]:
+            return start_id == u["start_segment_id"] and end_id == u["end_segment_id"]
+        return True
+        
+    # Kasus 2: Gabungan beberapa unit. Harus mencakup unit-unit tersebut secara utuh dari ujung ke ujung.
+    first_u = intersecting_units[0]
+    last_u = intersecting_units[-1]
+    
+    if start_id != first_u["start_segment_id"] or end_id != last_u["end_segment_id"]:
+        return False
+        
+    # Pastikan unit-unitnya berurutan secara rapat (contiguous)
+    for idx in range(len(intersecting_units) - 1):
+        if intersecting_units[idx]["end_segment_id"] + 1 != intersecting_units[idx+1]["start_segment_id"]:
+            return False
+            
+    return True
+
+
+# ── Hook Sentence Verification ────────────────────────────────────────
+
+def _normalize_text(text: str) -> str:
+    """Normalize text for comparison by removing punctuation and converting to lowercase."""
+    return re.sub(r"[^\w\s]", "", text).lower().strip()
+
+
+def _validate_and_fix_hook(hook: str, start_seg_text: str) -> str:
+    """Ensure hook sentence exists in the starting segment, fallback to verbatim text if mismatch."""
+    norm_hook = _normalize_text(hook)
+    norm_seg = _normalize_text(start_seg_text)
+    
+    if not norm_hook:
+        return start_seg_text.strip()
+        
+    # Cocokan langsung
+    if norm_hook in norm_seg or norm_seg in norm_hook:
+        return hook
+        
+    # Fuzzy match: 50% kata-kata unik cocok
+    hook_words = set(norm_hook.split())
+    seg_words = set(norm_seg.split())
+    if hook_words and len(hook_words & seg_words) / len(hook_words) >= 0.5:
+        return hook
+        
+    # Fallback jika gagal
+    return start_seg_text.strip()
+
+
+# ── Highlight Validation ──────────────────────────────────────────────
+
+def _validate_highlights(
+    highlights: List[Dict],
+    transcript: Dict,
+    num_clips: int,
+    narrative_units: Optional[List[Dict]] = None,
+) -> List[Dict]:
+    """Validate highlights: segment IDs, duration, alignment to narrative units, cumulative overlap."""
     segments = transcript.get("segments", [])
     n_segments = len(segments)
     if n_segments == 0:
@@ -356,6 +579,15 @@ def _validate_highlights(highlights: List[Dict], transcript: Dict, num_clips: in
             logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: bad segment IDs start={start_id} end={end_id} (n_segments={n_segments})")
             continue
         
+        # 1. Snap/Align boundaries ke unit narrative jika dekat
+        if narrative_units:
+            start_id, end_id = _align_highlight_to_units(start_id, end_id, narrative_units)
+            
+            # Verifikasi kecocokan batas unit
+            if not _is_aligned_with_units(start_id, end_id, narrative_units):
+                logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: range {start_id}-{end_id} violates narrative unit boundaries")
+                continue
+        
         start_time = segments[start_id]["start"]
         end_time = segments[end_id]["end"]
         duration = end_time - start_time
@@ -367,25 +599,23 @@ def _validate_highlights(highlights: List[Dict], transcript: Dict, num_clips: in
             logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: too long {duration:.1f}s > {MAX_DURATION}s (seg {start_id}-{end_id})")
             continue
         
-        # Check overlap with existing highlights
-        overlap_ok = True
-        for existing in validated:
-            overlap_start = max(start_id, existing["start_segment_id"])
-            overlap_end = min(end_id, existing["end_segment_id"])
-            overlap_range = max(0, overlap_end - overlap_start + 1)
-            this_range = end_id - start_id + 1
-            if this_range > 0 and overlap_range / this_range > MAX_OVERLAP_RATIO:
-                overlap_ok = False
-                break
+        # 2. Check cumulative overlap (tidak boleh lebih dari 20% kumulatif dari segmen yang sudah diambil)
+        total_segments = end_id - start_id + 1
+        overlap_count = 0
+        for seg_id in range(start_id, end_id + 1):
+            for existing in validated:
+                if existing["start_segment_id"] <= seg_id <= existing["end_segment_id"]:
+                    overlap_count += 1
+                    break
         
-        if not overlap_ok:
-            logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: >{MAX_OVERLAP_RATIO*100:.0f}% overlap with existing highlight")
+        overlap_ratio = overlap_count / total_segments if total_segments > 0 else 0
+        if overlap_ratio > MAX_OVERLAP_RATIO:
+            logger.warning(f"[HIGHLIGHTS] #{idx} REJECTED: cumulative overlap {overlap_ratio*100:.1f}% > {MAX_OVERLAP_RATIO*100:.0f}%")
             continue
         
-        # Extract hook sentence from transcript
+        # 3. Verifikasi dan perbaiki hook sentence agar verbatim
         hook = str(h.get("hook_sentence", "")).strip()
-        if not hook:
-            hook = segments[start_id]["text"].strip()
+        hook = _validate_and_fix_hook(hook, segments[start_id]["text"])
         
         logger.info(f"[HIGHLIGHTS] #{idx} ACCEPTED: {duration:.1f}s seg {start_id}-{end_id} score={h.get('score')}")
         validated.append({
@@ -400,11 +630,59 @@ def _validate_highlights(highlights: List[Dict], transcript: Dict, num_clips: in
             "virality_reason": str(h.get("virality_reason", "")).strip(),
         })
     
-    # Sort by score, return top N
+    # Urutkan berdasarkan score, ambil top N
     validated.sort(key=lambda x: x["score"], reverse=True)
     result = validated[:num_clips * 2]
     logger.info(f"[HIGHLIGHTS] Validation done: {len(result)}/{len(highlights)} passed")
     return result
+
+
+# ── Thread/Rate Limit Helpers ─────────────────────────────────────────
+
+def _is_rate_limit_error(e: Exception) -> bool:
+    """Detect if an exception is related to rate limiting (429, ResourceExhausted, etc.)."""
+    err_name = e.__class__.__name__.lower()
+    err_str = str(e).lower()
+    if "ratelimit" in err_name or "rate_limit" in err_name or "resourceexhausted" in err_name:
+        return True
+    if "429" in err_str or "rate limit" in err_str or "throttled" in err_str or "resource_exhausted" in err_str:
+        return True
+    return False
+
+
+def _process_chunk_with_retry(
+    chunk_transcript: Dict,
+    chunk_units_mapped: List[Dict],
+    content_info: Dict,
+    num_clips: int,
+    llm_fn: LLMFn,
+    start_val: float,
+) -> List[Dict]:
+    """Execute generate_highlights for a chunk with rate limit detection and exponential backoff + random jitter."""
+    max_rate_limit_retries = 3
+    backoff_factor = 2.0
+    initial_delay = 5.0  # seconds, safer starting point for TPM reset windows
+    
+    for attempt in range(1, max_rate_limit_retries + 1):
+        try:
+            return generate_highlights(
+                chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn
+            )
+        except Exception as e:
+            if _is_rate_limit_error(e) and attempt < max_rate_limit_retries:
+                base_delay = initial_delay * (backoff_factor ** (attempt - 1))
+                # Add random jitter (+/- 20% + small random offset) to prevent lockstep retry storms
+                jitter = random.uniform(-0.2, 0.2) * base_delay + random.uniform(0.5, 1.5)
+                delay = min(base_delay + jitter, 30.0)  # Max ceiling of 30 seconds
+                
+                logger.warning(
+                    f"[CHUNK PROCESSOR] Rate limit hit on chunk starting at {start_val}s. "
+                    f"Retrying in {delay:.1f}s... (Attempt {attempt}/{max_rate_limit_retries}) Error: {e}"
+                )
+                time.sleep(delay)
+            else:
+                # Re-raise standard/uncaught exceptions or when retries are exhausted
+                raise e
 
 
 # ── Main Entry Point ─────────────────────────────────────────────
@@ -416,8 +694,6 @@ def get_highlights(
 ) -> Dict:
     llm_fn = llm_fn or get_llm_fn()
     duration = transcript.get("duration", 0)
-    segments = transcript.get("segments", [])
-    seg_map = _segment_map(transcript)
     
     # Stage 1: Content type & density
     content_info = detect_content_type(transcript, llm_fn=llm_fn)
@@ -426,13 +702,27 @@ def get_highlights(
     narrative_units = segment_narrative(transcript, content_info, llm_fn=llm_fn)
     
     # Stage 3: Highlight generation
+    failed_chunks = []
+    total_chunks = 1
+    coverage_pct = 100
+    
     if duration >= LONG_VIDEO_THRESHOLD:
-        # For long videos, chunk the narrative units and process per chunk
-        highlights = _generate_chunked(transcript, narrative_units, content_info, num_clips, llm_fn)
+        # Chunking untuk video panjang
+        chunked_res = _generate_chunked(transcript, narrative_units, content_info, num_clips, llm_fn)
+        highlights = chunked_res.get("highlights", [])
+        failed_chunks = chunked_res.get("failed_chunks", [])
+        total_chunks = chunked_res.get("total_chunks", 1)
+        coverage_pct = chunked_res.get("coverage_pct", 100)
     else:
         highlights = generate_highlights(transcript, narrative_units, content_info, num_clips, llm_fn)
-    
-    return {"highlights": highlights, "narrative_units": narrative_units}
+        
+    return {
+        "highlights": highlights,
+        "narrative_units": narrative_units,
+        "failed_chunks": failed_chunks,
+        "total_chunks": total_chunks,
+        "coverage_pct": coverage_pct
+    }
 
 
 def _generate_chunked(
@@ -441,41 +731,152 @@ def _generate_chunked(
     content_info: Dict,
     num_clips: int,
     llm_fn: LLMFn,
-) -> List[Dict]:
-    """Process long videos by chunking narrative units."""
+) -> Dict:
+    """Process long videos by chunking narrative units with a hybrid sequential-parallel strategy.
+    
+    Ensures prompt caching is warmed (if Anthropic is active) by processing the first chunk sequentially first.
+    Subsequent chunks (or all chunks for other providers) are processed in parallel via ThreadPoolExecutor.
+    """
     segments = transcript.get("segments", [])
     duration = transcript.get("duration", 0)
     
-    all_highlights = []
+    # 1. Kumpulkan parameter pekerjaan chunk terlebih dahulu
+    chunk_tasks = []
     start = 0
     while start < duration:
         end = min(start + CHUNK_SIZE_SECONDS, duration)
         
-        # Get units in this chunk
-        chunk_units = [
-            u for u in narrative_units
-            if u["start_time"] >= start and u["end_time"] <= end + CHUNK_OVERLAP_SECONDS
+        # Dapatkan index segmen global yang masuk ke dalam chunk ini
+        chunk_segment_indices = [
+            i for i, s in enumerate(segments)
+            if s["start"] >= start and s["end"] <= end + CHUNK_OVERLAP_SECONDS
         ]
         
-        if chunk_units:
-            # Get segments in this chunk
-            chunk_segments = [
-                s for s in segments
-                if s["start"] >= start and s["end"] <= end + CHUNK_OVERLAP_SECONDS
-            ]
-            if chunk_segments:
-                chunk_transcript = {"duration": end - start, "segments": chunk_segments}
-                chunk_highlights = generate_highlights(chunk_transcript, chunk_units, content_info, num_clips, llm_fn)
+        if chunk_segment_indices:
+            # Bangun mapping relatif ↔ global
+            relative_to_global_map = {rel_idx: glob_idx for rel_idx, glob_idx in enumerate(chunk_segment_indices)}
+            global_to_relative_map = {glob_idx: rel_idx for rel_idx, glob_idx in enumerate(chunk_segment_indices)}
+            
+            # Saring segments untuk chunk
+            chunk_segments = [segments[idx] for idx in chunk_segment_indices]
+            
+            # Saring unit narrative yang berada di dalam rentang segmen chunk, map segment ID ke lokal/relatif
+            chunk_units_mapped = []
+            for u in narrative_units:
+                u_start = u["start_segment_id"]
+                u_end = u["end_segment_id"]
                 
-                # Adjust timestamps back to original
-                for h in chunk_highlights:
-                    h["start_time"] += start
-                    h["end_time"] += start
-                    all_highlights.append(h)
+                if u_start in global_to_relative_map and u_end in global_to_relative_map:
+                    mapped_unit = u.copy()
+                    mapped_unit["start_segment_id"] = global_to_relative_map[u_start]
+                    mapped_unit["end_segment_id"] = global_to_relative_map[u_end]
+                    chunk_units_mapped.append(mapped_unit)
+            
+            if chunk_units_mapped and chunk_segments:
+                chunk_transcript = {"duration": end - start, "segments": chunk_segments}
+                chunk_tasks.append((
+                    chunk_transcript,
+                    chunk_units_mapped,
+                    start,
+                    relative_to_global_map,
+                    chunk_segment_indices
+                ))
         
         start += CHUNK_SIZE_SECONDS - CHUNK_OVERLAP_SECONDS
+
+    if not chunk_tasks:
+        return {"highlights": [], "failed_chunks": [], "total_chunks": 0, "coverage_pct": 100}
+
+    all_highlights = []
+    failed_chunks = []
+    total_chunks_count = len(chunk_tasks)
+    is_anthropic = (LLM_PROVIDER or "openai").strip().lower() == "anthropic"
+
+    # 2. Hybrid Execution Strategy:
+    # Jika menggunakan Anthropic, proses chunk pertama secara sequential untuk warm-up prompt cache.
+    # Jika OpenAI/Gemini, proses semua chunk secara paralel penuh untuk latensi minimal.
+    tasks_to_parallel = chunk_tasks
     
-    return all_highlights
+    if is_anthropic:
+        first_task = chunk_tasks[0]
+        chunk_transcript, chunk_units_mapped, start_val, relative_to_global_map, chunk_segment_indices = first_task
+        
+        logger.info(f"[HIGHLIGHTS] Warm caching: Processing first chunk (start={start_val}s) sequentially...")
+        try:
+            first_highlights = _process_chunk_with_retry(
+                chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val
+            )
+            # Map back segment IDs dan timestamps relatif ke global asli
+            for h in first_highlights:
+                rel_start = h["start_segment_id"]
+                rel_end = h["end_segment_id"]
+                
+                glob_start = relative_to_global_map.get(rel_start, chunk_segment_indices[0])
+                glob_end = relative_to_global_map.get(rel_end, chunk_segment_indices[-1])
+                
+                h["start_segment_id"] = glob_start
+                h["end_segment_id"] = glob_end
+                h["start_time"] = segments[glob_start]["start"]
+                h["end_time"] = segments[glob_end]["end"]
+                
+                all_highlights.append(h)
+        except Exception as e:
+            failed_chunks.append(start_val)
+            logger.error(f"Failed to generate highlights for the first chunk (warm cache block): {e}")
+            
+        tasks_to_parallel = chunk_tasks[1:]
+
+    # 3. Jalankan task paralel
+    if tasks_to_parallel:
+        mode_str = "parallel (cache warmed)" if is_anthropic else "parallel full"
+        logger.info(f"[HIGHLIGHTS] Processing remaining {len(tasks_to_parallel)} chunks in {mode_str}...")
+        
+        with ThreadPoolExecutor(max_workers=min(len(tasks_to_parallel), HIGHLIGHT_MAX_WORKERS)) as executor:
+            futures = {
+                executor.submit(
+                    _process_chunk_with_retry,
+                    task[0], task[1], content_info, num_clips, llm_fn, task[2]
+                ): task
+                for task in tasks_to_parallel
+            }
+            
+            for future in futures:
+                task = futures[future]
+                start_val, relative_to_global_map, chunk_segment_indices = task[2], task[3], task[4]
+                try:
+                    chunk_highlights = future.result()
+                    # Map back segment IDs dan timestamps relatif ke global asli
+                    for h in chunk_highlights:
+                        rel_start = h["start_segment_id"]
+                        rel_end = h["end_segment_id"]
+                        
+                        glob_start = relative_to_global_map.get(rel_start, chunk_segment_indices[0])
+                        glob_end = relative_to_global_map.get(rel_end, chunk_segment_indices[-1])
+                        
+                        h["start_segment_id"] = glob_start
+                        h["end_segment_id"] = glob_end
+                        h["start_time"] = segments[glob_start]["start"]
+                        h["end_time"] = segments[glob_end]["end"]
+                        
+                        all_highlights.append(h)
+                except Exception as e:
+                    failed_chunks.append(start_val)
+                    logger.error(f"Failed to generate highlights for chunk starting at {start_val}s: {e}")
+
+    # 4. Deteksi kegagalan sistemik (100% chunk gagal)
+    if len(failed_chunks) == total_chunks_count:
+        raise RuntimeError(
+            f"Highlight generation failed completely: all {total_chunks_count} chunks failed to process due to API or validation errors."
+        )
+        
+    coverage_pct = int(((total_chunks_count - len(failed_chunks)) / total_chunks_count) * 100) if total_chunks_count > 0 else 100
+
+    return {
+        "highlights": all_highlights,
+        "failed_chunks": failed_chunks,
+        "total_chunks": total_chunks_count,
+        "coverage_pct": coverage_pct
+    }
 
 
 def chunk_transcript(transcript: Dict) -> List[Dict]:

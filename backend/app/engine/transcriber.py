@@ -108,6 +108,7 @@ def _clean_hallucinations(segments: list, video_duration: float = 0.0, task_id: 
     2. Perbaiki timestamp tidak valid (end <= start).
     3. Deteksi blok berulang (>= 10 filler berturut-turut) dan potong.
     4. Gabungkan blok setelah gap besar akibat pemotongan ke segmen berikutnya yang valid.
+    5. Deteksi & re-estimasi segmen dengan durasi per kata tidak wajar (>1.0 detik/kata).
     """
     if not segments:
         return segments
@@ -165,6 +166,32 @@ def _clean_hallucinations(segments: list, video_duration: float = 0.0, task_id: 
 
     # 4. Sort ulang berdasarkan start time (jaga-jaga kalau ada yang out of order)
     cleaned.sort(key=lambda s: s["start"])
+
+    # 5. Deteksi segmen dengan durasi per kata tidak wajar (hallucination timestamp panjang)
+    MAX_SEC_PER_WORD = 1.0
+    NORMAL_SEC_PER_WORD = 0.5
+    re_estimated = 0
+    for seg in cleaned:
+        words = seg.get("text", "").split()
+        n_words = len(words)
+        if n_words == 0:
+            continue
+        duration = seg["end"] - seg["start"]
+        if duration / n_words > MAX_SEC_PER_WORD:
+            old_end = seg["end"]
+            new_end = seg["start"] + n_words * NORMAL_SEC_PER_WORD
+            if video_duration > 0:
+                new_end = min(new_end, video_duration)
+            seg["end"] = new_end
+            re_estimated += 1
+            msg = (f"[hallucination_cleaner] re-estimated seg t={seg['start']:.1f}s → "
+                   f"{new_end:.1f}s (was {old_end:.1f}s, {n_words} kata, "
+                   f"{duration / n_words:.1f}s/kata → {NORMAL_SEC_PER_WORD:.1f}s/kata)")
+            print(msg, flush=True)
+    if re_estimated:
+        msg = f"[hallucination_cleaner] re-estimated {re_estimated} segmen (timestamp terlalu panjang)"
+        print(msg, flush=True)
+        _update_transcribe_progress(task_id, 33.0, msg)
 
     if len(cleaned) < len(segments):
         msg = f"[hallucination_cleaner] {len(segments)} → {len(cleaned)} segmen (buang {len(segments) - len(cleaned)})"
@@ -465,22 +492,66 @@ def _try_groq_whisper(audio_path: str, task_id: Optional[str] = None) -> Optiona
                 model=GROQ_MODEL,
                 response_format="verbose_json",
                 language="id",
+                timestamp_granularities=["word", "segment"],
             )
         
-        # Parse Groq response
+        # Parse kata-kata jika tersedia
+        words = []
+        raw_words = getattr(result, "words", None)
+        if raw_words:
+            for w in raw_words:
+                if isinstance(w, dict):
+                    words.append({
+                        "word": w.get("word", "").strip(),
+                        "start": float(w.get("start", 0.0)),
+                        "end": float(w.get("end", 0.0))
+                    })
+                else:
+                    words.append({
+                        "word": getattr(w, "word", "").strip(),
+                        "start": float(getattr(w, "start", 0.0)),
+                        "end": float(getattr(w, "end", 0.0))
+                    })
+
+        # Parse Groq response segments
         segments = []
         if hasattr(result, "segments") and result.segments:
             for seg in result.segments:
-                segments.append({
-                    "start": float(seg["start"]),
-                    "end": float(seg["end"]),
-                    "text": seg["text"].strip(),
-                })
+                seg_dict = {
+                    "start": float(seg["start"] if isinstance(seg, dict) else getattr(seg, "start", 0.0)),
+                    "end": float(seg["end"] if isinstance(seg, dict) else getattr(seg, "end", 0.0)),
+                    "text": (seg["text"] if isinstance(seg, dict) else getattr(seg, "text", "")).strip(),
+                }
+                segments.append(seg_dict)
         elif hasattr(result, "text") and result.text:
             segments.append({"start": 0.0, "end": 0.0, "text": result.text.strip()})
         
+        # Hubungkan kata-kata ke segmen menggunakan waktu tengah (mid-time) kata
+        if words and segments:
+            for w in words:
+                mid_time = (w["start"] + w["end"]) / 2.0
+                best_seg = None
+                min_distance = float("inf")
+                
+                for seg_dict in segments:
+                    # Jika waktu tengah kata berada di dalam rentang waktu segmen
+                    if seg_dict["start"] <= mid_time <= seg_dict["end"]:
+                        best_seg = seg_dict
+                        break
+                    # Jika di luar, cari segmen dengan batas terdekat
+                    dist = min(abs(mid_time - seg_dict["start"]), abs(mid_time - seg_dict["end"]))
+                    if dist < min_distance:
+                        min_distance = dist
+                        best_seg = seg_dict
+                
+                # Masukkan kata ke segmen terpilih
+                if best_seg is not None:
+                    if "words" not in best_seg:
+                        best_seg["words"] = []
+        # Akhir pemetaan kata
+        
         duration = float(result.duration) if hasattr(result, "duration") else (segments[-1]["end"] if segments else 0.0)
-        print(f"[transcribe] Groq returned {len(segments)} segments", flush=True)
+        print(f"[transcribe] Groq returned {len(segments)} segments (with word-level timestamps)", flush=True)
         return {"duration": duration, "segments": segments}
     
     except Exception as e:
@@ -568,32 +639,39 @@ def transcribe_video(media_path: str, task_id: str, language: Optional[str] = No
         print(msg, flush=True)
         _update_transcribe_progress(task_id, 18.0, msg)
     
-    # 2. Try Gemini 2.5 Flash (with speaker detection)
+    # Extract audio (needed for both Groq and Gemini)
     audio_path = None
-    try:
-        audio_path = _download_audio(media_path, task_dir)
-        gemini_result = _try_gemini_transcription(audio_path, task_id)
-        if gemini_result and gemini_result.get("segments"):
-            msg = f"[transcribe] got {len(gemini_result['segments'])} segments from Gemini"
-            print(msg, flush=True)
-            _update_transcribe_progress(task_id, 35.0, msg)
-            _write_srt(media_path, gemini_result, task_dir)
-            return gemini_result
-    except Exception as e:
-        print(f"[transcribe] Gemini failed: {e}", flush=True)
-    
-    # 3. Try Groq Whisper (no speaker detection)
+    if video_url or not video_url:  # always try to extract if we reached here
+        try:
+            audio_path = _download_audio(media_path, task_dir)
+        except Exception as e:
+            print(f"[transcribe] audio extraction failed: {e}", flush=True)
+
+    # 2. Try Groq Whisper (fast, no speaker detection, supports word timestamps)
     if audio_path:
         try:
             groq_result = _try_groq_whisper(audio_path, task_id)
             if groq_result and groq_result.get("segments"):
-                msg = f"[transcribe] got {len(groq_result['segments'])} segments from Groq"
+                msg = f"[transcribe] got {len(groq_result['segments'])} segments from Groq (with word timestamps)"
                 print(msg, flush=True)
                 _update_transcribe_progress(task_id, 35.0, msg)
                 _write_srt(media_path, groq_result, task_dir)
                 return groq_result
         except Exception as e:
             print(f"[transcribe] Groq failed: {e}", flush=True)
+            
+    # 3. Try Gemini 2.5 Flash (with speaker detection)
+    if audio_path:
+        try:
+            gemini_result = _try_gemini_transcription(audio_path, task_id)
+            if gemini_result and gemini_result.get("segments"):
+                msg = f"[transcribe] got {len(gemini_result['segments'])} segments from Gemini"
+                print(msg, flush=True)
+                _update_transcribe_progress(task_id, 35.0, msg)
+                _write_srt(media_path, gemini_result, task_dir)
+                return gemini_result
+        except Exception as e:
+            print(f"[transcribe] Gemini failed: {e}", flush=True)
     
     # 4. No transcription available
-    raise RuntimeError("No transcription available — YouTube, Gemini, and Groq all failed.")
+    raise RuntimeError("No transcription available — YouTube, Groq, and Gemini all failed.")

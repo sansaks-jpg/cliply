@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
@@ -49,7 +49,13 @@ def _fmt(seconds: Optional[float]) -> str:
 
 def _seg_time(seg: Dict[str, Any], key: str) -> Optional[float]:
     """Read a timestamp from a segment, supporting both naming conventions."""
-    return seg.get(key) or seg.get(key.replace("_time", ""))
+    val = seg.get(key)
+    if val is not None:
+        return float(val)
+    val = seg.get(key.replace("_time", ""))
+    if val is not None:
+        return float(val)
+    return None
 
 
 def _split_words(text: str) -> List[str]:
@@ -278,10 +284,30 @@ def _build_karaoke_base(
 
         # Distribute centiseconds perfectly across words to prevent timing drift
         word_durations = []
-        for i in range(len(words)):
-            w_start = (i * total_cs) // len(words)
-            w_end = ((i + 1) * total_cs) // len(words)
-            word_durations.append(max(1, w_end - w_start))
+        seg_words_data = seg.get("words", [])
+        if seg_words_data and len(seg_words_data) == len(words):
+            for w_data in seg_words_data:
+                w_dur = _cs(w_data["end"] - w_data["start"])
+                w_dur = min(w_dur, 80)  # Cap di 0.8s (80 cs) untuk menangani jeda panjang/noise
+                word_durations.append(max(1, w_dur))
+            
+            # Normalisasi proporsional durasi agar jumlah totalnya cocok dengan total_cs
+            sum_dur = sum(word_durations)
+            if sum_dur != total_cs and sum_dur > 0:
+                normalized = []
+                for dur in word_durations:
+                    norm_dur = (dur * total_cs) // sum_dur
+                    normalized.append(max(1, norm_dur))
+                # Tambahkan selisih pembagian bulat ke kata terakhir
+                diff = total_cs - sum(normalized)
+                if normalized:
+                    normalized[-1] = max(1, normalized[-1] + diff)
+                word_durations = normalized
+        else:
+            for i in range(len(words)):
+                w_start = (i * total_cs) // len(words)
+                w_end = ((i + 1) * total_cs) // len(words)
+                word_durations.append(max(1, w_end - w_start))
 
         result_lines = []
         idx = 0
@@ -308,52 +334,110 @@ def build_karaoke_fill(
     segments: List[Dict[str, Any]],
     style: Dict[str, Any],
 ) -> List[str]:
-    """Karaoke fill — per-word colour sweep using \\kf (gradual left→right fill).
+    """Karaoke fill — per-word instant colour pop using \\k.
 
-    libass advances the fill colour from SecondaryColour→PrimaryColour as each
-    word is spoken.  Long lines are wrapped via ``\\N``.
+    libass switches the word colour from SecondaryColour (inactive) to PrimaryColour (active) 
+    instantly at the start of the word duration, matching the frontend pop behavior.
     """
-    return _build_karaoke_base(segments, style, "\\kf")
+    return _build_karaoke_base(segments, style, "\\k")
 
 
 def build_karaoke_sweep(
     segments: List[Dict[str, Any]],
     style: Dict[str, Any],
 ) -> List[str]:
-    """Karaoke sweep — instant colour pop (\\k) with a brief \\blur glow flash.
-
-    Unlike ``karaoke_fill`` (\\kf = gradual fill), sweep uses \\k which changes
-    the entire word colour at once.  A \\t() blur transition adds a bright
-    flash/glow at the moment of switch, then fades back to the base blur level.
-    This produces a distinct visual from plain fill.
+    """Karaoke sweep — Refactored to use dual-layer static blur glow for maximum CPU performance.
+    
+    Instead of animating \\blur frame-by-frame (which causes extreme CPU lag in libass),
+    this implementation duplicates each dialogue event:
+    1. Layer 0 (Glow Layer): A background layer with a static, non-animated \\blur8.
+       We animate the transparency (\\alpha) of the active word to create the pulsing highlight.
+    2. Layer 1 (Sharp Text Layer): A sharp foreground layer on top with \\blur0.
+       Changes color instantly per word using standard \\k.
     """
     case = style.get("case", "normal")
     font_size = style.get("_font_size", 48)
     play_res_x = style.get("_play_res_x", 1080)
-    base_blur = style.get("blur", 0)
-    # Flash blur value: at least 6 so the glow is visible even on styles with blur=0
-    flash_blur = max(base_blur + 6, 8)
+    
+    glow_color = style.get("highlight_color", _MAGENTA)
+    primary_color = style.get("primary_color", _CYAN)
+    outline_color = style.get("outline_color", _BLACK)
+    
     lines: List[str] = []
+    
     for seg in segments:
         t0 = _seg_time(seg, "start_time") or 0.0
         t1 = _seg_time(seg, "end_time") or 0.0
         text = (seg.get("text") or "").strip()
         if not text or t1 <= t0:
             continue
+            
         wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
         words = _apply_case(text, case).split()
         if not words:
             continue
+            
         total_cs = _cs(t1 - t0)
-        flash_dur = min(200, (total_cs * 10) // len(words))  # ms, at most 200ms
-
+        flash_dur = min(20, (total_cs * 10) // (len(words) * 2))  # centiseconds, max 20 cs (200ms)
+        
+        # Calculate word durations
         word_durations = []
-        for i in range(len(words)):
-            w_start = (i * total_cs) // len(words)
-            w_end = ((i + 1) * total_cs) // len(words)
-            word_durations.append(max(1, w_end - w_start))
-
-        result_lines = []
+        seg_words_data = seg.get("words", [])
+        if seg_words_data and len(seg_words_data) == len(words):
+            for w_data in seg_words_data:
+                w_dur = _cs(w_data["end"] - w_data["start"])
+                w_dur = min(w_dur, 80)
+                word_durations.append(max(1, w_dur))
+            
+            sum_dur = sum(word_durations)
+            if sum_dur != total_cs and sum_dur > 0:
+                normalized = []
+                for dur in word_durations:
+                    norm_dur = (dur * total_cs) // sum_dur
+                    normalized.append(max(1, norm_dur))
+                diff = total_cs - sum(normalized)
+                if normalized:
+                    normalized[-1] = max(1, normalized[-1] + diff)
+                word_durations = normalized
+        else:
+            for i in range(len(words)):
+                w_start = (i * total_cs) // len(words)
+                w_end = ((i + 1) * total_cs) // len(words)
+                word_durations.append(max(1, w_end - w_start))
+                
+        # ── LAYER 0: GLOW BACKGROUND ──
+        glow_lines = []
+        idx = 0
+        cumulative_cs = 0
+        for wline in wrapped:
+            wcount = len(wline.split())
+            chunk_words = words[idx:idx + wcount]
+            chunk_durations = word_durations[idx:idx + wcount]
+            idx += wcount
+            parts = []
+            for w, dur in zip(chunk_words, chunk_durations):
+                t_start = cumulative_cs
+                t_mid = t_start + flash_dur
+                t_end = t_start + flash_dur * 2
+                
+                glow_tag = (
+                    f"{{\\alpha&HFF&"
+                    f"\\t({t_start * 10},{t_mid * 10},\\alpha&H00&)"
+                    f"\\t({t_mid * 10},{t_end * 10},\\alpha&HFF&)}}"
+                )
+                parts.append(f"{glow_tag}{w}")
+                cumulative_cs += dur
+            glow_lines.append(" ".join(parts))
+            
+        glow_text = "\\N".join(glow_lines)
+        if adaptive_fs != font_size:
+            glow_text = f"{{\\fs{adaptive_fs}}}" + glow_text
+        glow_text = f"{{\\blur8\\1c{glow_color}\\3c{glow_color}\\bord6}}" + glow_text
+        
+        lines.append(f"Dialogue: 0,{_fmt(t0)},{_fmt(t1)},Default,,0,0,0,," + glow_text)
+        
+        # ── LAYER 1: SHARP FOREGROUND ──
+        sharp_lines = []
         idx = 0
         for wline in wrapped:
             wcount = len(wline.split())
@@ -362,21 +446,16 @@ def build_karaoke_sweep(
             idx += wcount
             parts = []
             for w, dur in zip(chunk_words, chunk_durations):
-                # \k = instant colour change (not gradual fill like \kf)
-                # \t(0,flash_dur,\blur{flash}) fades glow in at switch moment,
-                # \t(flash_dur,flash_dur*2,\blur{base}) fades it back out.
-                glow = (
-                    f"{{\\k{dur}"
-                    f"\\t(0,{flash_dur},\\blur{flash_blur})"
-                    f"\\t({flash_dur},{flash_dur*2},\\blur{base_blur})}}"
-                )
-                parts.append(f"{glow}{w}")
-            result_lines.append(" ".join(parts))
-
-        diag_text = "\\N".join(result_lines)
+                parts.append(f"{{\\k{dur}}}{w}")
+            sharp_lines.append(" ".join(parts))
+            
+        sharp_text = "\\N".join(sharp_lines)
         if adaptive_fs != font_size:
-            diag_text = f"{{\\fs{adaptive_fs}}}" + diag_text
-        lines.append(_dialogue(t0, t1, diag_text, color=None))
+            sharp_text = f"{{\\fs{adaptive_fs}}}" + sharp_text
+        sharp_text = f"{{\\blur0\\1c{glow_color}\\2c{primary_color}\\3c{outline_color}}}" + sharp_text
+        
+        lines.append(f"Dialogue: 1,{_fmt(t0)},{_fmt(t1)},Default,,0,0,0,," + sharp_text)
+        
     return lines
 
 
@@ -404,6 +483,7 @@ def build_fade_in_word(
         words = _apply_case(text, case).split()
         if not words:
             continue
+        seg_words_data = seg.get("words", [])
         duration = t1 - t0
         per_word = duration / len(words)
         
@@ -415,7 +495,11 @@ def build_fade_in_word(
             parts = []
             for j, w in enumerate(chunk_words):
                 overall_idx = idx + j
-                ms_offset = int(overall_idx * per_word * 1000)
+                if seg_words_data and len(seg_words_data) == len(words):
+                    w_data = seg_words_data[overall_idx]
+                    ms_offset = max(0, int((w_data["start"] - t0) * 1000))
+                else:
+                    ms_offset = int(overall_idx * per_word * 1000)
                 parts.append(
                     f"{{\\alpha{fade_alpha_from}\\t({ms_offset},{ms_offset + fade_ms},\\alpha&H00&)}}{w}"
                 )
@@ -433,7 +517,7 @@ def build_word_popup(
     segments: List[Dict[str, Any]],
     style: Dict[str, Any],
 ) -> List[str]:
-    """Pop-up per word — each word scales in from small with a bounce.
+    """Pop-up per word — each word scales in from small with a descelerated bounce (ease-out).
 
     All words in one Dialogue line, avoiding overlapping center alignments.
     """
@@ -454,6 +538,7 @@ def build_word_popup(
         words = _apply_case(text, case).split()
         if not words:
             continue
+        seg_words_data = seg.get("words", [])
         duration = t1 - t0
         per_word = duration / len(words)
         
@@ -465,11 +550,16 @@ def build_word_popup(
             parts = []
             for j, w in enumerate(chunk_words):
                 overall_idx = idx + j
-                ms_offset = int(overall_idx * per_word * 1000)
+                if seg_words_data and len(seg_words_data) == len(words):
+                    w_data = seg_words_data[overall_idx]
+                    ms_offset = max(0, int((w_data["start"] - t0) * 1000))
+                else:
+                    ms_offset = int(overall_idx * per_word * 1000)
+                # Gunakan akselerasi 0.5 di tag \\t untuk efek deselerasi (ease-out)
                 parts.append(
                     f"{{\\alpha{pop_alpha_from}\\fscx{pop_from}\\fscy{pop_from}"
                     f"\\t({ms_offset},{ms_offset + 1},\\alpha&H00&)"
-                    f"\\t({ms_offset},{ms_offset + pop_dur},\\fscx100\\fscy100)}}{w}"
+                    f"\\t({ms_offset},{ms_offset + pop_dur},0.5,\\fscx100\\fscy100)}}{w}"
                 )
             idx += wcount
             result_lines.append(" ".join(parts))
@@ -485,7 +575,7 @@ def build_word_pop_scale(
     segments: List[Dict[str, Any]],
     style: Dict[str, Any],
 ) -> List[str]:
-    """Word pop scale — one word visible at a time, pops in from scale.
+    """Word pop scale — one word visible at a time, pops in from scale with desceleration (ease-out).
 
     Unlike word_popup (all words visible, each animates in), this shows only
     the active word (words_per_chunk=1) at center position.
@@ -503,15 +593,21 @@ def build_word_pop_scale(
         words = _apply_case(text, case).split()
         if not words:
             continue
+        seg_words_data = seg.get("words", [])
         duration = t1 - t0
         per_word = duration / len(words)
         for i, w in enumerate(words):
-            ws = t0 + i * per_word
-            we = t0 + (i + 1) * per_word
+            if seg_words_data and len(seg_words_data) == len(words):
+                ws = seg_words_data[i]["start"]
+                we = seg_words_data[i]["end"]
+            else:
+                ws = t0 + i * per_word
+                we = t0 + (i + 1) * per_word
+            # Gunakan akselerasi 0.5 di tag \\t untuk efek deselerasi (ease-out)
             lines.append(
                 _dialogue(
                     ws, we,
-                    f"{{\\fscx{pop_from}\\fscy{pop_from}\\t(0,{pop_dur},\\fscx100\\fscy100)}}{w}"
+                    f"{{\\fscx{pop_from}\\fscy{pop_from}\\t(0,{pop_dur},0.5,\\fscx100\\fscy100)}}{w}"
                 )
             )
     return lines
@@ -521,40 +617,19 @@ def build_word_box_highlight(
     segments: List[Dict[str, Any]],
     style: Dict[str, Any],
 ) -> List[str]:
-    """Word box highlight — per-word dialogue events with \\pos() for individual word boxes.
-
-    ASS has no rectangle primitive, so we cannot draw a true box around text with a
-    single \\bord override (which only thickens the glyph outline, not a rectangle).
-
-    This implementation creates one Dialogue event per word, positioned individually
-    using \\an5 (centre-anchored) and \\pos(x,y) so each word gets its own
-    thick-border box that closely wraps just that word.  The active (currently
-    spoken) word receives the coloured box border; inactive words are plain text.
-
-    ``box_border_width`` controls border thickness (default 14).  Word positions
-    are estimated via ``_estimate_text_width`` — not pixel-perfect but visually
-    stable for typical subtitle resolutions.
+    """Word box highlight — Now refactored to use safe inline text coloring.
+    
+    Instead of using absolute positioning \\pos() and drawing dynamic borders
+    which breaks text wrapping and layout, this implementation keeps the text in
+    a single dialogue line and uses inline color tags (e.g. {\\1c<highlight>}) 
+    to highlight the active word while keeping other words in the inactive color.
     """
-    box_color = style.get("box_color", "&H0076E600")
+    active_color = style.get("box_color", "&H0076E600")
     inactive_color = style.get("inactive_color", "&H00EEEEEE")
-    border_w = style.get("box_border_width", 14)
     case = style.get("case", "normal")
     font_size = style.get("_font_size", 48)
     play_res_x = style.get("_play_res_x", 1080)
-    play_res_y = style.get("_play_res_y", 1920)
-    margin_v_ratio = style.get("margin_v_ratio", 0.26)
-    margin_h_ratio = style.get("margin_h_ratio", 0.09)
-    max_line_width_ratio = style.get("max_line_width_ratio", 0.82)
-    max_lines = style.get("max_lines", 2)
-
-    # Vertical centre of the subtitle zone (\an5 anchor = word centre)
-    # ASS y=0 is top; MarginV is from bottom, so subtitle y = play_res_y - margin_v
-    margin_v = round(play_res_y * margin_v_ratio)
-    margin_h = round(play_res_x * margin_h_ratio)
-    usable_width = play_res_x * max_line_width_ratio
-    # Approximate word height for line spacing
-    line_height = int(font_size * 1.25)
-
+    
     lines: List[str] = []
     for seg in segments:
         t0 = _seg_time(seg, "start_time") or 0.0
@@ -562,84 +637,69 @@ def build_word_box_highlight(
         text = (seg.get("text") or "").strip()
         if not text or t1 <= t0:
             continue
+            
+        wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
         words = _apply_case(text, case).split()
         if not words:
             continue
-        total_cs = _cs(t1 - t0)
+            
+        seg_words_data = seg.get("words", [])
         duration = t1 - t0
         per_word = duration / len(words)
+        
+        for i, w in enumerate(words):
+            if seg_words_data and len(seg_words_data) == len(words):
+                ws = seg_words_data[i]["start"]
+                we = seg_words_data[i]["end"]
+            else:
+                ws = t0 + i * per_word
+                we = t0 + (i + 1) * per_word
+                
+            ws = max(t0, min(t1, ws))
+            we = max(t0, min(t1, we))
+            if we <= ws:
+                we = ws + 0.01
 
-        # Wrap words into lines so we know layout before placing \pos
-        wrapped = _wrap_and_balance(_apply_case(text, case), style, play_res_x, font_size)
-        if len(wrapped) > max_lines:
-            wrapped = wrapped[:max_lines]
-
-        # Build a word→(line_idx, x_offset) map
-        # x_offset is the left edge of each word within its line.
-        word_positions: List[tuple] = []  # (cx, cy) per word in words[]
-        global_word_idx = 0
-        n_lines = len(wrapped)
-        for li, wline in enumerate(wrapped):
-            line_words = wline.split()
-            # Total width of this line for centering
-            line_total_w = _estimate_text_width(wline, font_size)
-            # y for this line row (bottom-aligned block from margin_v)
-            # Bottom of lowest line sits at play_res_y - margin_v
-            y_bottom_of_block = play_res_y - margin_v
-            y_of_line = y_bottom_of_block - (n_lines - 1 - li) * line_height
-            # x start of line (centred within usable area)
-            x_start = (play_res_x - line_total_w) / 2
-            cursor_x = x_start
-            for lw in line_words:
-                w_width = _estimate_text_width(lw, font_size)
-                # Centre x of this word
-                cx = int(cursor_x + w_width / 2)
-                cy = int(y_of_line)
-                word_positions.append((cx, cy))
-                cursor_x += w_width + _estimate_text_width(" ", font_size)
-                global_word_idx += 1
-
-        # Emit one Dialogue per word per moment in time
-        # Each word is always visible for the whole segment duration;
-        # only its colour/border changes while it is the active word.
-        word_durations_cs = []
-        for i in range(len(words)):
-            ws = (i * total_cs) // len(words)
-            we = ((i + 1) * total_cs) // len(words)
-            word_durations_cs.append(max(1, we - ws))
-
-        for wi, (w, (cx, cy)) in enumerate(zip(words, word_positions)):
-            ws = t0 + wi * per_word
-            we = t0 + (wi + 1) * per_word
-            # Active word: coloured border box around just this word
-            active_tag = (
-                f"{{\\an5\\pos({cx},{cy})"
-                f"\\1c{inactive_color}\\3c{box_color}\\bord{border_w}\\shad0}}"
-            )
-            # Inactive rendering for the same word before/after its active window:
-            # Render as plain text with no box for the rest of the segment.
-            # We split into three sub-events: before, during, after.
-            inactive_tag = (
-                f"{{\\an5\\pos({cx},{cy})"
-                f"\\1c{inactive_color}\\bord0\\shad0}}"
-            )
-            # Before active
-            if wi > 0 and t0 < ws:
-                lines.append(
-                    f"Dialogue: 0,{_fmt(t0)},{_fmt(ws)},Default,,0,0,0,,"
-                    f"{inactive_tag}{w}"
-                )
-            # Active window
-            lines.append(
-                f"Dialogue: 0,{_fmt(ws)},{_fmt(we)},Default,,0,0,0,,"
-                f"{active_tag}{w}"
-            )
-            # After active
-            if we < t1:
-                lines.append(
-                    f"Dialogue: 0,{_fmt(we)},{_fmt(t1)},Default,,0,0,0,,"
-                    f"{inactive_tag}{w}"
-                )
+            # Reconstruct sentence wrapping inline color tags around the active word
+            words_styled = []
+            idx = 0
+            for wline in wrapped:
+                line_words = wline.split()
+                line_parts = []
+                for lw in line_words:
+                    if idx == i:
+                        line_parts.append(f"{{\\1c{active_color}}}{lw}{{\\1c{inactive_color}}}")
+                    else:
+                        line_parts.append(lw)
+                    idx += 1
+                words_styled.append(" ".join(line_parts))
+                
+            diag_text = "\\N".join(words_styled)
+            if adaptive_fs != font_size:
+                diag_text = f"{{\\fs{adaptive_fs}}}" + diag_text
+            
+            diag_text = f"{{\\1c{inactive_color}}}" + diag_text
+            lines.append(_dialogue(ws, we, diag_text, color=None))
+            
+            # Gap before the first word
+            if i == 0 and ws > t0:
+                words_all_inactive = []
+                for wline in wrapped:
+                    words_all_inactive.append(wline)
+                inactive_text = f"{{\\1c{inactive_color}}}" + "\\N".join(words_all_inactive)
+                if adaptive_fs != font_size:
+                    inactive_text = f"{{\\fs{adaptive_fs}}}" + inactive_text
+                lines.insert(0, _dialogue(t0, ws, inactive_text, color=None))
+                
+            # Gap after the last word
+            if i == len(words) - 1 and we < t1:
+                words_all_inactive = []
+                for wline in wrapped:
+                    words_all_inactive.append(wline)
+                inactive_text = f"{{\\1c{inactive_color}}}" + "\\N".join(words_all_inactive)
+                if adaptive_fs != font_size:
+                    inactive_text = f"{{\\fs{adaptive_fs}}}" + inactive_text
+                lines.append(_dialogue(we, t1, inactive_text, color=None))
     return lines
 
 
@@ -723,6 +783,7 @@ STYLES: Dict[str, Dict[str, Any]] = {
         "primary_color": "&H00FFFFFF",
         "secondary_color": "&H00CCCCCC",
         "outline_color": "&H00000000", "outline_width": 0,
+        "shadow": 2,  # Tambahkan Drop Shadow statis untuk keterbacaan di background terang
         "fade_ms": 150,
         "margin_v_ratio": 0.22, "margin_h_ratio": 0.09,
         "max_line_width_ratio": 0.82, "max_lines": 1,
@@ -736,6 +797,7 @@ STYLES: Dict[str, Dict[str, Any]] = {
         "inactive_color": "&H00EEEEEE",
         "box_border_width": 14,
         "outline_color": "&H00000000", "outline_width": 0,
+        "shadow": 1.5,  # Tambahkan bayangan tipis
         "margin_v_ratio": 0.26, "margin_h_ratio": 0.09,
         "max_line_width_ratio": 0.82, "max_lines": 2,
         "font_size_ratio": 0.042, "bold": True,
@@ -758,7 +820,8 @@ STYLES: Dict[str, Dict[str, Any]] = {
         "primary_color": "&H00FFFFFF",
         "highlight_color": "&H0008E539",
         "outline_color": "&H00000000",
-        "outline_width": 20, "blur": 0,
+        "outline_width": 8,  # Kurangi outline dari 20 ke 8 agar tidak menabrak spasi antar kata
+        "blur": 0,
         "margin_v_ratio": 0.18, "margin_h_ratio": 0.05,
         "max_line_width_ratio": 0.90, "max_lines": 2,
         "font_size_ratio": 0.062, "bold": True,
@@ -780,8 +843,11 @@ def _header(style: Dict[str, Any], play_res_x: int, play_res_y: int) -> str:
     margin_v = round(play_res_y * style.get("margin_v_ratio", 0.15))
     margin_h = round(play_res_x * style.get("margin_h_ratio", 0.09))
 
-    # Shadow=0 always. ASS Shadow ≠ blur. Blur is applied inline via \blur<n> tags.
-    shadow = 0
+    # Gunakan shadow dari style config (default 0)
+    shadow = style.get("shadow", 0)
+    
+    # Warna bayangan semi-transparan (default hitam 50% transparan = &H80000000)
+    back_color = style.get("back_color", "&H80000000")
 
     anim = style.get("animation", "karaoke_fill")
     if anim in ("karaoke_fill", "karaoke_sweep", "word_box_highlight"):
@@ -809,7 +875,7 @@ def _header(style: Dict[str, Any], play_res_x: int, play_res_y: int) -> str:
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Default,{font_name},{font_size},"
         f"{primary_color},{secondary_color},"
-        f"{style['outline_color']},{_BLACK},"
+        f"{style['outline_color']},{back_color},"
         f"{bold},0,0,0,100,100,0,0,1,"
         f"{style['outline_width']},{shadow},2,{margin_h},{margin_h},{margin_v},1\n"
         "\n"
@@ -843,18 +909,56 @@ def _chunk_segments(
         if not text or t1 <= t0:
             continue
             
-        words = text.split()
+        seg_words_data = seg.get("words", [])
+        original_words = text.split()
+        
+        if seg_words_data:
+            if len(seg_words_data) != len(original_words):
+                log.warning(
+                    "word count mismatch di segmen t=%.2f-%.2f: text=%d kata, model=%d kata. "
+                    "Menyelaraskan teks dengan data kata model. Text: %r",
+                    t0, t1, len(original_words), len(seg_words_data), text
+                )
+            words = [w["word"] for w in seg_words_data]
+            text = " ".join(words)
+            n_words = len(words)
+        else:
+            words = original_words
+            n_words = len(words)
+            
         if not words:
             continue
             
-        n_words = len(words)
         duration = t1 - t0
         per_word = duration / n_words
         
+        # Safety cap: cegah karaoke terlalu lambat akibat hallucination timestamp panjang
+        MAX_SEC_PER_WORD = 0.8
+        if per_word > MAX_SEC_PER_WORD:
+            log.warning("per_word=%.2fs > %.2fs for seg t=%.2f-%.2f, capping", per_word, MAX_SEC_PER_WORD, t0, t1)
+            per_word = MAX_SEC_PER_WORD
+        
         for i in range(0, n_words, chunk_size):
             chunk_words = words[i:i + chunk_size]
-            c_start = t0 + i * per_word
-            c_end = t0 + min(n_words, i + chunk_size) * per_word
+            
+            # Jika ada data kata tingkat kata yang presisi dari model
+            if seg_words_data and len(seg_words_data) == n_words:
+                c_start = max(t0, seg_words_data[i]["start"])
+                chunk_end_idx = min(n_words, i + chunk_size) - 1
+                c_end = min(t1, seg_words_data[chunk_end_idx]["end"])
+                # Clamp waktu kata individual juga agar berada dalam rentang [c_start, c_end]
+                chunk_words_data = []
+                for w_data in seg_words_data[i:i + chunk_size]:
+                    w_start = max(c_start, min(c_end, w_data["start"]))
+                    w_end = max(c_start, min(c_end, w_data["end"]))
+                    if w_end > w_start:
+                        chunk_words_data.append({**w_data, "start": w_start, "end": w_end})
+                    else:
+                        chunk_words_data.append({**w_data, "start": w_start, "end": w_start + 0.01})
+            else:
+                c_start = t0 + i * per_word
+                c_end = t0 + min(n_words, i + chunk_size) * per_word
+                chunk_words_data = []
             
             new_seg = dict(seg)
             new_seg["start"] = c_start
@@ -862,6 +966,8 @@ def _chunk_segments(
             new_seg["start_time"] = c_start
             new_seg["end_time"] = c_end
             new_seg["text"] = " ".join(chunk_words)
+            if chunk_words_data:
+                new_seg["words"] = chunk_words_data
             chunked.append(new_seg)
             
     return chunked
@@ -887,6 +993,14 @@ def _resolve_overlaps(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             else:
                 resolved[i+1]["start_time"] = curr_end
                 resolved[i+1]["start"] = curr_end
+                if resolved[i+1]["start_time"] >= (resolved[i+1].get("end_time") or resolved[i+1].get("end") or 0.0):
+                    log.warning(
+                        "Segmen %d (%r) sepenuhnya termakan overlap-resolution, teks berpotensi hilang. start=%.2f, end=%.2f",
+                        i + 1,
+                        resolved[i+1].get("text", ""),
+                        resolved[i+1]["start_time"],
+                        resolved[i+1].get("end_time") or resolved[i+1].get("end")
+                    )
                 
     return resolved
 

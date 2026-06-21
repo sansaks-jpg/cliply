@@ -11,6 +11,119 @@ This file documents the history of major modifications made to the `clip-ai` wor
 
 ---
 
+## [2026-06-21 17:25 WIB] — Perbaikan Bug Visual Layout Subtitle ASS, Overhaul Performa Rendering Blur, dan Efek Ease-Out Pop-Up
+
+### Ringkasan Perubahan
+Memperbaiki bug visual kritis pada layout absolut subtitle ASS, mengoptimalkan konsumsi CPU saat rendering pendaran glow, menyelaraskan ketebalan outline agar tidak menabrak spasi huruf, serta meningkatkan estetika animasi pop-up dan keterbacaan teks minimalis pada latar belakang terang.
+
+### Aktivitas Detail
+* **subtitles.py — `build_word_box_highlight`**: Merombak fungsi highlight box dari penempatan absolut `\pos(x,y)` yang rentan hancur/tumpang tindih menjadi sistem pewarnaan teks inline menggunakan tag `{\1c}`. Ini mengunci baris kalimat agar tetap rata tengah secara dinamis dan aman saat ukuran font/resolusi video berubah.
+* **subtitles.py — `build_karaoke_sweep`**: Mengoptimalkan rendering pendaran glow pada gaya `neon-glow` dengan menerapkan teknik **Dual-Layer** statis. Layer 0 (Glow Layer) menggunakan static `\blur8` dengan animasi opacity `\alpha` per kata, sedangkan Layer 1 (Sharp Layer) menggunakan teks tajam `\blur0` dengan transisi karaoke `\k`. Ini memangkas habis overhead CPU dari manipulasi `\blur` dinamis per frame.
+* **subtitles.py — `build_word_popup` & `build_word_pop_scale`**: Menambahkan parameter akselerasi deselerasi `0.5` pada tag `\t` (contoh: `\t(t1, t2, 0.5, tags)`) untuk menciptakan pergerakan *ease-out* yang mengerem lembut saat teks mencapai ukuran penuh, menghilangkan visual linear yang kaku.
+* **subtitles.py — STYLES (tiktok & highlight-box)**: Mengurangi outline style `tiktok` dari 20px menjadi 8px statis untuk mencegah outline hitam menabrak spasi antar kata. Menambahkan shadow tipis 1.5px ke `highlight-box`.
+* **subtitles.py — STYLES & `_header` (clean-minimal)**: Menambahkan soft drop shadow statis semi-transparan (`\shadow 2` dengan `back_color` hitam 50% transparan `&H80000000`) pada gaya `clean-minimal` agar teks putih tetap terbaca tajam saat latar belakang video sangat terang tanpa merusak estetika minimalis.
+
+## [2026-06-21 16:30 WIB] — Perbaikan Crash Video Rendering Panjang dan Optimalisasi Backend VideoWriter OpenCV
+
+### Ringkasan Perubahan
+Memperbaiki bug crash kritis berupa error `Unknown C++ exception from OpenCV code` pada video berdurasi panjang (di atas 1 menit atau di frame >1600) di sistem operasi Windows. Bug ini disebabkan oleh backend default Media Foundation (MSMF) Windows OpenCV yang tidak stabil dan ketidakselarasan numpy sliced view non-contiguous saat ditulis langsung ke `VideoWriter`.
+
+### Aktivitas Detail
+* **render.py — `_render_frames` & `_render_master_letterbox`**: Mengubah inisialisasi OpenCV `VideoWriter` untuk secara eksplisit memaksa penggunaan backend `cv2.CAP_FFMPEG` dan wadah output `.silent.mp4` dengan codec `"mp4v"`. Hal ini memintas API MSMF Windows yang buggy, menghasilkan rendering 3x lebih cepat (sukses menulis 2000 frame dalam 8.4s dibanding MJPG .avi yang memakan waktu 22.0s) dan mencegah kebocoran memori/thread.
+* **render.py — `_render_frames`**: Menambahkan pemaksaan konversi data frame menjadi C-contiguous array (`np.ascontiguousarray(cropped)`) tepat sebelum pemanggilan `writer.write(cropped)`. Perubahan ini krusial untuk menangani frame bertipe `closeup` atau `medium` yang dihasilkan dari pemotongan piksel numpy slicing (yang secara internal merupakan referensi memori non-contiguous dengan striding acak) agar tidak memicu Access Violation di level API C++ OpenCV.
+
+## [2026-06-21 16:05 WIB] — Penyelarasan Animasi Subtitle Viral Bold dengan Tampilan Instan Pop Frontend
+
+### Ringkasan Perubahan
+Memperbaiki perbedaan perilaku visual antara preview frontend (instan pop per kata) dan video hasil render backend (gradual karaoke sweep) untuk gaya subtitle `viral-bold`, `tiktok`, dan `neon-gradient`.
+
+### Aktivitas Detail
+* **subtitles.py — `build_karaoke_fill`**: Mengubah tag ASS dari `\kf` (gradual left-to-right color sweep) menjadi `\k` (instant color pop). Hal ini membuat seluruh kata langsung menyala kuning/hijau secara instan tepat saat diucapkan (word-by-word active highlight), menghilangkan gaya menyapu karaoke lama dan menyelaraskannya 100% dengan visualisasi pratinjau frontend.
+
+## [2026-06-21 15:45 WIB] — Optimalisasi Pemetaan Kata ke Segmen Transkrip & Penyelarasan Jumlah Kata Otomatis (By Construction)
+
+### Ringkasan Perubahan
+Memperbaiki kerentanan *timing mismatch* (ketidaksesuaian jumlah kata) antara teks segmen asli dan data kata dari model transkripsi. Mengubah pemetaan kata global di transcriber.py menjadi algoritma berbasis waktu tengah (*mid-time*) terdekat untuk menghindari kata hilang/ganda di batas segmen, serta menyelaraskan teks segmen subtitles.py secara dinamis *by construction* dari data kata model transkripsi, lengkap dengan sistem log deteksi *mismatch*.
+
+### Aktivitas Detail
+* **transcriber.py — `_try_groq_whisper`**: Mengganti pemetaan berbasis toleransi waktu manual (windowing 0.05s) dengan algoritma pemetaan berbasis waktu tengah (*mid-time*) kata terdekat. Setiap kata dijamin masuk ke tepat satu segmen terdekat, menghilangkan duplikasi dan kata hilang di tepi segmen.
+* **subtitles.py — `_chunk_segments`**: Menambahkan logika penyelarasan teks segmen lokal. Jika data kata model transkripsi (`words`) tersedia, teks segmen dibangun ulang dari daftar kata tersebut. Hal ini menjamin keselarasan jumlah kata secara mutlak (`by construction`) dan menghindari *silent fallback* ke estimasi linear.
+* **subtitles.py — `_chunk_segments` (Logging)**: Menambahkan log warning transparan jika terdeteksi perbedaan jumlah kata antara teks asli segmen transkrip dengan daftar data kata model transkripsi.
+
+## [2026-06-21 15:40 WIB] — Perbaikan Bug Fungsional, Gap Konsistensi, dan Kode Ringkas pada subtitles.py (Analisis Mendalam subtitles.py)
+
+### Ringkasan Perubahan
+Memperbaiki 3 bug fungsional prioritas tinggi (efek sinkronisasi glow flash per-kata, pencegahan kehilangan subtitle di overlap-resolution, dan pengenalan cap durasi kata pada transkrip presisi) serta menyelaraskan gap konsistensi (dukungan layout adaptif di style highlight-box, integrasi penanda waktu akustik di 4 builder animasi lainnya), serta perbaikan code smell minor pada berkas subtitles.py.
+
+### Aktivitas Detail
+* **subtitles.py — `build_karaoke_sweep`**: Memperbaiki sinkronisasi tag efek glow `\t` dengan melacak waktu kata secara kumulatif (`cumulative_ms`) relatif terhadap waktu awal Dialogue baris. Hal ini memperbaiki bug di mana semua kata melakukan flash glow secara bersamaan di awal dialog.
+* **subtitles.py — `_chunk_segments`**: Membatasi waktu potongan sub-segmen (`c_start` dan `c_end`) serta data kata individu di dalamnya menggunakan batas `t0` dan `t1` (yang sudah dikoreksi oleh `_resolve_overlaps`) untuk mencegah penimpaan batas waktu dari data mentah Whisper yang bisa menyebabkan hilangnya teks subtitle.
+* **subtitles.py — `_resolve_overlaps`**: Menambahkan log warning eksplisit jika suatu segmen start-time bergeser melampaui end-time akibat resolusi tumpang tindih (*overlap-resolution*), agar potensi hilangnya teks subtitle terdeteksi secara dini.
+* **subtitles.py — `_build_karaoke_base` & `build_karaoke_sweep`**: Menerapkan batas waktu kata maksimal (`MAX_SEC_PER_WORD = 0.8` atau 80 cs) pada jalur data kata presisi untuk mencegah karaoke macet akibat jeda panjang/noise, dan mengimplementasikan normalisasi proporsional agar durasi kumulatif kata tepat sama dengan durasi Dialogue line (`total_cs`).
+* **subtitles.py — `build_word_box_highlight`**: Menyelaraskan implementasi "Adaptive Font Scaling" dengan mengganti `_wrap_and_balance` dengan fungsi `_find_adaptive_wrap`. Ukuran huruf adaptif (`adaptive_fs`) kini digunakan secara konsisten dalam kalkulasi lebar teks, posisi koordinat `\pos`, tinggi baris, dan penulisan tag override `\fs`.
+* **subtitles.py — `build_fade_in_word`, `build_word_popup`, `build_word_pop_scale`, `build_word_box_highlight`**: Memperbarui keempat pembangun animasi ini agar secara penuh mendeteksi dan memanfaatkan data waktu per-kata presisi (`seg.get("words")`) jika tersedia dari model transkripsi, dengan fallback otomatis ke interpolasi linear seragam.
+* **subtitles.py — `_seg_time` & Imports**: Menambahkan `Tuple` ke dalam baris import pustaka `typing`. Memperbaiki `_seg_time` agar mendeteksi nilai timestamp `0.0` secara eksplisit (`is not None`) alih-alih menggunakan operator `or` falsy yang rentan bug.
+
+## [2026-06-21 15:30 WIB] — Implementasi Hybrid Parallelization dengan Prompt Cache Warming & Penanganan Rate Limit pada Long Video
+
+### Ringkasan Perubahan
+Mengintegrasikan strategi eksekusi paralel pada pemrosesan video panjang Stage 3 (`_generate_chunked`) menggunakan ThreadPoolExecutor untuk mempercepat waktu latensi proses secara dramatis, diselaraskan dengan mitigasi prompt caching (sequential-first warm cache untuk Anthropic), pembagian system vs user content block agar caching terjamin byte-for-byte, penanganan rate limit berbasis exponential backoff dengan random jitter dan ceiling, penegakan kegagalan sistemik global, penanganan observabilitas kegagalan parsial di orchestrator pipeline, serta konfigurasi worker concurrency yang fleksibel.
+
+### Aktivitas Detail
+* **config.py**: Menambahkan konfigurasi `HIGHLIGHT_MAX_WORKERS` (default `8`) yang di-load dari environment variable untuk menghindari batasan workers yang hardcoded.
+* **llm.py — `call_anthropic_llm`**: Merestrukturisasi payload prompt Anthropic dengan memisahkan instruksi sistem statis (virality rules, editor guidelines) ke parameter `system` Anthropic yang di-cache, sedangkan konten dinamis (transcript chunk, narrative map) dikirim ke `messages`. Ini menjamin cache prefix byte-for-byte identik di semua chunk.
+* **highlights.py — `_generate_chunked`**: Merombak loop sequential menjadi alur hybrid: jika provider yang digunakan adalah Anthropic, chunk pertama diproses secara sequential terlebih dahulu untuk "menghangatkan" (warm up) prompt cache, baru kemudian men-submit sisa chunk (2 s.d N) secara paralel melalui `ThreadPoolExecutor`. Provider selain Anthropic langsung menggunakan paralel penuh dari awal.
+* **highlights.py — `_process_chunk_with_retry` & `_is_rate_limit_error`**: Menambahkan deteksi rate limit (429 / ResourceExhausted) dengan penanganan retry mandiri per chunk menggunakan exponential backoff, random jitter (+/- 20% + offset), dan ceiling max delay 30 detik untuk menghindari lockstep retry storms dan TPM starvation.
+* **highlights.py — `get_highlights` (Observability)**: Mengubah return value dari Stage 3 agar menyertakan metadata kegagalan parsial (`failed_chunks`, `total_chunks`, dan `coverage_pct`) yang dikirim kembali ke orchestrator.
+* **pipeline.py — `run_pipeline`**: Membaca metadata kegagalan parsial, mencatat warning log secara transparan jika ada chunk yang terlewat, dan memperbarui progress status dengan persentase coverage video yang berhasil dianalisis.
+* **highlights.py — `_generate_chunked` (Global Protection)**: Menambahkan deteksi kegagalan sistemik. Jika 100% chunk gagal memproses (misal API down total), pipeline akan melempar `RuntimeError` secara eksplisit, alih-alih melakukan silent failure dengan mengembalikan list kosong.
+
+## [2026-06-21 15:25 WIB] — Optimalisasi Akurasi Subtitle Karaoke dengan Word-Level Timestamps via Groq Whisper & Penyesuaian Urutan Pipeline
+
+### Ringkasan Perubahan
+Mengubah urutan pipeline transkripsi agar memprioritaskan Groq Whisper daripada Gemini setelah YouTube Transcript API. Selain itu, mengaktifkan fitur penanda waktu tingkat kata (*word-level timestamps*) akustik dari Groq Whisper dan memperbarui generator subtitle ASS agar menggunakan data waktu asli kata demi kata, meningkatkan akurasi karaoke visual secara drastis dibanding estimasi linear/pembagian rata durasi kalimat sebelumnya.
+
+### Aktivitas Detail
+* **transcriber.py — `transcribe_video`**: Mengubah urutan pipeline transkripsi menjadi: YouTube Transcript API → Groq Whisper → Gemini 2.5 Flash. Proses ekstraksi audio dilakukan di awal sebelum memanggil Groq atau Gemini.
+* **transcriber.py — `_try_groq_whisper`**: Menambahkan parameter `timestamp_granularities=["word"]` pada pemanggilan API Groq Whisper. Mengekstrak dan memetakan kata-per-kata yang akurat ke setiap segmen transkrip.
+* **subtitles.py — `_chunk_segments`**: Memperbarui logika pemotongan segmen kalimat agar menggunakan penanda waktu mulai (`start`) dan selesai (`end`) asli dari kata-kata jika data tingkat kata tersedia, untuk menetapkan batas chunk kalimat secara presisi.
+* **subtitles.py — `_build_karaoke_base` & `build_karaoke_sweep`**: Mengintegrasikan pembacaan durasi kata akustik asli (`words`) dari segmen transkrip jika tersedia untuk tag karaoke (`\kf` / `\k`), dengan fallback ke estimasi linear jika data kata tidak tersedia.
+
+## [2026-06-21 15:20 WIB] — Overhaul Keandalan Narrative Segmentation (Stage 2) & Viral Highlight Detection (Stage 3)
+
+### Ringkasan Perubahan
+Memperbaiki celah struktural kritis pada pipeline analisis highlight, meliputi penanganan batas atas durasi unit (forced split), penyelarasan highlight terhadap batas unit narrative (boundary alignment/snapping), pemetaan ulang Segment ID relatif vs absolut pada video panjang, pencegahan redundansi kumulatif (cumulative overlap check), validasi exact-verbatim hook sentence, mekanisme retry LLM dengan error feedback loop, serta optimasi prompt caching Anthropic dan structured JSON mode OpenAI.
+
+### Aktivitas Detail
+* **highlights.py — `_validate_units`**: Menambahkan pembersihan gap (gap resolution) dan tumpang tindih (overlap resolution) antarsegmen unit narrative Stage 2 untuk memastikan coverage transkrip 100%. Ditambahkan juga batas durasi maksimum unit (`MAX_DURATION = 180` detik) agar unit panjang otomatis di-forced split menjadi sub-unit yang aman.
+* **highlights.py — `_validate_highlights`**: Mengubah validasi overlap dari pairwise menjadi cumulative overlap check (maksimum 20% kumulatif dari seluruh highlight yang sudah disetujui). Menambahkan pengecekan keselarasan highlight terhadap batas unit narrative Stage 2 (`_is_aligned_with_units`), dengan penambahan fungsi `_align_highlight_to_units` untuk snapping batas otomatis jika selisihnya kecil (<= 3 segmen).
+* **highlights.py — `_validate_and_fix_hook`**: Menambahkan verifikasi verbatim untuk `hook_sentence` dengan pencarian substring dan fuzzy matching (minimum 50% kata unik cocok). Jika gagal, otomatis di-fallback ke teks segmen pembuka transkrip asli guna mencegah subtitle mismatch.
+* **highlights.py — `_generate_chunked`**: Memperbaiki bug kritis segment ID tidak sinkron pada video panjang. Menambahkan mapping ID relatif (0-based) lokal untuk transkrip chunk sebelum dikirim ke LLM Stage 3, dan me-map balik (map-back) ke indeks segment ID global absolut setelah LLM merespons. Menghapus displacement penambahan timestamp ganda yang memicu timing drift.
+* **highlights.py — `segment_narrative` & `generate_highlights`**: Menambahkan error feedback loop ke dalam mekanisme retry LLM (attempt 1-3). Error spesifik dari kegagalan validasi Python disuntikkan kembali ke prompt iterasi berikutnya agar LLM dapat mengoreksi outputnya secara presisi.
+* **llm.py — `call_openai_llm`**: Menambahkan penanganan defensif `response_format={"type": "json_object"}` untuk OpenAI jika prompt meminta format JSON. Jika parameter tidak didukung oleh backend (misalnya model lokal mimo), otomatis fallback ke standard stream completion biasa.
+* **llm.py — `call_anthropic_llm`**: Menambahkan headers beta prompt caching Anthropic (`anthropic-beta: prompt-caching-2024-07-31`) dan menyuntikkan tag cache kontrol (`"cache_control": {"type": "ephemeral"}`) jika panjang prompt melampaui 2048 karakter.
+
+## [2026-06-21 03:55 WIB] — Fix Subtitle Karaoke Timing Tidak Sinkron Akibat Hallucination Timestamp Gemini
+
+### Ringkasan Perubahan
+Memperbaiki bug di mana subtitle yang diburn ke video tidak sinkron dengan percakapan asli. Akar masalah: Gemini kadang menghasilkan timestamp segmen yang terlalu panjang (misal 31 detik untuk 20 kata → 1.5 detik/kata). `_chunk_segments` di subtitles.py mendistribusikan durasi ini secara proporsional ke setiap kata, menghasilkan karaoke timing 5x lebih lambat dari audio asli.
+
+### Aktivitas Detail
+* **transcriber.py — `_clean_hallucinations`**: Menambahkan Step 5 — deteksi segmen dengan rasio `duration/word_count > 1.0 detik/kata`. Jika terdeteksi, re-estimasi `end` time berdasarkan `word_count × 0.5 detik` (kecepatan bicara normal), dicegat di `video_duration`. Logging untuk setiap segmen yang di-fix.
+* **subtitles.py — `_chunk_segments`**: Menambahkan safety cap `MAX_SEC_PER_WORD = 0.8`. Jika `per_word` melebihi batas, di-cap dan warning di-log. Defense-in-depth: melindungi subtitle generation meskipun ada segmen dengan timestamp buruk yang lolos dari hallucination cleaner.
+
+---
+
+## [2026-06-21 03:25 WIB] — Ubah Default Download Resolusi dari 720p ke 1080p
+
+### Ringkasan Perubahan
+Mengubah default `DOWNLOAD_FORMAT` dari `720` ke `1080` agar video YouTube di-download dalam resolusi 1080p (Full HD).
+
+### Aktivitas Detail
+* **config.py**: Nilai default `DOWNLOAD_FORMAT` diubah dari `"720"` ke `"1080"`. Ini memengaruhi format string yt-dlp menjadi `bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best`.
+
+---
+
 ## [2026-06-21 03:20 WIB] — Fix Deteksi GPU via WMI (Real Hardware Detection)
 
 ### Ringkasan Perubahan

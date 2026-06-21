@@ -42,6 +42,18 @@ async def run_pipeline(
         all_highlights: List[Dict] = highlights_result.get("highlights", [])
         if not all_highlights:
             raise RuntimeError("No viral highlights found.")
+            
+        failed_chunks = highlights_result.get("failed_chunks", [])
+        coverage_pct = highlights_result.get("coverage_pct", 100)
+        if failed_chunks:
+            import logging
+            p_logger = logging.getLogger(__name__)
+            p_logger.warning(
+                f"[PIPELINE] Partial failure during highlights analysis. "
+                f"Coverage: {coverage_pct}%. Chunks failed starting at: {failed_chunks}"
+            )
+            await store.set_progress(task_id, 45, "ANALYZE", f"Analyzed {coverage_pct}% of video (some rate-limits)")
+            
         top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
         await store.set_progress(task_id, 50, "ANALYZE", f"Found {len(top)} highlights")
 

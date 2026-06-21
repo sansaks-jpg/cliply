@@ -3,6 +3,7 @@
 Run locally:
     uvicorn app.main:app --reload --port 8000
 """
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,6 +17,17 @@ from .state import store
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Suppress harmless WinError 10054 noise from asyncio event loop
+    import asyncio
+    loop = asyncio.get_running_loop()
+    _orig_handler = loop.get_exception_handler()
+    def _filter_asyncio_error(loop, context):
+        exc = context.get("exception")
+        if isinstance(exc, ConnectionResetError):
+            return
+        (_orig_handler or loop.default_exception_handler)(loop, context)
+    loop.set_exception_handler(_filter_asyncio_error)
+
     # Ensure storage dir exists on boot.
     Path(config.STORAGE_DIR).mkdir(parents=True, exist_ok=True)
     app.state.store = store
@@ -30,6 +42,14 @@ async def lifespan(app: FastAPI):
         logging.getLogger(__name__).warning("Boot recovery failed: %s", exc)
     yield
 
+
+class _SuppressConnectionResetError(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.exc_info and record.exc_info[1] and isinstance(record.exc_info[1], ConnectionResetError):
+            return False
+        return True
+
+logging.getLogger("uvicorn.error").addFilter(_SuppressConnectionResetError())
 
 app = FastAPI(
     title="Clip-AI Backend",
