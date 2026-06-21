@@ -63,18 +63,42 @@ def _detect_encoders() -> dict[str, bool]:
     global _ENCODER_CACHE
     if _ENCODER_CACHE is not None:
         return _ENCODER_CACHE
-    import subprocess
-    result: dict[str, bool] = {"nvidia": False, "intel": False, "amd": False}
+    import subprocess, re
+
+    # --- WMI: detect GPU vendors from actual hardware ---
+    gpu_vendors: set[str] = set()
+    try:
+        output = subprocess.run(
+            ["powershell", "-Command",
+             "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.lower()
+        gpu_vendors.update(re.findall(r"(nvidia|intel|amd|advanced micro devices|ati radeon)", output))
+    except Exception:
+        pass
+
+    has_nvidia_hw = any(k in gpu_vendors for k in ("nvidia",))
+    has_intel_hw  = any(k in gpu_vendors for k in ("intel",))
+    has_amd_hw    = any(k in gpu_vendors for k in ("amd", "advanced micro devices", "ati radeon"))
+
+    # --- ffmpeg: check if encoder is compiled in ---
+    ff_nvenc = ff_qsv = ff_amf = False
     try:
         out = subprocess.run(
             ["ffmpeg", "-hide_banner", "-encoders"],
             capture_output=True, text=True, timeout=10,
         ).stdout.lower()
-        result["nvidia"] = "nvenc" in out
-        result["intel"] = "qsv" in out
-        result["amd"] = "amf" in out
+        ff_nvenc = "nvenc" in out
+        ff_qsv   = "qsv" in out
+        ff_amf   = "amf" in out
     except Exception:
         pass
+
+    result: dict[str, bool] = {
+        "nvidia": has_nvidia_hw and ff_nvenc,
+        "intel":  has_intel_hw and ff_qsv,
+        "amd":    has_amd_hw and ff_amf,
+    }
     _ENCODER_CACHE = result
     return result
 
