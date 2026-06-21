@@ -239,20 +239,23 @@ fn rotate_logs(log_path: &PathBuf) {
     let _ = fs::rename(log_path, &first);
 }
 
-fn spawn_backend_monitor(app: &tauri::AppHandle, child_clone: Child) {
+fn spawn_backend_monitor(app: &tauri::AppHandle) {
     let app_clone = app.clone();
     thread::spawn(move || {
-        let mut child = child_clone;
         loop {
             thread::sleep(Duration::from_secs(3));
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    let code = status.code().unwrap_or(-1);
-                    let _ = app_clone.emit("backend-crashed", code);
-                    return;
-                }
-                Ok(None) => continue,
-                Err(_) => return,
+            let exit_status = {
+                let state = app_clone.state::<BackendState>();
+                let mut guard = match state.0.lock() {
+                    Ok(g) => g,
+                    Err(_) => return,
+                };
+                guard.as_mut().and_then(|c| c.try_wait().ok().flatten())
+            };
+            if let Some(status) = exit_status {
+                let code = status.code().unwrap_or(-1);
+                let _ = app_clone.emit("backend-crashed", code);
+                return;
             }
         }
     });
@@ -376,13 +379,7 @@ fn start_backend_process(
         }
     }
 
-    // 9. Save child process
-    {
-        let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
-        *proc_guard = Some(child.try_clone().map_err(|e| e.to_string())?);
-    }
-
-    // 10. Pipe stdout + stderr to log (in background threads)
+    // 9. Pipe stdout + stderr to log (must happen BEFORE moving child to state)
     if let Some(stdout) = child.stdout.take() {
         let log_file_stdout = log_file.try_clone().map_err(|e| e.to_string())?;
         stream_to_log(BufReader::new(stdout), log_file_stdout, "STDOUT");
@@ -392,41 +389,48 @@ fn start_backend_process(
         stream_to_log(BufReader::new(stderr), log_file_stderr, "STDERR");
     }
 
-    // 11. Poll /health endpoint
+    // 10. Move child to state (ownership transferred — no clone needed)
+    {
+        let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
+        *proc_guard = Some(child);
+    }
+
+    // 11. Poll /health endpoint (check process via state mutex)
+    let agent = ureq::Agent::new_with_config(ureq::config::Config {
+        timeout_global: Some(Duration::from_secs(2)),
+        ..Default::default()
+    });
     let start = Instant::now();
     log_line(&mut log_file, "Waiting for backend to become ready...");
     let health_url = "http://127.0.0.1:8000/health";
     let mut last_error = String::new();
 
     loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let err = format!(
-                    "Backend crashed during startup (exit code: {:?}). Check log: {:?}",
-                    status.code(),
-                    log_path
-                );
-                log_line(&mut log_file, &err);
-                return Err(err);
-            }
-            Ok(None) => {}
-            Err(_) => {}
+        // a) Check if process died (via state mutex — non-blocking)
+        let exit_status = {
+            let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+            guard.as_mut().and_then(|c| c.try_wait().ok().flatten())
+        };
+        if let Some(status) = exit_status {
+            let err = format!(
+                "Backend crashed during startup (exit code: {:?}). Check log: {:?}",
+                status.code(),
+                log_path
+            );
+            log_line(&mut log_file, &err);
+            return Err(err);
         }
 
-        match ureq::get(health_url).timeout(Duration::from_secs(2)).call() {
+        // b) Try health endpoint
+        match agent.get(health_url).call() {
             Ok(resp) if resp.status() == 200 => {
                 log_line(&mut log_file, "Backend is ready (health check passed)");
-
-                if let Ok(monitor_child) = child.try_clone() {
-                    spawn_backend_monitor(app, monitor_child);
-                }
-
+                spawn_backend_monitor(app);
                 let _ = app.emit("backend-ready", true);
                 return Ok(());
             }
             Ok(resp) => {
-                let body = resp.into_string().unwrap_or_default();
-                last_error = format!("Health check returned {}: {}", resp.status(), body);
+                last_error = format!("Health check returned {}", resp.status());
             }
             Err(e) => {
                 last_error = format!("Health check failed: {}", e);
