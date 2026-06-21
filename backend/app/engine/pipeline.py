@@ -141,11 +141,14 @@ async def run_pipeline(
         # Write highlights.json manifest
         manifest = {"url": url, "clips": clips}
         manifest_path = STORAGE_DIR / task_id / "highlights.json"
-        try:
-            with open(manifest_path, "w", encoding="utf-8") as f:
-                json.dump(manifest, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            _logger.warning("Failed to write highlights.json manifest: %s", e)
+        def _write_manifest() -> None:
+            try:
+                with open(manifest_path, "w", encoding="utf-8") as f:
+                    json.dump(manifest, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                _logger.warning("Failed to write highlights.json manifest: %s", e)
+
+        await asyncio.to_thread(_write_manifest)
 
         await store.update(task_id, status="completed", progress=100.0, stage="DONE", message=f"{clip_count} klip siap")
         for c in clips:
