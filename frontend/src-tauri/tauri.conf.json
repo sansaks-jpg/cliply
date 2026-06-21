@@ -40,5 +40,13 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://raw.githubusercontent.com/sansaks-jpg/cliply/main/updater.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY1ODJDOTkzNjlFNDUyMDIKUldRQ1V1UnBrOG1DOVVkZ2M5L09BR013SXlDRXBzL1BIYTRWS2hVUlR0dWI3Z1Bqcy83Q0ZIdE4K"
+    }
   }
 }

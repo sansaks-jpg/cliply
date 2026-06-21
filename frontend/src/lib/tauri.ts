@@ -79,3 +79,13 @@ export async function restartBackend(storagePath: string): Promise<void> {
     console.error("Failed to restart backend:", error);
   }
 }
+
+export async function relaunchApp(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const invoke = await getInvoke();
+    await invoke("relaunch_app");
+  } catch (error) {
+    console.error("Failed to relaunch app:", error);
+  }
+}

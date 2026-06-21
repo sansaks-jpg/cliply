@@ -1,0 +1,11 @@
+{
+  "version": "0.1.1",
+  "notes": "Inisialisasi updater otomatis untuk rilis Cliply desktop.",
+  "pub_date": "2026-06-21T22:50:00+07:00",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "",
+      "url": "https://github.com/sansaks-jpg/cliply/releases/download/v0.1.1/cliply_0.1.1_x64-setup.nsis.zip"
+    }
+  }
+}
