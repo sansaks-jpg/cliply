@@ -135,6 +135,26 @@ export default function Home() {
         setBackendStatus("unavailable");
         setBackendError(event.payload);
       });
+
+      listen<number>("backend-crashed", () => {
+        setBackendStatus("unavailable");
+        toast.error("Backend mati mendadak", {
+          description: "Server lokal Cliply berhenti secara tidak terduga.",
+          duration: 10000,
+          action: {
+            label: "Restart",
+            onClick: async () => {
+              const { restartBackend } = await import("@/lib/tauri");
+              setBackendStatus("checking");
+              try {
+                await restartBackend(settings?.storage_dir ?? "");
+              } catch {
+                toast.error("Gagal merestart backend");
+              }
+            },
+          },
+        });
+      });
     });
 
     return () => { unlisten?.(); };
