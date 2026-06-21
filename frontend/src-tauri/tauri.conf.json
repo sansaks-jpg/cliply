@@ -1,0 +1,43 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Cliply",
+  "version": "0.1.0",
+  "identifier": "com.cliply.app",
+  "build": {
+    "frontendDist": "../out",
+    "devUrl": "http://localhost:3107",
+    "beforeDevCommand": "pnpm --prefix ../ dev",
+    "beforeBuildCommand": "pnpm --prefix ../ build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Cliply",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 1024,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

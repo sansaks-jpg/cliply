@@ -5,9 +5,9 @@ Always prepend new entries at the top of this file (directly below this rule blo
 Preserve all historical logs to maintain context for future agents and developers.
 -->
 
-# CHANGELOG.md — Activity Log for `clip-ai` Workspace
+# CHANGELOG.md — Activity Log for `cliply` Workspace
 
-This file documents the history of major modifications made to the `clip-ai` workspace, providing chronological context for developers and AI agents.
+This file documents the history of major modifications made to the `cliply` workspace, providing chronological context for developers and AI agents.
 
 ---
 

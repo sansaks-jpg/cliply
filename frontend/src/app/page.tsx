@@ -73,7 +73,7 @@ export default function Home() {
     const source = current ?? legacy;
     if (legacy && !current) {
       localStorage.setItem("cliply_recent_tasks", legacy);
-      localStorage.removeItem("clip_ai_recent_tasks");
+      localStorage.removeItem("cliply_recent_tasks");
     }
     if (source) {
       try {

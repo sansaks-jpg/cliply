@@ -1,0 +1,50 @@
+name: Build Desktop App
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js + pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm install
+        working-directory: frontend
+
+      - name: Build Next.js
+        run: pnpm build
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v2
+        with:
+          projectPath: frontend
+          bundleIdentifier: com.cliply.app
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: cliply-windows
+          path: frontend/src-tauri/target/release/bundle/msi/*.msi

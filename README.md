@@ -190,7 +190,7 @@ All settings in `backend/.env`:
 ## Project Structure
 
 ```
-clip-ai/
+cliply/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py           FastAPI entry

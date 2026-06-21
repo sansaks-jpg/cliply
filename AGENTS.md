@@ -1,4 +1,4 @@
-# AGENTS.md — Workspace Guide for `clip-ai`
+# AGENTS.md — Workspace Guide for `cliply`
 
 This workspace is a **unified monorepo** for the automated short video creator (AI Video Clipper). The project integrates a lightweight Next.js 15 web interface (`frontend/`) with an AI-powered video processing engine (`backend/`).
 
@@ -9,7 +9,7 @@ This workspace is a **unified monorepo** for the automated short video creator (
 ## 1. Directory Structure
 
 ```
-clip-ai/
+cliply/
 ├── backend/                  # Python 3.10+ FastAPI Backend & AI Clipping Engine
 │   ├── app/                  # Web API & Task Queue
 │   │   ├── main.py           # FastAPI Entry Point (CORS, lifespan, routers)

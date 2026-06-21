@@ -1,4 +1,4 @@
-/** API client for the clip-ai backend.
+/** API client for the Cliply backend.
  *
  * All requests go to NEXT_PUBLIC_API_URL (the FastAPI service). In dev that's
  * http://localhost:8000; in docker-compose it's the backend service name.

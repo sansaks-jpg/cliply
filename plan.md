@@ -1,4 +1,4 @@
-# plan.md — AI Clip Generator (clip-ai workspace)
+# plan.md — AI Clip Generator (cliply workspace)
 
 > Status: **active development / updated layout**
 > Last updated: 2026-06-20

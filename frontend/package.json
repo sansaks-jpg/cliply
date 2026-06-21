@@ -1,14 +1,18 @@
 {
-  "name": "clip-ai-frontend",
+  "name": "cliply-frontend",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.27.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild", "sharp", "unrs-resolver"]
+  },
   "scripts": {
-    "predev": "node scripts/start-backend.js",
     "dev": "next dev --turbopack --port 3107",
-    "prebuild": "node scripts/start-backend.js",
     "build": "next build",
     "start": "next start --port 3107",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -39,6 +43,8 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.4",
     "@tailwindcss/postcss": "^4.2.1",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.3",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
