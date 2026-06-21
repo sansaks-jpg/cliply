@@ -6,6 +6,7 @@ Run locally:
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from redis.exceptions import RedisError
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,10 +36,8 @@ async def lifespan(app: FastAPI):
     try:
         recovered = await store.recover_from_storage()
         if recovered:
-            import logging
             logging.getLogger(__name__).info("Boot recovery: %d task(s) recovered from storage", recovered)
-    except Exception as exc:
-        import logging
+    except (OSError, RedisError) as exc:
         logging.getLogger(__name__).warning("Boot recovery failed: %s", exc)
     yield
 
