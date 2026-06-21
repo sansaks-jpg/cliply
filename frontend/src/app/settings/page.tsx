@@ -48,7 +48,7 @@ interface TauriUpdate {
 }
 
 export default function SettingsPage() {
-  const [tauriActive, setTauriActive] = useState<boolean>(false);
+  const [tauriActive, setTauriActive] = useState<boolean | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [restarting, setRestarting] = useState<boolean>(false);
@@ -227,6 +227,17 @@ export default function SettingsPage() {
       toast.error("Gagal membuka folder di explorer.");
     }
   };
+
+  if (tauriActive === null) {
+    return (
+      <div className="min-h-screen bg-black text-neutral-100 flex flex-col items-center justify-center p-4">
+        <div className="flex items-center gap-3 text-neutral-400">
+          <RefreshCw className="w-5 h-5 animate-spin" />
+          <span className="text-sm">Memuat pengaturan...</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!tauriActive) {
     return (
