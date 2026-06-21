@@ -6,11 +6,11 @@ import asyncio
 import concurrent.futures
 import json
 import logging
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import redis.exceptions
 
-from ..config import FONTS_DIR, SUBTITLE_STYLE_DEFAULT, STORAGE_DIR, FFMPEG_ENCODER
+from ..config import FONTS_DIR, SUBTITLE_STYLE_DEFAULT, STORAGE_DIR
 from ..state import store
 from .downloader import download_video
 from .highlights import get_highlights
@@ -152,7 +152,7 @@ async def run_pipeline(
             try:
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(manifest, f, indent=2, ensure_ascii=False)
-            except Exception as e:
+            except (OSError, TypeError, ValueError) as e:
                 _logger.warning("Failed to write highlights.json manifest: %s", e)
 
         await asyncio.to_thread(_write_manifest)
