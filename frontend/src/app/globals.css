@@ -351,3 +351,19 @@ textarea,
   user-select: text;
   -webkit-user-select: text;
 }
+
+/* Matikan seluruh animasi & transisi berat saat window tidak aktif / diminimize untuk menghemat GPU */
+.window-inactive .animate-blob,
+.window-inactive .animate-blob-2,
+.window-inactive .animate-blob-3,
+.window-inactive .animate-glow-pulse,
+.window-inactive .animate-gradient,
+.window-inactive .fixed {
+  animation: none !important;
+  display: none !important;
+}
+
+.window-inactive * {
+  animation-play-state: paused !important;
+  transition: none !important;
+}
