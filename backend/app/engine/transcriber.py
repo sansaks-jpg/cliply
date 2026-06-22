@@ -230,22 +230,20 @@ def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
         
         # Try manual transcripts first (Indonesian, then English)
-        for lang in ["id", "en"]:
-            try:
-                transcript = transcript_list.find_manually_created_transcript([lang])
-                entries = transcript.fetch()
-                return _parse_youtube_transcript(entries)
-            except Exception:
-                continue
+        try:
+            transcript = transcript_list.find_manually_created_transcript(["id", "en"])
+            entries = transcript.fetch()
+            return _parse_youtube_transcript(entries)
+        except Exception:
+            pass
         
         # Try auto-generated transcripts
-        for lang in ["id", "en"]:
-            try:
-                transcript = transcript_list.find_generated_transcript([lang])
-                entries = transcript.fetch()
-                return _parse_youtube_transcript(entries)
-            except Exception:
-                continue
+        try:
+            transcript = transcript_list.find_generated_transcript(["id", "en"])
+            entries = transcript.fetch()
+            return _parse_youtube_transcript(entries)
+        except Exception:
+            pass
         
         return None
     except Exception:
