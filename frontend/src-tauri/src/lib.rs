@@ -37,6 +37,7 @@ pub struct AppSettings {
     pub gemini_api_key: String,
     pub openai_api_key: String,
     pub openai_base_url: String,
+    pub openai_model: String,
     pub llm_provider: String,
 }
 
@@ -159,6 +160,7 @@ fn load_settings(app: &tauri::AppHandle) -> AppSettings {
         gemini_api_key: "".to_string(),
         openai_api_key: "".to_string(),
         openai_base_url: "".to_string(),
+        openai_model: "gpt-4o-mini".to_string(),
         llm_provider: "openai".to_string(),
     };
 
@@ -182,6 +184,9 @@ fn load_settings(app: &tauri::AppHandle) -> AppSettings {
                     }
                     if let Some(u) = loaded_val.get("openai_base_url").and_then(|v| v.as_str()) {
                         settings.openai_base_url = u.to_string();
+                    }
+                    if let Some(m) = loaded_val.get("openai_model").and_then(|v| v.as_str()) {
+                        settings.openai_model = m.to_string();
                     }
                     if let Some(l) = loaded_val.get("llm_provider").and_then(|v| v.as_str()) {
                         settings.llm_provider = l.to_string();
@@ -346,6 +351,7 @@ fn start_backend_process(
         .env("GEMINI_API_KEY", &settings.gemini_api_key)
         .env("OPENAI_API_KEY", &settings.openai_api_key)
         .env("OPENAI_BASE_URL", &settings.openai_base_url)
+        .env("OPENAI_MODEL", &settings.openai_model)
         .env("LLM_PROVIDER", &settings.llm_provider);
 
     #[cfg(windows)]

@@ -6,6 +6,7 @@ export interface AppSettings {
   gemini_api_key: string;
   openai_api_key: string;
   openai_base_url: string;
+  openai_model: string;
   llm_provider: string;
 }
 
