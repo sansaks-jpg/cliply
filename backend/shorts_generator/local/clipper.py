@@ -12,6 +12,11 @@ from typing import Dict, List, Optional, Tuple
 
 from ..config import LOCAL_OUTPUT_DIR
 
+# Prevent console windows flashing on Windows
+CREATION_FLAGS = 0
+if os.name == "nt":
+    CREATION_FLAGS = 0x08000000 # subprocess.CREATE_NO_WINDOW
+
 
 def _ratio(aspect_ratio: str) -> float:
     """Parse '9:16' → 9/16, '1:1' → 1.0."""
@@ -33,7 +38,7 @@ def _cut_subclip(source_path: str, start: float, end: float, out_path: str) -> s
         "-c:a", "aac", "-b:a", "128k",
         out_path,
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
     return out_path
 
 
@@ -117,7 +122,7 @@ def _reframe_vertical(in_path: str, out_path: str, aspect_ratio: str) -> str:
         "-shortest",
         out_path,
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
     os.remove(silent_path)
     return out_path
 

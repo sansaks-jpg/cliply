@@ -16,6 +16,13 @@ import requests
 
 from ..config import STORAGE_DIR
 
+import subprocess
+
+# Prevent console windows flashing on Windows
+CREATION_FLAGS = 0
+if os.name == "nt":
+    CREATION_FLAGS = 0x08000000 # subprocess.CREATE_NO_WINDOW
+
 # API keys
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", GROQ_API_KEY)  # fallback ke groq key
@@ -272,10 +279,7 @@ def _download_audio(video_path: str, task_dir: str) -> str:
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", video_path,
         "-vn", "-acodec", "libmp3lame", "-q:a", "4",
-        audio_path,
-    ]
-    import subprocess
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
     return audio_path
 
 
@@ -428,13 +432,11 @@ Respond with JSON only:
         
         # Ambil estimasi durasi audio sebelum cleaning
         raw_duration = formatted_segments[-1]["end"] if formatted_segments else 0.0
-        # Dapatkan durasi file audio yang sesungguhnya untuk filter hallucination diluar video
-        try:
-            import subprocess
             probe = subprocess.run(
                 ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                  "-of", "json", audio_path],
                 capture_output=True, text=True, timeout=15,
+                creationflags=CREATION_FLAGS,
             )
             audio_duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 0.0))
         except Exception:
@@ -580,11 +582,11 @@ def transcribe_video(media_path: str, task_id: str, language: Optional[str] = No
     
     # Get actual video duration for cache validation
     try:
-        import subprocess
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "json", media_path],
             capture_output=True, text=True, timeout=15,
+            creationflags=CREATION_FLAGS,
         )
         video_duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 0.0))
     except Exception:

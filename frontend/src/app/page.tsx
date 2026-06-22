@@ -362,7 +362,7 @@ export default function Home() {
       localStorage.setItem("cliply_recent_tasks", JSON.stringify(updated));
 
       toast.success("Tugas klip berhasil dimulai!");
-      router.push(`/tasks/${task_id}`);
+      router.push(`/tasks?id=${task_id}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Gagal memulai tugas.");
     } finally {
@@ -799,7 +799,7 @@ export default function Home() {
                       </div>
                       <div className="overflow-hidden">
                         <h4 className="text-sm font-bold truncate">
-                          <Link href={`/tasks/${t.id}`} className="focus-visible:outline-none before:absolute before:inset-0">
+                          <Link href={`/tasks?id=${t.id}`} className="focus-visible:outline-none before:absolute before:inset-0">
                             {getCleanUrlLabel(t.url)}
                           </Link>
                         </h4>

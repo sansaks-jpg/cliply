@@ -18,6 +18,11 @@ from ..config import STORAGE_DIR, resolve_encoder
 
 log = logging.getLogger(__name__)
 
+# Prevent console windows flashing on Windows
+CREATION_FLAGS = 0
+if os.name == "nt":
+    CREATION_FLAGS = 0x08000000 # subprocess.CREATE_NO_WINDOW
+
 # ── tuning knobs ──────────────────────────────────────────────────
 SAMPLE_FPS = 2
 EMA_FACTOR = 0.15
@@ -97,7 +102,7 @@ def _cut_subclip(source_path: str, start: float, end: float, out_path: str,
         "-c:a", "aac", "-b:a", "128k",
         out_path,
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
     return out_path
 
 
@@ -1145,7 +1150,7 @@ def _mux_with_subtitles(
                 "-map", "0:v:0", "-map", "1:a:0?",
                 "-shortest", out_path]
 
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
 
 
 def _reframe_vertical(
