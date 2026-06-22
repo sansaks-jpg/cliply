@@ -106,10 +106,15 @@ if not FONTS_DIR.is_absolute():
     FONTS_DIR = (_REPO_ROOT / FONTS_DIR).resolve()
 
 CORS_ORIGINS = [
-    origin.strip()
-    for origin in _get("CORS_ORIGINS", "http://localhost:3107").split(",")
-    if origin.strip()
+    "http://localhost:3107",
+    "http://tauri.localhost",
+    "tauri://localhost",
 ]
+env_origins = _get("CORS_ORIGINS").split(",")
+for origin in env_origins:
+    o = origin.strip()
+    if o and o not in CORS_ORIGINS:
+        CORS_ORIGINS.append(o)
 BACKEND_PORT = _get_positive_int("BACKEND_PORT", 8000)
 
 

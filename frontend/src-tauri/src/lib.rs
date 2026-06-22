@@ -19,12 +19,26 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub struct BackendState(pub Mutex<Option<Child>>);
 
+fn kill_child(mut child: Child) {
+    #[cfg(windows)]
+    {
+        let pid = child.id();
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
 impl Drop for BackendState {
     fn drop(&mut self) {
         if let Ok(mut guard) = self.0.lock() {
-            if let Some(mut child) = guard.take() {
-                let _ = child.kill();
-                let _ = child.wait();
+            if let Some(child) = guard.take() {
+                kill_child(child);
             }
         }
     }
@@ -580,9 +594,8 @@ pub fn run() {
                 // Paksa bunuh backend process jika masih berjalan
                 if let Some(state) = app_handle.try_state::<BackendState>() {
                     if let Ok(mut guard) = state.0.lock() {
-                        if let Some(mut child) = guard.take() {
-                            let _ = child.kill();
-                            let _ = child.wait();
+                        if let Some(child) = guard.take() {
+                            kill_child(child);
                         }
                     }
                 }
