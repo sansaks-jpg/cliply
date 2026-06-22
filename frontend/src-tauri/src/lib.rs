@@ -396,10 +396,10 @@ fn start_backend_process(
     }
 
     // 11. Poll /health endpoint (check process via state mutex)
-    let agent = ureq::Agent::new_with_config(ureq::config::Config {
-        timeout_global: Some(Duration::from_secs(2)),
-        ..Default::default()
-    });
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(2)))
+        .build()
+        .into();
     let start = Instant::now();
     log_line(&mut log_file, "Waiting for backend to become ready...");
     let health_url = "http://127.0.0.1:8000/health";
