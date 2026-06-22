@@ -3,11 +3,17 @@
 Results are cached after first call to avoid repeated subprocess invocations.
 """
 import logging
+import os
 import re
 import subprocess
 from typing import Optional
 
 log = logging.getLogger(__name__)
+
+# Prevent console windows flashing on Windows
+CREATION_FLAGS = 0
+if os.name == "nt":
+    CREATION_FLAGS = 0x08000000 # subprocess.CREATE_NO_WINDOW
 
 _ENCODER_CACHE: Optional[dict[str, bool]] = None
 
@@ -27,6 +33,7 @@ def detect_encoders() -> dict[str, bool]:
             ["powershell", "-Command",
              "Get-CimInstance Win32_VideoController | Select-Object -ExpandProperty Name"],
             capture_output=True, text=True, timeout=10,
+            creationflags=CREATION_FLAGS,
         ).stdout.lower()
         gpu_vendors.update(re.findall(r"(nvidia|intel|amd|advanced micro devices|ati radeon)", output))
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -41,6 +48,7 @@ def detect_encoders() -> dict[str, bool]:
         out = subprocess.run(
             ["ffmpeg", "-hide_banner", "-encoders"],
             capture_output=True, text=True, timeout=10,
+            creationflags=CREATION_FLAGS,
         ).stdout.lower()
         ff_nvenc = "nvenc" in out
         ff_qsv = "qsv" in out

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -125,11 +125,9 @@ function ProgressView({ task }: { task: Task }) {
   );
 }
 
-
-
-export default function TaskPage() {
-  const params = useParams();
-  const taskId = (params?.id as string) || "";
+function TaskPageContent() {
+  const searchParams = useSearchParams();
+  const taskId = searchParams.get("id") || "";
   const [task, setTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -420,7 +418,7 @@ export default function TaskPage() {
       {/* Main Content Area */}
       {isCompleted ? (
         /* ── COMPLETED: Fixed Viewport Studio ── */
-        <div className="flex-grow w-full flex flex-col lg:flex-row lg:overflow-hidden max-w-7xl mx-auto w-full">
+        <div className="flex-grow w-full flex flex-col lg:flex-row lg:overflow-hidden max-w-7xl mx-auto">
 
           {/* LEFT PANEL: Video besar + download + AI analysis — semua terlihat tanpa scroll */}
           <div className="w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 border-b lg:border-b-0 lg:border-r border-border/40 flex flex-col overflow-hidden p-4 gap-3">
@@ -682,5 +680,20 @@ export default function TaskPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function TaskPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen bg-background p-6 flex flex-col items-center justify-center">
+        <div className="max-w-md w-full space-y-6 text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-violet)] mx-auto" />
+          <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Memuat Halaman Tugas...</p>
+        </div>
+      </div>
+    }>
+      <TaskPageContent />
+    </Suspense>
   );
 }
