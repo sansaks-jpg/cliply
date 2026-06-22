@@ -310,7 +310,7 @@ fn start_backend_process(
 
     log_line(&mut log_file, &format!("Log file: {:?}", log_path));
     log_line(&mut log_file, &format!("Backend version: {}", env!("CARGO_PKG_VERSION")));
-    log_line(&mut log_file, "Port: 8000");
+    log_line(&mut log_file, "Port: 8003");
     if let Ok(res_dir) = app.path().resource_dir() {
         log_line(&mut log_file, &format!("Resource directory: {:?}", res_dir));
     }
@@ -343,18 +343,18 @@ fn start_backend_process(
     let mut cmd = if compiled_exe.exists() {
         log_line(&mut log_file, &format!("Using executable: {:?}", compiled_exe));
         let mut c = Command::new(&compiled_exe);
-        c.args(["--storage-dir", storage_dir, "--port", "8000"]);
+        c.args(["--storage-dir", storage_dir, "--port", "8003"]);
         c
     } else if dist_dir.exists() {
         log_line(&mut log_file, &format!("Using executable: {:?}", dist_dir));
         let mut c = Command::new(&dist_dir);
-        c.args(["--storage-dir", storage_dir, "--port", "8000"]);
+        c.args(["--storage-dir", storage_dir, "--port", "8003"]);
         c
     } else {
         let python = find_python(&backend_dir).ok_or_else(|| "Python tidak ditemukan".to_string())?;
         log_line(&mut log_file, &format!("Using Python: {:?}", python));
         let mut c = Command::new(&python);
-        c.args(["-m", "uvicorn", "app.main:app", "--port", "8000", "--host", "127.0.0.1"]);
+        c.args(["-m", "uvicorn", "app.main:app", "--port", "8003", "--host", "127.0.0.1"]);
         c
     };
 
@@ -423,7 +423,7 @@ fn start_backend_process(
         .into();
     let start = Instant::now();
     log_line(&mut log_file, "Waiting for backend to become ready...");
-    let health_url = "http://127.0.0.1:8000/health";
+    let health_url = "http://127.0.0.1:8003/health";
     let mut last_error = String::new();
 
     loop {

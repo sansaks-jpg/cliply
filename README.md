@@ -68,14 +68,14 @@ FastAPI backend
 ### API
 
 ```bash
-curl -X POST http://localhost:8000/tasks \
+curl -X POST http://localhost:8003/tasks \
   -H "Content-Type: application/json" \
   -d '{"url": "https://youtube.com/watch?v=...", "num_clips": 5, "subtitle_style": "viral-bold"}'
 ```
 
 Stream progress:
 ```bash
-curl -N http://localhost:8000/tasks/{task_id}/events
+curl -N http://localhost:8003/tasks/{task_id}/events
 ```
 
 ## Models
@@ -133,7 +133,7 @@ GEMINI_API_KEY=...
 Start the server:
 
 ```powershell
-python -m uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 8003
 ```
 
 ### 2. Frontend

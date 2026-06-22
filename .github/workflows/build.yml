@@ -29,7 +29,7 @@ jobs:
         run: pnpm build
         working-directory: frontend
         env:
-          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NEXT_PUBLIC_API_URL: http://localhost:8003
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -76,9 +76,9 @@ jobs:
           for ($i = 0; $i -lt $timeout; $i++) {
             Start-Sleep -Seconds 1
             try {
-              $health = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -UseBasicParsing
+              $health = Invoke-WebRequest -Uri "http://127.0.0.1:8003/health" -UseBasicParsing
               if ($health.StatusCode -eq 200) {
-                $encoders = Invoke-WebRequest -Uri "http://127.0.0.1:8000/encoders" -UseBasicParsing
+                $encoders = Invoke-WebRequest -Uri "http://127.0.0.1:8003/encoders" -UseBasicParsing
                 if ($encoders.StatusCode -eq 200) {
                   $ok = $true; break
                 }

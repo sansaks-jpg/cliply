@@ -4,7 +4,7 @@
  * http://localhost:8000; in docker-compose it's the backend service name.
  */
 export const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8003";
 
 export interface TaskClip {
   title: string;
@@ -153,15 +153,29 @@ export async function getAvailableModels(baseUrl: string, apiKey: string): Promi
       api_key: apiKey
     });
     const res = await fetch(`${API_URL}/models?${params.toString()}`);
-    if (!res.ok) throw new Error("Gagal mengambil model dari backend proxy");
+    if (!res.ok) {
+      let detail = "Gagal mengambil model dari backend proxy";
+      try {
+        const errData = await res.json();
+        if (errData && errData.detail) detail = errData.detail;
+        else if (errData && errData.error) detail = errData.error;
+      } catch {}
+      throw new Error(detail);
+    }
     const data = await res.json();
+    if (data && data.error) {
+      throw new Error(data.error);
+    }
     if (data && Array.isArray(data.data)) {
+      if (data.data.length === 0) {
+        throw new Error("Tidak ada model yang ditemukan di endpoint ini");
+      }
       return data.data.map((m: any) => m.id);
     }
-    return ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"];
+    throw new Error("Format response model tidak valid");
   } catch (error) {
     console.error("Failed to fetch models through backend proxy:", error);
-    return ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"];
+    throw error;
   }
 }
 

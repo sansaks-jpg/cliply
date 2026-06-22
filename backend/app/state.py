@@ -424,6 +424,17 @@ class TaskStore:
         
         task_dir = STORAGE_DIR / task_id
         if task_dir.exists() and task_dir.is_dir():
+            # Hapus file metadata penting terlebih dahulu secara eksplisit agar jika penghapusan folder gagal
+            # (misal karena video .mp4 sedang dikunci oleh OS/WebView), task ini tidak akan pernah di-recover kembali saat startup.
+            for meta_name in ("highlights.json", "transcript.json", "transcript.srt"):
+                meta_file = task_dir / meta_name
+                if meta_file.exists():
+                    try:
+                        meta_file.unlink()
+                        log.info("Explicitly deleted metadata file before rmtree: %s", meta_file)
+                    except OSError as e:
+                        log.warning("Failed to delete metadata file %s: %s", meta_file, e)
+
             try:
                 await asyncio.to_thread(shutil.rmtree, task_dir)
                 log.info("Deleted storage directory for task %s", task_id)

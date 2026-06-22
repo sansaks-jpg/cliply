@@ -2,9 +2,9 @@ const { spawn } = require("child_process");
 const path = require("path");
 const http = require("http");
 
-// Fungsi untuk memeriksa apakah backend sudah berjalan di port 8000
+// Fungsi untuk memeriksa apakah backend sudah berjalan di port 8003
 function checkBackend(callback) {
-  const req = http.get("http://127.0.0.1:8000/health", (res) => {
+  const req = http.get("http://127.0.0.1:8003/health", (res) => {
     if (res.statusCode === 200) {
       callback(true);
     } else {
@@ -31,7 +31,7 @@ function startBackend() {
 
   checkBackend((running) => {
     if (running) {
-      console.log(`[Start-Backend] Backend sudah aktif di port 8000.`);
+      console.log(`[Start-Backend] Backend sudah aktif di port 8003.`);
       process.exit(0);
     }
 
@@ -39,7 +39,7 @@ function startBackend() {
     
     const child = spawn(
       pythonExe,
-      ["-m", "uvicorn", "app.main:app", "--port", "8000"],
+      ["-m", "uvicorn", "app.main:app", "--port", "8003"],
       {
         cwd: backendDir,
         detached: true,

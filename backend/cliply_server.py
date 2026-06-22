@@ -2,15 +2,15 @@
 
 Menerima argumen:
   --storage-dir <path>   Override lokasi penyimpanan file
-  --port <port>          Port uvicorn (default 8000)
-"""
+#   --port <port>          Port uvicorn (default 8003)
+# """
 import os
 import sys
 
 
 def _parse_args():
     storage_dir = None
-    port = 8000
+    port = 8003
     args = sys.argv[1:]
     i = 0
     while i < len(args):
