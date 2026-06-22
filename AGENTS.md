@@ -1,6 +1,6 @@
 # AGENTS.md — Workspace Guide for `cliply`
 
-This workspace is a **unified monorepo** for the automated short video creator (AI Video Clipper). The project integrates a lightweight Next.js 15 web interface (`frontend/`) with an AI-powered video processing engine (`backend/`).
+This workspace is a **unified monorepo** for the automated short video creator (AI Video Clipper). The project integrates a Next.js 15 web interface (`frontend/`) packaged with Tauri v2, and an AI-powered video processing engine (`backend/`).
 
 > **Primary Working Directory:** `C:\Users\WORKPLUS\Documents\WEB\clip-ai\`
 
@@ -12,10 +12,11 @@ This workspace is a **unified monorepo** for the automated short video creator (
 cliply/
 ├── backend/                  # Python 3.10+ FastAPI Backend & AI Clipping Engine
 │   ├── app/                  # Web API & Task Queue
-│   │   ├── main.py           # FastAPI Entry Point (CORS, lifespan, routers)
+│   │   ├── main.py           # FastAPI Entry Point (CORS, lifespan, routers, /models proxy)
 │   │   ├── config.py         # Env config (LLM_PROVIDER, BASE_URL, etc.)
 │   │   ├── state.py          # Redis-backed Task Store (status, progress, manifest)
 │   │   ├── queue.py          # Background tasks scheduler (FastAPI BackgroundTasks)
+│   │   ├── routes/           # FastAPI API routers (/tasks, /media)
 │   │   └── engine/           # Integrated video processing pipeline
 │   │       ├── pipeline.py    # Pipeline coordinator (7 stages)
 │   │       ├── downloader.py  # Video downloader via yt-dlp + mp4 cache
@@ -31,13 +32,18 @@ cliply/
 │   ├── requirements.txt       # Core Python dependencies
 │   ├── requirements-local.txt # Python dependencies for local processing (faster-whisper, opencv, etc.)
 │   └── .env                   # Backend environment variables
-├── frontend/                 # Next.js 15 Frontend (Borgir Version — No Auth & No Billing, No Docker)
+├── frontend/                 # Next.js 15 Frontend + Tauri v2 Desktop Wrapper
 │   ├── src/                  # Next.js Source Code (App Router, React 19, Tailwind v4, shadcn/ui)
-│   │   ├── app/              # Halaman "/" (paste URL) & "/tasks/[id]" (progress & player)
+│   │   ├── app/              # Halaman "/" (konfigurasi & link input) & "/tasks/page.tsx" (progress & player via ?id=id)
 │   │   ├── components/       # UI Components (vertical-player, clip-card, task-progress, etc.)
-│   │   └── lib/              # Utilities & SSE hook
+│   │   └── lib/              # Utilities, API client (with models query helper) & SSE hook
+│   ├── src-tauri/            # Tauri Rust Source Code (App Window & Python Process Manager)
+│   │   ├── capabilities/     # Tauri Plugin Permission Configuration (default.json)
+│   │   ├── src/              # Rust source (lib.rs for python process spawner/killer, main.rs)
+│   │   └── tauri.conf.json   # Tauri packaging and auto-update configuration
 │   ├── package.json          # Node.js dependencies
 │   └── tsconfig.json         # TypeScript configuration
+├── updater.json              # Tauri Auto-Update Manifest (for GitHub release distribution)
 ├── plan.md                   # Development plan & technical designs
 └── AGENTS.md                 # Developer guide (this file)
 ```
@@ -106,18 +112,18 @@ When a user submits a YouTube video link to the `/tasks` endpoint, the backend t
    python -m uvicorn app.main:app --reload --port 8000
    ```
 
-### 3.2 Running the Frontend (Next.js)
+### 3.2 Running the Frontend (Next.js & Tauri)
 
 1. Navigate to the `frontend` directory and install dependencies:
    ```powershell
    cd frontend
    pnpm install
    ```
-2. Start the development server:
+2. Start the development server (runs Tauri desktop window with Next.js live reloading):
    ```powershell
-   pnpm run dev
+   pnpm run tauri:dev
    ```
-   The frontend app will run at `http://localhost:3107`.
+   The frontend Next.js dev server will run at `http://localhost:3107`.
 
 ---
 
@@ -127,7 +133,10 @@ When a user submits a YouTube video link to the `/tasks` endpoint, the backend t
 2. **Asynchronous Code**: Execute all heavy blocking operations (yt-dlp downloads, transcription, video rendering) inside a thread pool using `run_in_threadpool` to prevent blocking the async FastAPI event loop.
 3. **Double Caching**: When modifying transcription or highlight engines, ensure the fallback reading of `.json` (speaker metadata) and `.srt` cache files remains functional to avoid calling expensive external APIs.
 4. **No Secrets**: Never commit real API keys to the repository. Always use `.env.example` as a template.
-5. **Strict Commit & Push Rules**:
+5. **Windows Subprocess Window Suppression**: When running external subprocess commands (like `ffmpeg`, `ffprobe`, `taskkill`) on Windows, always pass `creationflags=subprocess.CREATE_NO_WINDOW` (in Python) or `.creation_flags(CREATE_NO_WINDOW)` (in Rust/Tauri) to prevent cmd popups from flashing.
+6. **OpenAI Custom Models Querying (CORS Bypass)**: The frontend should always query available custom OpenAI models through the backend `/models` API proxy endpoint instead of calling the third-party endpoint directly to avoid browser CORS policy rejections.
+7. **Static Route Adaptation**: Next.js uses static export configuration. Do not write dynamic route structures (like `/tasks/[id]`) as they fail to resolve on Webview runtime (404/blank page). Use static routes like `/tasks/page.tsx` wrapped in `<Suspense>` and pull dynamic IDs through `useSearchParams` query values (`?id=...`).
+8. **Strict Commit & Push Rules**:
    - **Check Before Committing**: Never perform automatic commits or pushes. Always check if there are major/large changes first, or wait for direct explicit instructions from the user before committing and pushing code.
    - **Tidy Git Commit Messages**: Write neat, structured, and detailed commit messages (e.g., using prefix-convention like `feat:`, `fix:`, `refactor:`) describing exactly what was modified so that the history remains clear on GitHub.
 
@@ -159,4 +168,5 @@ When receiving Pull Requests from automatic contributor bots (e.g., `google-labs
 4. **Push and Close the PR**:
    * Push the updated `main` branch to the remote repository: `git push origin main`.
    * Manually **Close** the PR on the GitHub web interface (do not merge it) and leave a comment stating that the changes have been integrated manually.
+
 
