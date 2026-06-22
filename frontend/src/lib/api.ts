@@ -144,3 +144,24 @@ export async function deleteTask(taskId: string): Promise<void> {
     throw new Error(`Failed to delete task (${res.status})`);
   }
 }
+
+export async function getAvailableModels(baseUrl: string, apiKey: string): Promise<string[]> {
+  if (!baseUrl) return ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"];
+  try {
+    const params = new URLSearchParams({
+      base_url: baseUrl,
+      api_key: apiKey
+    });
+    const res = await fetch(`${API_URL}/models?${params.toString()}`);
+    if (!res.ok) throw new Error("Gagal mengambil model dari backend proxy");
+    const data = await res.json();
+    if (data && Array.isArray(data.data)) {
+      return data.data.map((m: any) => m.id);
+    }
+    return ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"];
+  } catch (error) {
+    console.error("Failed to fetch models through backend proxy:", error);
+    return ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"];
+  }
+}
+
