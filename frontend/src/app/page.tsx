@@ -403,7 +403,7 @@ export default function Home() {
   // Loading screen saat backend sedang boot
   if (backendStatus === "checking") {
     return (
-      <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center gap-6 font-sans antialiased">
+      <div className="h-screen bg-background text-foreground flex flex-col items-center justify-center gap-6 font-sans antialiased">
         <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
           <div className="absolute top-[-12%] left-[-8%] w-[44rem] h-[44rem] rounded-full blur-[120px] opacity-25 dark:opacity-40 bg-[radial-gradient(circle_at_center,var(--accent-violet),transparent_70%)] animate-blob" />
         </div>
@@ -417,7 +417,7 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground transition-colors duration-300 flex flex-col font-sans antialiased overflow-x-hidden relative">
+    <div className="h-screen overflow-y-auto bg-background text-foreground transition-colors duration-300 flex flex-col font-sans antialiased overflow-x-hidden relative">
 
       {/* Ambient violet glow blobs */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">

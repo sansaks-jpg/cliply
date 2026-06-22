@@ -313,7 +313,7 @@ export default function TaskPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background p-6 flex flex-col items-center justify-center">
+      <div className="h-screen bg-background p-6 flex flex-col items-center justify-center">
         <div className="max-w-md w-full space-y-6 text-center">
           <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-violet)] mx-auto" />
           <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Memuat data workspace...</p>
@@ -324,7 +324,7 @@ export default function TaskPage() {
 
   if (error && !task) {
     return (
-      <div className="min-h-screen bg-background p-6 flex items-center justify-center">
+      <div className="h-screen bg-background p-6 flex items-center justify-center">
         <div className="max-w-md w-full glass-panel p-6 rounded-2xl space-y-4">
           <div className="flex items-center gap-3 text-red-500">
             <AlertCircle className="h-5 w-5 flex-shrink-0" />
@@ -357,7 +357,7 @@ export default function TaskPage() {
   const isCompleted = task.status === "completed";
 
   return (
-    <div className={`min-h-screen bg-background text-foreground transition-colors duration-300 relative overflow-x-hidden flex flex-col ${isCompleted ? "lg:h-screen lg:overflow-hidden" : ""}`}>
+    <div className={`h-screen overflow-y-auto bg-background text-foreground transition-colors duration-300 relative overflow-x-hidden flex flex-col ${isCompleted ? "lg:h-screen lg:overflow-hidden" : ""}`}>
 
       {/* Ambient blobs */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
