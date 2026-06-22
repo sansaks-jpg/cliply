@@ -572,6 +572,22 @@ pub fn run() {
             restart_backend,
             relaunch_app
         ])
-        .run(tauri::generate_context!())
-        .expect("error saat menjalankan aplikasi tauri");
+        .build(tauri::generate_context!())
+        .expect("error saat membangun aplikasi tauri")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                // Paksa bunuh backend process jika masih berjalan
+                if let Some(state) = app_handle.try_state::<BackendState>() {
+                    if let Ok(mut guard) = state.0.lock() {
+                        if let Some(mut child) = guard.take() {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                        }
+                    }
+                }
+                // Paksa matikan proses utama untuk membersihkan seluruh thread dan WebView2 helper
+                std::process::exit(0);
+            }
+        });
 }
