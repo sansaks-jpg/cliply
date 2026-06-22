@@ -284,11 +284,8 @@ class TaskStore:
 
             if highlights_path.exists():
                 try:
-                    def read_json(path=highlights_path):
-                        with open(path, encoding="utf-8") as file:
-                            return file.read()
-                    manifest_str = await asyncio.to_thread(read_json)
-                    manifest = json.loads(manifest_str)
+                    with open(highlights_path, encoding="utf-8") as f:
+                        manifest = json.load(f)
                     url = manifest.get("url", "")
                     clips = manifest.get("clips", [])
                     # Re-create TaskRecord sebagai completed
