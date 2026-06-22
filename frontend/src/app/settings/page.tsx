@@ -273,7 +273,7 @@ export default function SettingsPage() {
 
   if (tauriActive === null) {
     return (
-      <div className="min-h-screen bg-black text-neutral-100 flex flex-col items-center justify-center p-4">
+      <div className="h-screen bg-black text-neutral-100 flex flex-col items-center justify-center p-4">
         <div className="flex items-center gap-3 text-neutral-400">
           <RefreshCw className="w-5 h-5 animate-spin" />
           <span className="text-sm">Memuat pengaturan...</span>
@@ -284,7 +284,7 @@ export default function SettingsPage() {
 
   if (!tauriActive) {
     return (
-      <div className="min-h-screen bg-black text-neutral-100 flex flex-col items-center justify-center p-4">
+      <div className="h-screen bg-black text-neutral-100 flex flex-col items-center justify-center p-4">
         <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 rounded-xl p-6 text-center space-y-4">
           <SettingsIcon className="w-12 h-12 text-neutral-500 mx-auto" />
           <h2 className="text-xl font-bold text-white">Pengaturan Desktop</h2>
@@ -304,7 +304,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-neutral-100 p-6 md:p-12">
+    <div className="h-screen overflow-y-auto bg-black text-neutral-100 p-6 md:p-12">
       <div className="max-w-3xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between pb-6 border-b border-neutral-800">
