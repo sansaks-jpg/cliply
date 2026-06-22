@@ -13,7 +13,7 @@ import {
   relaunchApp,
   type AppSettings,
 } from "@/lib/tauri";
-import { waitForBackend, type BackendStatus } from "@/lib/api";
+import { waitForBackend, getAvailableModels, type BackendStatus } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -59,6 +59,10 @@ export default function SettingsPage() {
   const [appVersion, setAppVersion] = useState<string>("0.1.1");
 
   const handleCheckUpdate = async () => {
+    if (!tauriActive) {
+      toast.info("Fitur pembaruan hanya tersedia di dalam aplikasi desktop Cliply.");
+      return;
+    }
     if (checkingUpdate || restarting) return;
     setCheckingUpdate(true);
     try {
@@ -72,14 +76,15 @@ export default function SettingsPage() {
         toast.info("Aplikasi Anda sudah versi terbaru.");
       }
     } catch (err) {
-      console.error(err);
-      toast.error("Gagal memeriksa pembaruan.");
+      console.error("Gagal memeriksa pembaruan:", err);
+      toast.error("Gagal memeriksa pembaruan. Pastikan Anda terhubung ke internet.");
     } finally {
       setCheckingUpdate(false);
     }
   };
 
   const handleInstallUpdate = async () => {
+    if (!tauriActive) return;
     if (!updateAvailable || restarting) return;
     setRestarting(true);
     toast.info("Mengunduh dan memasang pembaruan...");
@@ -128,27 +133,14 @@ export default function SettingsPage() {
     }
     setLoadingModels(true);
     try {
-      const formattedUrl = baseUrl.replace(/\/$/, "");
-      const response = await fetch(`${formattedUrl}/models`, {
-        method: "GET",
-        headers: {
-          "Authorization": apiKey ? `Bearer ${apiKey}` : "",
-          "Content-Type": "application/json"
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        if (data && Array.isArray(data.data)) {
-          const models = data.data.map((m: any) => m.id);
-          setAvailableModels(models);
-          if (models.length > 0 && !models.includes(openaiModel)) {
-            const mimoModel = models.find((m: string) => m.toLowerCase().includes("mimo"));
-            setOpenaiModel(mimoModel || models[0]);
-          }
-        }
+      const models = await getAvailableModels(baseUrl, apiKey);
+      setAvailableModels(models);
+      if (models.length > 0 && !models.includes(openaiModel)) {
+        const mimoModel = models.find((m: string) => m.toLowerCase().includes("mimo"));
+        setOpenaiModel(mimoModel || models[0]);
       }
     } catch (err) {
-      console.warn("Failed to fetch models from custom base URL:", err);
+      console.warn("Failed to fetch models from custom base URL proxy:", err);
       if (baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1")) {
         setAvailableModels(["mimo/mimo-v2.5-pro", "gpt-4o-mini", "gpt-4o"]);
       }

@@ -110,3 +110,39 @@ async def list_encoders() -> dict:
         "available": config.get_available_encoders(),
         "current": config.FFMPEG_ENCODER,
     }
+
+
+@app.get("/models")
+async def list_models(base_url: str, api_key: str = "") -> dict:
+    """Proxy to fetch available models from an OpenAI-compatible endpoint, solving CORS."""
+    import requests
+    from fastapi.concurrency import run_in_threadpool
+    if not base_url:
+        return {"data": []}
+    
+    formatted_url = base_url.rstrip("/")
+    if not formatted_url.endswith("/models"):
+        formatted_url = f"{formatted_url}/models"
+        
+    headers = {
+        "Content-Type": "application/json"
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+        
+    try:
+        def _fetch():
+            return requests.get(formatted_url, headers=headers, timeout=8)
+            
+        response = await run_in_threadpool(_fetch)
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, dict) and "data" in data:
+                return data
+            elif isinstance(data, list):
+                return {"data": [{"id": m} for m in data]}
+        return {"data": []}
+    except Exception as e:
+        logging.getLogger(__name__).warning("Proxy models request failed: %s", e)
+        return {"data": [], "error": str(e)}
+
