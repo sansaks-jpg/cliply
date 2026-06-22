@@ -467,8 +467,8 @@ export default function Home() {
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground leading-relaxed">
-                  Server lokal di <code className="font-mono">localhost:8000</code> tidak merespons.
-                  Pastikan backend Python sudah berjalan: <code className="font-mono">uvicorn app.main:app --port 8000</code>
+                  Server lokal di <code className="font-mono">localhost:8003</code> tidak merespons.
+                  Pastikan backend Python sudah berjalan: <code className="font-mono">uvicorn app.main:app --port 8003</code>
                 </p>
               )}
             </div>

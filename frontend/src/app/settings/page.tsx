@@ -141,6 +141,7 @@ export default function SettingsPage() {
       }
     } catch (err) {
       console.warn("Failed to fetch models from custom base URL proxy:", err);
+      toast.error(err instanceof Error ? `Gagal mengambil daftar model: ${err.message}` : "Gagal mengambil daftar model.");
       if (baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1")) {
         setAvailableModels(["mimo/mimo-v2.5-pro", "gpt-4o-mini", "gpt-4o"]);
       }

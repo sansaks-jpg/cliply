@@ -1,7 +1,7 @@
 """FastAPI application entry point.
 
 Run locally:
-    uvicorn app.main:app --reload --port 8000
+    uvicorn app.main:app --reload --port 8003
 """
 import logging
 from contextlib import asynccontextmanager

@@ -115,7 +115,7 @@ for origin in env_origins:
     o = origin.strip()
     if o and o not in CORS_ORIGINS:
         CORS_ORIGINS.append(o)
-BACKEND_PORT = _get_positive_int("BACKEND_PORT", 8000)
+BACKEND_PORT = _get_positive_int("BACKEND_PORT", 8003)
 
 
 def require_llm_key() -> str:

@@ -109,7 +109,7 @@ When a user submits a YouTube video link to the `/tasks` endpoint, the backend t
    ```
 4. Start the FastAPI server:
    ```powershell
-   python -m uvicorn app.main:app --reload --port 8000
+   python -m uvicorn app.main:app --reload --port 8003
    ```
 
 ### 3.2 Running the Frontend (Next.js & Tauri)
