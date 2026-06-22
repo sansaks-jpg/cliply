@@ -18,7 +18,7 @@ from ..config import STORAGE_DIR
 
 # API keys
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", GROQ_API_KEY)  # fallback ke groq key
 GEMINI_MODEL = "gemini-2.5-flash"
 GROQ_MODEL = "whisper-large-v3"
 
@@ -269,10 +269,6 @@ def _parse_youtube_transcript(entries) -> Dict:
 
 def _download_audio(video_path: str, task_dir: str) -> str:
     """Extract audio from video file using ffmpeg."""
-    video_path = os.path.abspath(video_path)
-    if not os.path.isfile(video_path):
-        raise ValueError(f"Invalid video file path: {video_path}")
-
     audio_path = os.path.join(task_dir, "audio.mp3")
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
@@ -576,10 +572,6 @@ def transcribe_video(media_path: str, task_id: str, language: Optional[str] = No
         language: ISO-639-1 language code (optional)
         video_url: YouTube URL for transcript API (optional)
     """
-    media_path = os.path.abspath(media_path)
-    if not os.path.isfile(media_path):
-        raise ValueError(f"Invalid media file path: {media_path}")
-
     task_dir = str(STORAGE_DIR / task_id)
     os.makedirs(task_dir, exist_ok=True)
     

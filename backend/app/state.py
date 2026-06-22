@@ -93,20 +93,14 @@ class TaskStore:
         if self._redis is None:
             try:
                 from redis.asyncio import Redis
-                from redis.exceptions import RedisError
-            except ImportError as e:
-                log.warning("TaskStore: Redis package unavailable (%s), using in-memory", e)
+                r = Redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+                await r.ping()
+                self._redis = r
+                self._use_redis = True
+                log.info("TaskStore: Redis connected")
+            except Exception as e:
+                log.warning("TaskStore: Redis unavailable (%s), using in-memory", e)
                 self._use_redis = False
-            else:
-                try:
-                    r = Redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-                    await r.ping()
-                    self._redis = r
-                    self._use_redis = True
-                    log.info("TaskStore: Redis connected")
-                except (ValueError, RedisError) as e:
-                    log.warning("TaskStore: Redis unavailable (%s), using in-memory", e)
-                    self._use_redis = False
         return self._use_redis
 
     async def ping_redis(self) -> bool:
@@ -353,7 +347,7 @@ class TaskStore:
                     recovered += 1
                     log.info("Recovered completed task %s from storage", task_id)
                     continue
-                except (OSError, ValueError, TypeError, AttributeError) as e:
+                except Exception as e:
                     log.warning("Failed to recover task %s from highlights.json: %s", task_id, e)
 
             if transcript_path.exists():
@@ -384,7 +378,7 @@ class TaskStore:
                             self._mem_subs[task_id] = []
                     recovered += 1
                     log.info("Recovered orphaned task %s from storage (marked as error)", task_id)
-                except (OSError, ValueError, TypeError, AttributeError) as e:
+                except Exception as e:
                     log.warning("Failed to recover task %s from transcript.json: %s", task_id, e)
 
         return recovered
