@@ -43,7 +43,7 @@ def main() -> int:
             language=args.language,
             mode=args.mode,
         )
-    except (RuntimeError, ValueError) as e:
+    except Exception as e:
         print(f"\nFAILED: {e}", file=sys.stderr)
         return 1
 
