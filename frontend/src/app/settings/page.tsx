@@ -117,6 +117,45 @@ export default function SettingsPage() {
   const [geminiApiKey, setGeminiApiKey] = useState<string>("");
   const [openaiApiKey, setOpenaiApiKey] = useState<string>("");
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState<string>("");
+  const [openaiModel, setOpenaiModel] = useState<string>("gpt-4o-mini");
+  const [availableModels, setAvailableModels] = useState<string[]>(["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]);
+  const [loadingModels, setLoadingModels] = useState<boolean>(false);
+
+  const loadModels = async (baseUrl: string, apiKey: string) => {
+    if (!baseUrl) {
+      setAvailableModels(["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]);
+      return;
+    }
+    setLoadingModels(true);
+    try {
+      const formattedUrl = baseUrl.replace(/\/$/, "");
+      const response = await fetch(`${formattedUrl}/models`, {
+        method: "GET",
+        headers: {
+          "Authorization": apiKey ? `Bearer ${apiKey}` : "",
+          "Content-Type": "application/json"
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data && Array.isArray(data.data)) {
+          const models = data.data.map((m: any) => m.id);
+          setAvailableModels(models);
+          if (models.length > 0 && !models.includes(openaiModel)) {
+            const mimoModel = models.find((m: string) => m.toLowerCase().includes("mimo"));
+            setOpenaiModel(mimoModel || models[0]);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Failed to fetch models from custom base URL:", err);
+      if (baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1")) {
+        setAvailableModels(["mimo/mimo-v2.5-pro", "gpt-4o-mini", "gpt-4o"]);
+      }
+    } finally {
+      setLoadingModels(false);
+    }
+  };
 
   useEffect(() => {
     const active = isTauri();
@@ -130,6 +169,9 @@ export default function SettingsPage() {
           setGeminiApiKey(s.gemini_api_key || "");
           setOpenaiApiKey(s.openai_api_key || "");
           setOpenaiBaseUrl(s.openai_base_url || "");
+          const modelVal = s.openai_model || "gpt-4o-mini";
+          setOpenaiModel(modelVal);
+          loadModels(s.openai_base_url || "", s.openai_api_key || "");
         }
       });
       import("@tauri-apps/api/app").then(({ getVersion }) => {
@@ -193,6 +235,7 @@ export default function SettingsPage() {
         gemini_api_key: geminiApiKey.trim(),
         openai_api_key: openaiApiKey.trim(),
         openai_base_url: openaiBaseUrl.trim(),
+        openai_model: openaiModel.trim(),
       };
 
       // 1. Simpan ke settings.json
@@ -453,6 +496,53 @@ export default function SettingsPage() {
               />
               <p className="text-[10px] text-neutral-400">
                 Kosongkan untuk menggunakan server OpenAI resmi, atau arahkan ke API model lokal (misal: `http://localhost:20128/v1`).
+              </p>
+            </div>
+
+            {/* OpenAI Model Selection & Custom Input */}
+            <div className="space-y-2">
+              <Label htmlFor="openai-model" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5" />
+                OpenAI Model
+              </Label>
+              <div className="flex gap-2">
+                <div className="flex-grow">
+                  <Select value={availableModels.includes(openaiModel) ? openaiModel : "custom"} onValueChange={(val) => {
+                    if (val !== "custom") {
+                      setOpenaiModel(val);
+                    }
+                  }}>
+                    <SelectTrigger id="openai-model" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
+                      <SelectValue placeholder="Pilih Model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((m) => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                      <SelectItem value="custom">Kustom (Tulis di Bawah)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => loadModels(openaiBaseUrl, openaiApiKey)}
+                  disabled={loadingModels}
+                  className="border-neutral-800 text-neutral-300 hover:bg-neutral-900 rounded-xl h-10 px-3 flex-shrink-0"
+                  title="Muat Ulang Model"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingModels ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+              <Input
+                type="text"
+                placeholder="Masukkan nama model secara manual"
+                value={openaiModel}
+                onChange={(e) => setOpenaiModel(e.target.value)}
+                className="h-10 text-sm border-border bg-background/20 rounded-xl focus-visible:ring-1 focus-visible:ring-white/20 mt-2"
+              />
+              <p className="text-[10px] text-neutral-400">
+                Pilih model yang terdeteksi di atas, atau ketik nama model secara manual pada kolom teks.
               </p>
             </div>
           </div>
