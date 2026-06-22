@@ -42,6 +42,148 @@ interface RecentTask {
   timestamp: number;
 }
 
+const STYLE_DEFINITIONS: Record<string, {
+  bold: boolean,
+  caseTransform: "uppercase" | "lowercase" | "none",
+  outlineWidth: number,
+  outlineColor: string,
+  words: string[],
+  animation: string
+}> = {
+  "viral-bold": {
+    bold: true,
+    caseTransform: "uppercase",
+    outlineWidth: 3,
+    outlineColor: "#000000",
+    words: ["KITA", "TIDAK", "HANYA", "BERPIKIR", "TETAPI", "BERTINDAK", "NYATA", "SEKARANG"],
+    animation: "karaoke"
+  },
+  "tiktok": {
+    bold: true,
+    caseTransform: "uppercase",
+    outlineWidth: 4,
+    outlineColor: "#000000",
+    words: ["INILAH", "GAYA", "TEKS", "TIKTOK"],
+    animation: "karaoke"
+  },
+  "word-pop": {
+    bold: true,
+    caseTransform: "uppercase",
+    outlineWidth: 4,
+    outlineColor: "#000000",
+    words: ["FOKUS", "CEPAT", "DAN", "SATSET"],
+    animation: "wordpop"
+  },
+  "clean-minimal": {
+    bold: false,
+    caseTransform: "lowercase",
+    outlineWidth: 0,
+    outlineColor: "transparent",
+    words: ["gaya", "minimalis", "bersih", "dan", "elegan"],
+    animation: "fadein"
+  },
+  "highlight-box": {
+    bold: true,
+    caseTransform: "none",
+    outlineWidth: 0,
+    outlineColor: "transparent",
+    words: ["Momen", "viral", "dalam", "kotak", "highlight"],
+    animation: "box"
+  },
+  "neon-gradient": {
+    bold: true,
+    caseTransform: "uppercase",
+    outlineWidth: 2,
+    outlineColor: "#FFF000",
+    words: ["TEKS", "GRADASI", "NEON", "MENYALA"],
+    animation: "karaoke"
+  },
+  "minimalist": {
+    bold: false,
+    caseTransform: "none",
+    outlineWidth: 1,
+    outlineColor: "#444444",
+    words: ["Simpel", "tanpa", "banyak", "distraksi"],
+    animation: "fadein"
+  },
+  "neon-glow": {
+    bold: true,
+    caseTransform: "none",
+    outlineWidth: 4,
+    outlineColor: "#000000",
+    words: ["Cahaya", "glamur", "efek", "neon", "glow"],
+    animation: "popup"
+  },
+  "classic-popup": {
+    bold: true,
+    caseTransform: "none",
+    outlineWidth: 2,
+    outlineColor: "#000000",
+    words: ["Gaya", "klasik", "popup", "animasi", "lembut"],
+    animation: "popup"
+  }
+};
+
+const getDynamicPreviewStyles = (styleKey: string) => {
+  const fontMap: Record<string, string> = {
+    "viral-bold":    "Montserrat",
+    "tiktok":        "Plus Jakarta Sans",
+    "word-pop":      "Plus Jakarta Sans",
+    "clean-minimal": "Helvetica",
+    "highlight-box": "Plus Jakarta Sans",
+    "neon-gradient": "Montserrat",
+    "minimalist":    "Helvetica",
+    "neon-glow":     "Montserrat",
+    "classic-popup": "Helvetica",
+  };
+  const fontFamily = fontMap[styleKey] ?? "Helvetica";
+
+  const primaryMap: Record<string, string> = {
+    "viral-bold":    "#FFFFFF",
+    "tiktok":        "#FFFFFF",
+    "word-pop":      "#FFFFFF",
+    "clean-minimal": "rgba(255,255,255,0.90)",
+    "highlight-box": "#FFFFFF",
+    "neon-gradient": "#FFF000",
+    "minimalist":    "rgba(255,255,255,0.75)",
+    "neon-glow":     "#00FFFF",
+    "classic-popup": "#FFFFFF",
+  };
+  const primaryColor = primaryMap[styleKey] ?? "#FFFFFF";
+
+  const highlightMap: Record<string, string> = {
+    "viral-bold":    "#FFFF00",
+    "tiktok":        "#08E539",
+    "word-pop":      "#FFFFFF",
+    "clean-minimal": "rgba(255,255,255,0.50)",
+    "highlight-box": "#76E600",
+    "neon-gradient": "#E500FF",
+    "minimalist":    "rgba(255,255,255,0.30)",
+    "neon-glow":     "#FF00FF",
+    "classic-popup": "#FFFF00",
+  };
+  const highlightColor = highlightMap[styleKey] ?? "#FFFF00";
+
+  const boxColor = "#76E600";
+  const boxBgColor = "rgba(118,230,0,0.2)";
+  const outlineColor = styleKey === "neon-gradient" ? "#FFF000" : undefined;
+
+  return { fontFamily, primaryColor, highlightColor, boxColor, boxBgColor, outlineColor };
+};
+
+const makeTextShadow = (ow: number, oc: string) => {
+  if (ow === 0) return "none";
+  const r = Math.min(ow, 4);
+  const shadows = [];
+  for (let dx = -r; dx <= r; dx += Math.max(1, Math.floor(r/2))) {
+    for (let dy = -r; dy <= r; dy += Math.max(1, Math.floor(r/2))) {
+      if (dx === 0 && dy === 0) continue;
+      shadows.push(`${dx}px ${dy}px 0 ${oc}`);
+    }
+  }
+  return shadows.join(",");
+};
+
 export default function Home() {
   const router = useRouter();
   const [url, setUrl] = useState("");
@@ -256,53 +398,6 @@ export default function Home() {
     } catch (e) {
       return fullUrl;
     }
-  };
-
-  const getDynamicPreviewStyles = (styleKey: string) => {
-    const fontMap: Record<string, string> = {
-      "viral-bold":    "Montserrat",
-      "tiktok":        "Plus Jakarta Sans",
-      "word-pop":      "Plus Jakarta Sans",
-      "clean-minimal": "Helvetica",
-      "highlight-box": "Plus Jakarta Sans",
-      "neon-gradient": "Montserrat",
-      "minimalist":    "Helvetica",
-      "neon-glow":     "Montserrat",
-      "classic-popup": "Helvetica",
-    };
-    const fontFamily = fontMap[styleKey] ?? "Helvetica";
-
-    const primaryMap: Record<string, string> = {
-      "viral-bold":    "#FFFFFF",
-      "tiktok":        "#FFFFFF",
-      "word-pop":      "#FFFFFF",
-      "clean-minimal": "rgba(255,255,255,0.90)",
-      "highlight-box": "#FFFFFF",
-      "neon-gradient": "#FFF000",
-      "minimalist":    "rgba(255,255,255,0.75)",
-      "neon-glow":     "#00FFFF",
-      "classic-popup": "#FFFFFF",
-    };
-    const primaryColor = primaryMap[styleKey] ?? "#FFFFFF";
-
-    const highlightMap: Record<string, string> = {
-      "viral-bold":    "#FFFF00",
-      "tiktok":        "#08E539",
-      "word-pop":      "#FFFFFF",
-      "clean-minimal": "rgba(255,255,255,0.50)",
-      "highlight-box": "#76E600",
-      "neon-gradient": "#E500FF",
-      "minimalist":    "rgba(255,255,255,0.30)",
-      "neon-glow":     "#FF00FF",
-      "classic-popup": "#FFFF00",
-    };
-    const highlightColor = highlightMap[styleKey] ?? "#FFFF00";
-
-    const boxColor = "#76E600";
-    const boxBgColor = "rgba(118,230,0,0.2)";
-    const outlineColor = styleKey === "neon-gradient" ? "#FFF000" : undefined;
-
-    return { fontFamily, primaryColor, highlightColor, boxColor, boxBgColor, outlineColor };
   };
 
   // Loading screen saat backend sedang boot
@@ -565,106 +660,12 @@ export default function Home() {
                       {/* Rendering Subtitle Text */}
                       <div className="w-full h-full z-10 flex items-end justify-center text-center pb-12 px-3">
                         {(() => {
-                          const styleDefinitions: Record<string, {
-                            bold: boolean,
-                            caseTransform: "uppercase" | "lowercase" | "none",
-                            outlineWidth: number,
-                            outlineColor: string,
-                            words: string[],
-                            animation: string
-                          }> = {
-                            "viral-bold": {
-                              bold: true,
-                              caseTransform: "uppercase",
-                              outlineWidth: 3,
-                              outlineColor: "#000000",
-                              words: ["KITA", "TIDAK", "HANYA", "BERPIKIR", "TETAPI", "BERTINDAK", "NYATA", "SEKARANG"],
-                              animation: "karaoke"
-                            },
-                            "tiktok": {
-                              bold: true,
-                              caseTransform: "uppercase",
-                              outlineWidth: 4,
-                              outlineColor: "#000000",
-                              words: ["INILAH", "GAYA", "TEKS", "TIKTOK"],
-                              animation: "karaoke"
-                            },
-                            "word-pop": {
-                              bold: true,
-                              caseTransform: "uppercase",
-                              outlineWidth: 4,
-                              outlineColor: "#000000",
-                              words: ["FOKUS", "CEPAT", "DAN", "SATSET"],
-                              animation: "wordpop"
-                            },
-                            "clean-minimal": {
-                              bold: false,
-                              caseTransform: "lowercase",
-                              outlineWidth: 0,
-                              outlineColor: "transparent",
-                              words: ["gaya", "minimalis", "bersih", "dan", "elegan"],
-                              animation: "fadein"
-                            },
-                            "highlight-box": {
-                              bold: true,
-                              caseTransform: "none",
-                              outlineWidth: 0,
-                              outlineColor: "transparent",
-                              words: ["Momen", "viral", "dalam", "kotak", "highlight"],
-                              animation: "box"
-                            },
-                            "neon-gradient": {
-                              bold: true,
-                              caseTransform: "uppercase",
-                              outlineWidth: 2,
-                              outlineColor: "#FFF000",
-                              words: ["TEKS", "GRADASI", "NEON", "MENYALA"],
-                              animation: "karaoke"
-                            },
-                            "minimalist": {
-                              bold: false,
-                              caseTransform: "none",
-                              outlineWidth: 1,
-                              outlineColor: "#444444",
-                              words: ["Simpel", "tanpa", "banyak", "distraksi"],
-                              animation: "fadein"
-                            },
-                            "neon-glow": {
-                              bold: true,
-                              caseTransform: "none",
-                              outlineWidth: 4,
-                              outlineColor: "#000000",
-                              words: ["Cahaya", "glamur", "efek", "neon", "glow"],
-                              animation: "popup"
-                            },
-                            "classic-popup": {
-                              bold: true,
-                              caseTransform: "none",
-                              outlineWidth: 2,
-                              outlineColor: "#000000",
-                              words: ["Gaya", "klasik", "popup", "animasi", "lembut"],
-                              animation: "popup"
-                            }
-                          };
-
-                          const activeStyle = styleDefinitions[subtitleStyle] || styleDefinitions["viral-bold"];
+                          const activeStyle = STYLE_DEFINITIONS[subtitleStyle] || STYLE_DEFINITIONS["viral-bold"];
                           const preview = getDynamicPreviewStyles(subtitleStyle);
                           const totalWords = activeStyle.words.length;
                           const activeWordIdx = wordProgressIndex % totalWords;
                           const fsize = "11px";
 
-                          const makeTextShadow = (ow: number, oc: string) => {
-                            if (ow === 0) return "none";
-                            const r = Math.min(ow, 4);
-                            const shadows = [];
-                            for (let dx = -r; dx <= r; dx += Math.max(1, Math.floor(r/2))) {
-                              for (let dy = -r; dy <= r; dy += Math.max(1, Math.floor(r/2))) {
-                                if (dx === 0 && dy === 0) continue;
-                                shadows.push(`${dx}px ${dy}px 0 ${oc}`);
-                              }
-                            }
-                            return shadows.join(",");
-                          };
                           const textShadow = makeTextShadow(activeStyle.outlineWidth, activeStyle.outlineColor);
 
                           const baseWordStyle = {
