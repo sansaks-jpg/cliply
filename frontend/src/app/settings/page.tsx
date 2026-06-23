@@ -99,11 +99,11 @@ export default function SettingsPage() {
       await updateAvailable.downloadAndInstall((event: TauriUpdateEvent) => {
         switch (event.event) {
           case 'Started':
-            contentLength = event.data.contentLength || 0;
+            contentLength = (event.data?.contentLength as number) || 0;
             toast.info(`Unduhan dimulai: ${contentLength} byte.`);
             break;
           case 'Progress':
-            downloaded += event.data.chunkLength;
+            downloaded += (event.data?.chunkLength as number) || 0;
             break;
           case 'Finished':
             toast.success("Unduhan selesai. Memasang pembaruan...");
