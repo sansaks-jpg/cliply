@@ -16,7 +16,16 @@ router = APIRouter(tags=["media"])
 
 def _safe_resolve(task_id: str, subdir: str, filename: str) -> Path:
     """Resolve a media path and reject any traversal attempt."""
-    root = (Path(config.STORAGE_DIR) / task_id / subdir).resolve()
+    base_storage = Path(config.STORAGE_DIR).resolve()
+    root = (base_storage / task_id / subdir).resolve()
+
+    # Ensure the resolved root directory does not escape the base storage directory
+    # through a crafted task_id (e.g. "../../../etc").
+    try:
+        root.relative_to(base_storage)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not found.")
+
     target = (root / filename).resolve()
     # `Path.relative_to` raises ValueError if target is outside root.
     try:
