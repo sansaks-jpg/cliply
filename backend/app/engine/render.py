@@ -1299,8 +1299,8 @@ def render_clips(
                     if os.path.exists(subtitle_path):
                         try:
                             from ..state import store
-                            import asyncio
-                            task_record = asyncio.run(store.get(task_id))
+                            # Direct dict access — sync-safe; avoids asyncio.run() in running loop
+                            task_record = getattr(store, '_mem_tasks', {}).get(task_id)
                             if task_record and hasattr(task_record, "subtitle_style"):
                                 style_key = task_record.subtitle_style
                             elif task_record and isinstance(task_record, dict) and "subtitle_style" in task_record:

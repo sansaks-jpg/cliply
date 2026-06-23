@@ -119,7 +119,7 @@ for origin in env_origins:
 BACKEND_PORT = _get_positive_int("BACKEND_PORT", 8003)
 
 
-@dataclass
+@dataclass(frozen=True)
 class RenderConstants:
     """Tuning parameters for the smart-crop renderer.
 
