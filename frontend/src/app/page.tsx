@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -333,6 +333,14 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
+  // Memoize heavy style calculations that depend only on subtitleStyle
+  const memoizedStyles = useMemo(() => {
+    const activeStyle = STYLE_DEFINITIONS[subtitleStyle] || STYLE_DEFINITIONS["viral-bold"];
+    const preview = getDynamicPreviewStyles(subtitleStyle);
+    const textShadow = makeTextShadow(activeStyle.outlineWidth, activeStyle.outlineColor);
+    return { activeStyle, preview, textShadow };
+  }, [subtitleStyle]);
+
   const isValid = YOUTUBE_RE.test(url.trim());
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -660,13 +668,10 @@ export default function Home() {
                       {/* Rendering Subtitle Text */}
                       <div className="w-full h-full z-10 flex items-end justify-center text-center pb-12 px-3">
                         {(() => {
-                          const activeStyle = STYLE_DEFINITIONS[subtitleStyle] || STYLE_DEFINITIONS["viral-bold"];
-                          const preview = getDynamicPreviewStyles(subtitleStyle);
+                          const { activeStyle, preview, textShadow } = memoizedStyles;
                           const totalWords = activeStyle.words.length;
                           const activeWordIdx = wordProgressIndex % totalWords;
                           const fsize = "11px";
-
-                          const textShadow = makeTextShadow(activeStyle.outlineWidth, activeStyle.outlineColor);
 
                           const baseWordStyle = {
                             fontFamily: preview.fontFamily,
