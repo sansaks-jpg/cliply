@@ -68,3 +68,7 @@ storage/
 # Typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Agent loop working files
+_agent-loop/
+archive/
