@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { createTask, deleteTask, getAvailableEncoders, waitForBackend, type BackendStatus } from "@/lib/api";
+import { API_URL, createTask, deleteTask, getAvailableEncoders, waitForBackend, type BackendStatus } from "@/lib/api";
 import Link from "next/link";
 import { isTauri, type AppSettings } from "@/lib/tauri";
 import { SetupWizard } from "@/components/setup-wizard";
@@ -324,6 +324,41 @@ export default function Home() {
     }
   }, []);
 
+  // Sync recent tasks from backend on mount
+  useEffect(() => {
+    const syncBackendTasks = async () => {
+      try {
+        const res = await fetch(`${API_URL}/tasks`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const backendTasks = (data.tasks || []).map((t: any) => ({
+          id: t.task_id,
+          url: t.url,
+          timestamp: t.created_at * 1000,
+          status: t.status,
+        }));
+        const current = localStorage.getItem("cliply_recent_tasks");
+        const localTasks: RecentTask[] = current ? JSON.parse(current) : [];
+        const localIds = new Set(localTasks.map((t) => t.id));
+        
+        const merged = [...localTasks];
+        for (const bt of backendTasks) {
+          if (!localIds.has(bt.id)) {
+            merged.push(bt);
+            localIds.add(bt.id);
+          }
+        }
+        merged.sort((a, b) => b.timestamp - a.timestamp);
+        const trimmed = merged.slice(0, 20);
+        setRecentTasks(trimmed);
+        localStorage.setItem("cliply_recent_tasks", JSON.stringify(trimmed));
+      } catch (e) {
+        console.warn("Failed to sync tasks from backend:", e);
+      }
+    };
+    syncBackendTasks();
+  }, []);
+
   // Subtitle animation progress tick
   const [wordProgressIndex, setWordProgressIndex] = useState(0);
 
@@ -384,13 +419,14 @@ export default function Home() {
     e.stopPropagation();
     try {
       await deleteTask(id);
+      const updated = recentTasks.filter(t => t.id !== id);
+      setRecentTasks(updated);
+      localStorage.setItem("cliply_recent_tasks", JSON.stringify(updated));
+      toast.success("Riwayat tugas berhasil dihapus");
     } catch (err) {
       console.error("Gagal menghapus tugas:", err);
+      toast.error("Gagal menghapus tugas dari server. Coba lagi.");
     }
-    const updated = recentTasks.filter(t => t.id !== id);
-    setRecentTasks(updated);
-    localStorage.setItem("cliply_recent_tasks", JSON.stringify(updated));
-    toast.success("Riwayat tugas berhasil dihapus");
   };
 
   const getCleanUrlLabel = (fullUrl: string) => {

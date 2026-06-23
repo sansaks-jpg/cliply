@@ -81,6 +81,7 @@ class TaskStore:
         self._mem_tasks: Dict[str, TaskRecord] = {}
         self._mem_subs: Dict[str, List[asyncio.Queue]] = {}
         self._mem_lock = asyncio.Lock()
+        self._cancelled: set[str] = set()
         self.loop = None
 
     async def _ensure_backend(self):
@@ -207,7 +208,10 @@ class TaskStore:
                         continue
                     tid = data.get("task_id", "")
                     task_dir = STORAGE_DIR / tid
-                    if not task_dir.exists() and data.get("status") not in ("queued", "processing"):
+                    if not task_dir.exists():
+                        if data.get("status") in ("queued", "processing"):
+                            # Orphaned processing task — data is stale, mark as error
+                            log.warning("Zombie task %s: status=%s but storage missing — marking as error", tid, data.get("status"))
                         orphaned_ids.append(tid)
                         continue
                     records_data.append(data)
@@ -230,7 +234,7 @@ class TaskStore:
             orphaned_ids = []
             for tid, r in self._mem_tasks.items():
                 task_dir = STORAGE_DIR / tid
-                if not task_dir.exists() and r.status not in ("queued", "processing"):
+                if not task_dir.exists():
                     orphaned_ids.append(tid)
             for tid in orphaned_ids:
                 self._mem_tasks.pop(tid, None)
@@ -417,40 +421,46 @@ class TaskStore:
                     if subs and q in subs:
                         subs.remove(q)
 
+    def is_cancelled(self, task_id: str) -> bool:
+        return task_id in self._cancelled
+
     async def delete(self, task_id: str) -> bool:
+        """Delete a task from state and storage.
+
+        Deletes from Redis/memory state first, then attempts storage cleanup.
+        If storage cleanup fails (e.g. locked file on Windows), the task is
+        still removed from the system — only leftover files remain on disk.
+        """
         from .config import STORAGE_DIR
         import shutil
 
-        
-        task_dir = STORAGE_DIR / task_id
-        if task_dir.exists() and task_dir.is_dir():
-            # Hapus file metadata penting terlebih dahulu secara eksplisit agar jika penghapusan folder gagal
-            # (misal karena video .mp4 sedang dikunci oleh OS/WebView), task ini tidak akan pernah di-recover kembali saat startup.
-            for meta_name in ("highlights.json", "transcript.json", "transcript.srt"):
-                meta_file = task_dir / meta_name
-                if meta_file.exists():
-                    try:
-                        meta_file.unlink()
-                        log.info("Explicitly deleted metadata file before rmtree: %s", meta_file)
-                    except OSError as e:
-                        log.warning("Failed to delete metadata file %s: %s", meta_file, e)
-
-            try:
-                await asyncio.to_thread(shutil.rmtree, task_dir)
-                log.info("Deleted storage directory for task %s", task_id)
-            except OSError as e:
-                log.error("Failed to delete storage directory %s: %s", task_dir, e)
-
+        # 1. Delete from state first — guarantees clean removal even if storage fails
         if await self._ensure_backend():
             existed = await self._redis.exists(_TASK.format(task_id))
             if existed:
                 await self._redis.delete(_TASK.format(task_id), _CLIPS.format(task_id))
-            return bool(existed)
-        async with self._mem_lock:
-            existed = task_id in self._mem_tasks
-            self._mem_tasks.pop(task_id, None)
-            self._mem_subs.pop(task_id, None)
-        return existed
+        else:
+            async with self._mem_lock:
+                existed = task_id in self._mem_tasks
+                self._mem_tasks.pop(task_id, None)
+                self._mem_subs.pop(task_id, None)
+
+        if not existed:
+            return False
+
+        # 2. Mark as cancelled so running pipelines can detect
+        self._cancelled.add(task_id)
+
+        # 3. Attempt storage cleanup (best-effort)
+        task_dir = STORAGE_DIR / task_id
+        if task_dir.exists() and task_dir.is_dir():
+            try:
+                await asyncio.to_thread(shutil.rmtree, task_dir)
+                log.info("Deleted storage directory for task %s", task_id)
+            except OSError as e:
+                log.warning("Failed to delete storage directory %s: %s — task already removed from state", task_dir, e)
+
+        return True
 
 
 store = TaskStore()
