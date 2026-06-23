@@ -122,11 +122,15 @@ async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict
         return {"data": []}
 
     # SSRF protection: hanya izinkan localhost / trusted origins
-    TRUSTED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
+    TRUSTED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
     parsed = urlparse(base_url)
     host = parsed.hostname or ""
-    if host and host not in TRUSTED_HOSTS:
+
+    if host.lower() not in TRUSTED_HOSTS:
         return {"data": [], "error": "Untrusted host"}
+
+    # We enforce that the exact string must be one of the trusted hosts
+    # instead of doing DNS resolution, which prevents DNS rebinding (TOCTOU) attacks.
 
     formatted_url = base_url.rstrip("/")
     if not formatted_url.endswith("/models"):
