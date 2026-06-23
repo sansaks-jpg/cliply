@@ -41,10 +41,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+interface TauriUpdateEvent {
+  event: string;
+  data: Record<string, unknown>;
+}
+
 interface TauriUpdate {
   version: string;
   date?: string;
-  downloadAndInstall: (onEvent?: (event: any) => void) => Promise<void>;
+  downloadAndInstall: (onEvent?: (event: TauriUpdateEvent) => void) => Promise<void>;
 }
 
 export default function SettingsPage() {
@@ -91,7 +96,7 @@ export default function SettingsPage() {
     try {
       let downloaded = 0;
       let contentLength = 0;
-      await updateAvailable.downloadAndInstall((event: any) => {
+      await updateAvailable.downloadAndInstall((event: TauriUpdateEvent) => {
         switch (event.event) {
           case 'Started':
             contentLength = event.data.contentLength || 0;

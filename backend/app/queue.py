@@ -36,6 +36,9 @@ async def _run_pipeline_wrapper(
     encoder: str,
 ) -> None:
     from .engine.pipeline import run_pipeline, PipelineError
+    if store.is_cancelled(task_id):
+        log.warning("Task %s cancelled before starting — skipping pipeline", task_id)
+        return
     try:
         await run_pipeline(task_id, url, num_clips, aspect_ratio, language, subtitle_style, face_detector, encoder)
     except PipelineError as e:
