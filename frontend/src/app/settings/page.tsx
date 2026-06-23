@@ -43,13 +43,13 @@ import { toast } from "sonner";
 
 interface TauriUpdateEvent {
   event: string;
-  data: Record<string, unknown>;
+  data?: Record<string, unknown>;
 }
 
 interface TauriUpdate {
   version: string;
   date?: string;
-  downloadAndInstall: (onEvent?: (event: TauriUpdateEvent) => void) => Promise<void>;
+  downloadAndInstall: (onEvent?: (event: TauriUpdateEvent) => void, options?: Record<string, unknown>) => Promise<void>;
 }
 
 export default function SettingsPage() {
