@@ -509,6 +509,7 @@ export default function Home() {
                 id="youtube-url"
                 type="url"
                 placeholder="Tempel tautan video YouTube di sini..."
+                aria-label="Tautan video YouTube"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 onFocus={() => setUrlFocused(true)}
@@ -541,6 +542,8 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
+              aria-expanded={showAdvanced}
+              aria-controls="advanced-settings-panel"
               className="w-full px-5 py-4 flex items-center justify-between font-bold text-xs uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2">
@@ -551,7 +554,7 @@ export default function Home() {
             </button>
 
             {showAdvanced && (
-              <div className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start border-t border-border/40">
+              <div id="advanced-settings-panel" className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start border-t border-border/40">
                 {/* Left Side: Parameters */}
                 <div className="lg:col-span-7 space-y-5">
                   <div className="flex items-center gap-2">
