@@ -5,6 +5,7 @@ All settings come from environment variables (loaded from `.env` at import).
 """
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -116,6 +117,33 @@ for origin in env_origins:
     if o and o not in CORS_ORIGINS:
         CORS_ORIGINS.append(o)
 BACKEND_PORT = _get_positive_int("BACKEND_PORT", 8003)
+
+
+@dataclass
+class RenderConstants:
+    """Tuning parameters for the smart-crop renderer.
+
+    All values can be overridden via environment variables prefixed with RENDER_.
+    """
+    SAMPLE_FPS: int = _get_positive_int("RENDER_SAMPLE_FPS", 2)
+    EMA_FACTOR: float = float(_get("RENDER_EMA_FACTOR", "0.15"))
+    CONFIDENCE_THRESHOLD: float = float(_get("RENDER_CONFIDENCE_THRESHOLD", "0.30"))
+    CLOSEUP_THRESHOLD: float = float(_get("RENDER_CLOSEUP_THRESHOLD", "0.30"))
+    MEDIUM_THRESHOLD: float = float(_get("RENDER_MEDIUM_THRESHOLD", "0.15"))
+    LETTERBOX_BLUR: int = _get_positive_int("RENDER_LETTERBOX_BLUR", 61)
+    CUT_THRESHOLD: float = float(_get("RENDER_CUT_THRESHOLD", "0.97"))
+    MOTION_WEIGHT: float = float(_get("RENDER_MOTION_WEIGHT", "0.6"))
+    SIZE_WEIGHT: float = float(_get("RENDER_SIZE_WEIGHT", "0.4"))
+    GROUP_REACTION_MIN_FACES: int = _get_positive_int("RENDER_GROUP_REACTION_MIN_FACES", 3)
+    GROUP_REACTION_MOTION_THRESH: float = float(_get("RENDER_GROUP_REACTION_MOTION_THRESH", "0.3"))
+    MIN_HOLD_SAMPLES: int = _get_positive_int("RENDER_MIN_HOLD_SAMPLES", 3)
+    SWITCH_MARGIN: float = float(_get("RENDER_SWITCH_MARGIN", "0.15"))
+    MIN_SHOT_HOLD_SAMPLES: int = _get_positive_int("RENDER_MIN_SHOT_HOLD_SAMPLES", 3)
+    MAX_MISSED_SAMPLES: int = _get_positive_int("RENDER_MAX_MISSED_SAMPLES", 4)
+
+
+# Singleton
+RENDER_CFG = RenderConstants()
 
 
 def require_llm_key() -> str:

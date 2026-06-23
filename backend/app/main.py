@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from redis.exceptions import RedisError
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
@@ -113,27 +113,35 @@ async def list_encoders() -> dict:
 
 
 @app.get("/models")
-async def list_models(base_url: str, api_key: str = "") -> dict:
+async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict:
     """Proxy to fetch available models from an OpenAI-compatible endpoint, solving CORS."""
+    from urllib.parse import urlparse
     import requests
     from fastapi.concurrency import run_in_threadpool
     if not base_url:
         return {"data": []}
-    
+
+    # SSRF protection: hanya izinkan localhost / trusted origins
+    TRUSTED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
+    parsed = urlparse(base_url)
+    host = parsed.hostname or ""
+    if host and host not in TRUSTED_HOSTS:
+        return {"data": [], "error": "Untrusted host"}
+
     formatted_url = base_url.rstrip("/")
     if not formatted_url.endswith("/models"):
         formatted_url = f"{formatted_url}/models"
-        
+
     headers = {
         "Content-Type": "application/json"
     }
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-        
+
     try:
         def _fetch():
             return requests.get(formatted_url, headers=headers, timeout=8)
-            
+
         response = await run_in_threadpool(_fetch)
         if response.status_code == 200:
             data = response.json()
