@@ -6,6 +6,7 @@ Pipeline:
 3. Groq Whisper-large-v3 (fast, no speaker detection)
 """
 import json
+import logging
 import os
 import re
 import tempfile
@@ -15,8 +16,11 @@ from typing import Dict, Optional
 import requests
 
 from ..config import STORAGE_DIR
+from .utils import extract_video_id
 
 import subprocess
+
+logger = logging.getLogger(__name__)
 
 # Prevent console windows flashing on Windows
 CREATION_FLAGS = 0
@@ -25,7 +29,7 @@ if os.name == "nt":
 
 # API keys
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", GROQ_API_KEY)  # fallback ke groq key
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-2.5-flash"
 GROQ_MODEL = "whisper-large-v3"
 
@@ -67,7 +71,7 @@ def _write_srt(media_path: str, transcript: Dict, task_dir: str) -> Path:
         import json
         json_cache_path.write_text(json.dumps(transcript, indent=2), encoding="utf-8")
     except Exception as e:
-        print(f"[transcribe] failed to write JSON cache: {e}", flush=True)
+        logger.warning(f"[transcribe] failed to write JSON cache: %s", e)
         
     return cache_path
 
@@ -164,7 +168,7 @@ def _clean_hallucinations(segments: list, video_duration: float = 0.0, task_id: 
                     i += 1
                     skipped += 1
                 msg = f"[hallucination_cleaner] potong {skipped} segmen filler berulang (mulai t={start:.1f}s)"
-                print(msg, flush=True)
+                logger.info(msg)
                 _update_transcribe_progress(task_id, 32.0, msg)
                 continue
 
@@ -194,43 +198,25 @@ def _clean_hallucinations(segments: list, video_duration: float = 0.0, task_id: 
             msg = (f"[hallucination_cleaner] re-estimated seg t={seg['start']:.1f}s → "
                    f"{new_end:.1f}s (was {old_end:.1f}s, {n_words} kata, "
                    f"{duration / n_words:.1f}s/kata → {NORMAL_SEC_PER_WORD:.1f}s/kata)")
-            print(msg, flush=True)
+            logger.info(msg)
     if re_estimated:
         msg = f"[hallucination_cleaner] re-estimated {re_estimated} segmen (timestamp terlalu panjang)"
-        print(msg, flush=True)
+        logger.info(msg)
         _update_transcribe_progress(task_id, 33.0, msg)
 
     if len(cleaned) < len(segments):
         msg = f"[hallucination_cleaner] {len(segments)} → {len(cleaned)} segmen (buang {len(segments) - len(cleaned)})"
-        print(msg, flush=True)
+        logger.info(msg)
         _update_transcribe_progress(task_id, 33.0, msg)
 
     return cleaned
 
 
-def _extract_video_id(url: str) -> Optional[str]:
-    """Extract YouTube video ID from URL."""
-    from urllib.parse import parse_qs, urlparse
-    parsed = urlparse(url)
-    host = (parsed.netloc or "").lower().removeprefix("www.")
-    if host in ("youtu.be",):
-        return parsed.path.lstrip("/").split("/", 1)[0] or None
-    if "youtube.com" in host:
-        if parsed.path.startswith("/watch"):
-            return parse_qs(parsed.query).get("v", [None])[0]
-        m = re.search(r"/(?:shorts|embed|live)/([^/?#&]+)", parsed.path)
-        if m:
-            return m.group(1)
-    return None
-
-
-# ── Stage 1: YouTube Transcript API ──────────────────────────────
-
 def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
     """Try to get transcript using youtube-transcript-api."""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        video_id = _extract_video_id(video_url)
+        video_id = extract_video_id(video_url)
         if not video_id:
             return None
         
@@ -279,6 +265,7 @@ def _download_audio(video_path: str, task_dir: str) -> str:
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", video_path,
         "-vn", "-acodec", "libmp3lame", "-q:a", "4",
+    ]
     subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
     return audio_path
 
@@ -301,7 +288,7 @@ def _parse_lax_json(json_str: str, task_id: Optional[str] = None) -> dict:
         return json.loads(json_str)
     except json.JSONDecodeError as e:
         msg = f"[transcribe] JSON decode failed directly: {e}. Attempting to repair truncated JSON..."
-        print(msg, flush=True)
+        logger.warning("%s", msg)
         _update_transcribe_progress(task_id, 24.0, msg)
 
     # 3. Try to repair truncated JSON by finding last valid segment
@@ -353,7 +340,7 @@ def _update_transcribe_progress(task_id: Optional[str], pct: float, msg: str):
                 store.set_progress(task_id, pct, "TRANSCRIBE", msg), loop
             )
         else:
-            print(f"[transcribe progress] Task {task_id}: {pct:.1f}% - {msg}", flush=True)
+            logger.info("[transcribe progress] Task %s: %.1f%% - %s", task_id, pct, msg)
     except Exception as e:
         import logging
         logging.getLogger(__name__).error("Failed to update transcribe progress: %s", e)
@@ -362,16 +349,16 @@ def _update_transcribe_progress(task_id: Optional[str], pct: float, msg: str):
 def _try_gemini_transcription(audio_path: str, task_id: Optional[str] = None) -> Optional[Dict]:
     """Transcribe audio using Gemini 2.5 Flash with speaker detection."""
     if not GEMINI_API_KEY:
-        print("[transcribe] no GEMINI_API_KEY set", flush=True)
+        logger.warning("[transcribe] no GEMINI_API_KEY set")
         return None
     
     try:
         from google import genai
         
         msg = f"[transcribe] calling Gemini {GEMINI_MODEL} with {os.path.getsize(audio_path) / 1024 / 1024:.1f}MB audio"
-        print(msg, flush=True)
+        logger.info(msg)
         _update_transcribe_progress(task_id, 20.0, msg)
-        
+
         client = genai.Client(api_key=GEMINI_API_KEY)
         
         # Upload audio file
@@ -432,6 +419,7 @@ Respond with JSON only:
         
         # Ambil estimasi durasi audio sebelum cleaning
         raw_duration = formatted_segments[-1]["end"] if formatted_segments else 0.0
+        try:
             probe = subprocess.run(
                 ["ffprobe", "-v", "error", "-show_entries", "format=duration",
                  "-of", "json", audio_path],
@@ -446,8 +434,8 @@ Respond with JSON only:
         # If transcript spans < 10% of actual audio duration, rescale proportionally
         if audio_duration > 30 and raw_duration > 0 and raw_duration < audio_duration * 0.1:
             scale_factor = audio_duration / raw_duration
-            print(f"[transcribe] WARNING: timestamps compressed ({raw_duration:.1f}s vs {audio_duration:.1f}s actual). "
-                  f"Rescaling by {scale_factor:.1f}x", flush=True)
+            logger.warning("[transcribe] timestamps compressed (%.1fs vs %.1fs actual). Rescaling by %.1fx",
+                           raw_duration, audio_duration, scale_factor)
             for seg in formatted_segments:
                 seg["start"] *= scale_factor
                 seg["end"] *= scale_factor
@@ -458,15 +446,15 @@ Respond with JSON only:
         
         duration = min(formatted_segments[-1]["end"], audio_duration or raw_duration) if formatted_segments else 0.0
         msg = f"[transcribe] Gemini returned {len(formatted_segments)} segments with speaker detection"
-        print(msg, flush=True)
+        logger.info(msg)
         _update_transcribe_progress(task_id, 34.0, msg)
         
         return {"duration": duration, "segments": formatted_segments}
     
     except Exception as e:
         import traceback
-        print(f"[transcribe] Gemini failed: {e}", flush=True)
-        traceback.print_exc()
+        logger.warning("[transcribe] Gemini failed: %s", e)
+        logger.debug(traceback.format_exc())
         return None
 
 
@@ -475,14 +463,14 @@ Respond with JSON only:
 def _try_groq_whisper(audio_path: str, task_id: Optional[str] = None) -> Optional[Dict]:
     """Transcribe audio using Groq API with whisper-large-v3."""
     if not GROQ_API_KEY:
-        print("[transcribe] no GROQ_API_KEY set", flush=True)
+        logger.warning("[transcribe] no GROQ_API_KEY set")
         return None
     
     try:
         from groq import Groq
         
         msg = f"[transcribe] calling Groq {GROQ_MODEL} with {os.path.getsize(audio_path) / 1024 / 1024:.1f}MB audio"
-        print(msg, flush=True)
+        logger.info(msg)
         _update_transcribe_progress(task_id, 28.0, msg)
         client = Groq(api_key=GROQ_API_KEY)
         
@@ -551,13 +539,13 @@ def _try_groq_whisper(audio_path: str, task_id: Optional[str] = None) -> Optiona
         # Akhir pemetaan kata
         
         duration = float(result.duration) if hasattr(result, "duration") else (segments[-1]["end"] if segments else 0.0)
-        print(f"[transcribe] Groq returned {len(segments)} segments (with word-level timestamps)", flush=True)
+        logger.info("[transcribe] Groq returned %d segments (with word-level timestamps)", len(segments))
         return {"duration": duration, "segments": segments}
     
     except Exception as e:
         import traceback
-        print(f"[transcribe] Groq failed: {e}", flush=True)
-        traceback.print_exc()
+        logger.warning("[transcribe] Groq failed: %s", e)
+        logger.debug(traceback.format_exc())
         return None
 
 
@@ -599,13 +587,13 @@ def transcribe_video(media_path: str, task_id: str, language: Optional[str] = No
                 cached_dur = cached.get("duration", 0)
                 # Validate cache: if transcript duration is < 10% of video duration, cache is bad
                 if video_duration > 30 and cached_dur > 0 and cached_dur < video_duration * 0.1:
-                    print(f"[transcribe] cached transcript duration ({cached_dur:.1f}s) is suspicious "
-                          f"vs video ({video_duration:.1f}s). Re-transcribing.", flush=True)
+                    logger.warning("[transcribe] cached transcript duration (%.1fs) is suspicious vs video (%.1fs). Re-transcribing.",
+                                   cached_dur, video_duration)
                 else:
-                    print(f"[transcribe] using cached JSON transcript", flush=True)
+                    logger.info("[transcribe] using cached JSON transcript")
                     return cached
             except Exception as e:
-                print(f"[transcribe] failed to read cached JSON: {e}", flush=True)
+                logger.warning("[transcribe] failed to read cached JSON: %s", e)
 
     if cache_path.exists():
         if cache_path.stat().st_mtime >= source_mtime:
@@ -613,39 +601,38 @@ def transcribe_video(media_path: str, task_id: str, language: Optional[str] = No
                 cached_srt = _load_srt(cache_path)
                 cached_dur = cached_srt.get("duration", 0)
                 if video_duration > 30 and cached_dur > 0 and cached_dur < video_duration * 0.1:
-                    print(f"[transcribe] cached SRT duration ({cached_dur:.1f}s) is suspicious "
-                          f"vs video ({video_duration:.1f}s). Re-transcribing.", flush=True)
+                    logger.warning("[transcribe] cached SRT duration (%.1fs) is suspicious vs video (%.1fs). Re-transcribing.",
+                                   cached_dur, video_duration)
                 else:
-                    print(f"[transcribe] using cached SRT transcript", flush=True)
+                    logger.info("[transcribe] using cached SRT transcript")
                     return cached_srt
             except Exception as e:
-                print(f"[transcribe] failed to read cached SRT: {e}", flush=True)
+                logger.warning("[transcribe] failed to read cached SRT: %s", e)
     
     # 1. Try YouTube transcript API
     if video_url:
         msg = "[transcribe] trying YouTube transcript API"
-        print(msg, flush=True)
+        logger.info(msg)
         _update_transcribe_progress(task_id, 16.0, msg)
         
         yt_result = _try_youtube_transcript(video_url)
         if yt_result and yt_result.get("segments"):
             msg = f"[transcribe] got {len(yt_result['segments'])} segments from YouTube"
-            print(msg, flush=True)
+            logger.info(msg)
             _update_transcribe_progress(task_id, 19.0, msg)
             _write_srt(media_path, yt_result, task_dir)
             return yt_result
             
         msg = "[transcribe] no YouTube transcript available"
-        print(msg, flush=True)
+        logger.info(msg)
         _update_transcribe_progress(task_id, 18.0, msg)
     
     # Extract audio (needed for both Groq and Gemini)
     audio_path = None
-    if video_url or not video_url:  # always try to extract if we reached here
-        try:
-            audio_path = _download_audio(media_path, task_dir)
-        except Exception as e:
-            print(f"[transcribe] audio extraction failed: {e}", flush=True)
+    try:
+        audio_path = _download_audio(media_path, task_dir)
+    except Exception as e:
+        logger.warning("[transcribe] audio extraction failed: %s", e)
 
     # 2. Try Groq Whisper (fast, no speaker detection, supports word timestamps)
     if audio_path:
@@ -653,12 +640,12 @@ def transcribe_video(media_path: str, task_id: str, language: Optional[str] = No
             groq_result = _try_groq_whisper(audio_path, task_id)
             if groq_result and groq_result.get("segments"):
                 msg = f"[transcribe] got {len(groq_result['segments'])} segments from Groq (with word timestamps)"
-                print(msg, flush=True)
+                logger.info(msg)
                 _update_transcribe_progress(task_id, 35.0, msg)
                 _write_srt(media_path, groq_result, task_dir)
                 return groq_result
         except Exception as e:
-            print(f"[transcribe] Groq failed: {e}", flush=True)
+            logger.warning("[transcribe] Groq failed: %s", e)
             
     # 3. Try Gemini 2.5 Flash (with speaker detection)
     if audio_path:
@@ -666,12 +653,12 @@ def transcribe_video(media_path: str, task_id: str, language: Optional[str] = No
             gemini_result = _try_gemini_transcription(audio_path, task_id)
             if gemini_result and gemini_result.get("segments"):
                 msg = f"[transcribe] got {len(gemini_result['segments'])} segments from Gemini"
-                print(msg, flush=True)
+                logger.info(msg)
                 _update_transcribe_progress(task_id, 35.0, msg)
                 _write_srt(media_path, gemini_result, task_dir)
                 return gemini_result
         except Exception as e:
-            print(f"[transcribe] Gemini failed: {e}", flush=True)
+            logger.warning("[transcribe] Gemini failed: %s", e)
     
     # 4. No transcription available
     raise RuntimeError("No transcription available — YouTube, Groq, and Gemini all failed.")

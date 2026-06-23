@@ -14,7 +14,7 @@ import cv2
 import numpy as np
 
 from scenedetect import detect, ContentDetector
-from ..config import STORAGE_DIR, resolve_encoder
+from ..config import RENDER_CFG, STORAGE_DIR, resolve_encoder
 
 log = logging.getLogger(__name__)
 
@@ -22,25 +22,6 @@ log = logging.getLogger(__name__)
 CREATION_FLAGS = 0
 if os.name == "nt":
     CREATION_FLAGS = 0x08000000 # subprocess.CREATE_NO_WINDOW
-
-# ── tuning knobs ──────────────────────────────────────────────────
-SAMPLE_FPS = 2
-EMA_FACTOR = 0.15
-CONFIDENCE_THRESHOLD = 0.30
-CLOSEUP_THRESHOLD = 0.30
-MEDIUM_THRESHOLD = 0.15
-LETTERBOX_BLUR = 61
-CUT_THRESHOLD = 0.97          # histogram correlation below this = cut
-MOTION_WEIGHT = 0.6          # weight for motion_score in face priority
-SIZE_WEIGHT = 0.4            # weight for size_score in face priority
-GROUP_REACTION_MIN_FACES = 3 # min faces for group_reaction state
-GROUP_REACTION_MOTION_THRESH = 0.3  # min motion for group reaction
-
-# Hysteresis & Grace Period parameters
-MIN_HOLD_SAMPLES = 3         # ~1.5s minimum hold for speaker focus
-SWITCH_MARGIN = 0.15         # margin required to switch active speaker
-MIN_SHOT_HOLD_SAMPLES = 3    # ~1.5s minimum hold for shot type classification
-MAX_MISSED_SAMPLES = 4       # ~2s grace period for face tracking dropout
 
 # model paths
 _DIR = os.path.dirname(os.path.abspath(__file__))
@@ -365,9 +346,9 @@ def _compute_mouth_motion(frame_curr: np.ndarray, frame_prev: Optional[np.ndarra
 
 
 def _classify_shot(face_ratio: float) -> str:
-    if face_ratio > CLOSEUP_THRESHOLD:
+    if face_ratio > RENDER_CFG.CLOSEUP_THRESHOLD:
         return "closeup"
-    if face_ratio > MEDIUM_THRESHOLD:
+    if face_ratio > RENDER_CFG.MEDIUM_THRESHOLD:
         return "medium"
     return "wide_cut"
 
@@ -471,7 +452,7 @@ def _analyze_video(
                     is_first_frame_of_cut = True
                     active_speaker_id = None
                     speaker_hold_counter = 0
-                    shot_hold_counter = MIN_SHOT_HOLD_SAMPLES
+                    shot_hold_counter = RENDER_CFG.MIN_SHOT_HOLD_SAMPLES
                     
                     # Default fallback spasial awal yang disesuaikan berdasarkan segmentasi
                     if active_seg is not None and "avg_cx" in active_seg:
@@ -504,7 +485,7 @@ def _analyze_video(
                     locked_cx = int(active_seg.get("avg_cx", src_w // 2)) if active_seg else src_w // 2
                     
                     # Deteksi wajah diaktifkan untuk menyesuaikan target_cy dan zoom
-                    faces = _detect_faces(detector, face_detector, frame, CONFIDENCE_THRESHOLD)
+                    faces = _detect_faces(detector, face_detector, frame, RENDER_CFG.CONFIDENCE_THRESHOLD)
                     
                     # Filter spasial: abaikan wajah dari sisi yang salah untuk mencegah cross-talk
                     filtered_faces = []
@@ -578,7 +559,7 @@ def _analyze_video(
                             
                             # Normalisasi score: size vs motion (sehingga gerakan mulut memiliki pengaruh seimbang)
                             size_score = min(1.0, face_h / 0.5)
-                            total_score = MOTION_WEIGHT * motion_val + SIZE_WEIGHT * size_score
+                            total_score = RENDER_CFG.MOTION_WEIGHT * motion_val + RENDER_CFG.SIZE_WEIGHT * size_score
                             
                             current_faces.append({
                                 "id": tid,
@@ -596,7 +577,7 @@ def _analyze_video(
                     for tid in list(tracked_faces.keys()):
                         if tid not in detected_ids:
                             tracked_faces[tid]["missed_frames"] += 1
-                            if tracked_faces[tid]["missed_frames"] > MAX_MISSED_SAMPLES:
+                            if tracked_faces[tid]["missed_frames"] > RENDER_CFG.MAX_MISSED_SAMPLES:
                                 del tracked_faces[tid]
                                 if active_speaker_id == tid:
                                     active_speaker_id = None
@@ -606,9 +587,9 @@ def _analyze_video(
                         face_lost_counter = 0
                         
                         # Tentukan is_group_reaction
-                        if num_faces_detected >= GROUP_REACTION_MIN_FACES:
+                        if num_faces_detected >= RENDER_CFG.GROUP_REACTION_MIN_FACES:
                             avg_motion = sum(f["motion"] for f in current_faces) / num_faces_detected
-                            if avg_motion >= GROUP_REACTION_MOTION_THRESH:
+                            if avg_motion >= RENDER_CFG.GROUP_REACTION_MOTION_THRESH:
                                 is_group = True
                                 
                         # Tentukan wajah utama dengan mempertimbangkan hysteresis dan mouth motion
@@ -625,7 +606,7 @@ def _analyze_video(
                                 main_face = best_face
                             else:
                                 score_diff = best_face["score"] - curr_active_face["score"]
-                                if speaker_hold_counter >= MIN_HOLD_SAMPLES and score_diff >= SWITCH_MARGIN:
+                                if speaker_hold_counter >= RENDER_CFG.MIN_HOLD_SAMPLES and score_diff >= RENDER_CFG.SWITCH_MARGIN:
                                     active_speaker_id = best_face["id"]
                                     speaker_hold_counter = 1
                                     main_face = best_face
@@ -671,7 +652,7 @@ def _analyze_video(
                             shot_hold_counter += 1
                             shot_type_to_use = last_shot_type
                         else:
-                            if shot_hold_counter >= MIN_SHOT_HOLD_SAMPLES:
+                            if shot_hold_counter >= RENDER_CFG.MIN_SHOT_HOLD_SAMPLES:
                                 last_shot_type = shot_type_raw
                                 shot_hold_counter = 1
                                 shot_type_to_use = shot_type_raw
@@ -1233,7 +1214,7 @@ def _update_render_progress(task_id: str, current: int, total: int, msg: str, st
                 store.set_progress(task_id, pct, stage, msg), loop
             )
         else:
-            print(f"[render progress] Task {task_id}: {pct:.1f}% - {msg}", flush=True)
+            log.info("[render progress] Task %s: %.1f%% - %s", task_id, pct, msg)
             try:
                 if not getattr(store, "_use_redis", False) and task_id in store._mem_tasks:
                     r = store._mem_tasks[task_id]
@@ -1318,12 +1299,8 @@ def render_clips(
                     if os.path.exists(subtitle_path):
                         try:
                             from ..state import store
-                            task_record = None
-                            try:
-                                if hasattr(store, "_mem_tasks") and task_id in store._mem_tasks:
-                                    task_record = store._mem_tasks[task_id]
-                            except Exception:
-                                pass
+                            # Direct dict access — sync-safe; avoids asyncio.run() in running loop
+                            task_record = getattr(store, '_mem_tasks', {}).get(task_id)
                             if task_record and hasattr(task_record, "subtitle_style"):
                                 style_key = task_record.subtitle_style
                             elif task_record and isinstance(task_record, dict) and "subtitle_style" in task_record:
