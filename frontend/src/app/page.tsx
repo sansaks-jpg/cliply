@@ -331,7 +331,7 @@ export default function Home() {
         const res = await fetch(`${API_URL}/tasks`);
         if (!res.ok) return;
         const data = await res.json();
-        const backendTasks = (data.tasks || []).map((t: any) => ({
+        const backendTasks = (data.tasks || []).map((t: { task_id: string; url: string; created_at: number; status: string }) => ({
           id: t.task_id,
           url: t.url,
           timestamp: t.created_at * 1000,
