@@ -81,8 +81,8 @@ export async function waitForBackend(
         signal: AbortSignal.timeout(2000),
       });
       if (res.ok) return "ready";
-    } catch {
-      // koneksi ditolak / timeout — coba lagi
+    } catch (e) {
+      console.warn("waitForBackend: connection refused or timeout", e);
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
@@ -120,8 +120,8 @@ export async function createTask(
     try {
       const body = await res.json();
       if (body?.detail) detail = body.detail;
-    } catch {
-      /* ignore */
+    } catch (e) {
+      console.warn("createTask: failed to parse error body", e);
     }
     throw new Error(detail);
   }
@@ -159,7 +159,9 @@ export async function getAvailableModels(baseUrl: string, apiKey: string): Promi
         const errData = await res.json();
         if (errData && errData.detail) detail = errData.detail;
         else if (errData && errData.error) detail = errData.error;
-      } catch {}
+      } catch (e) {
+        console.warn("getAvailableModels: failed to parse error response", e);
+      }
       throw new Error(detail);
     }
     const data = await res.json();
@@ -170,7 +172,8 @@ export async function getAvailableModels(baseUrl: string, apiKey: string): Promi
       if (data.data.length === 0) {
         throw new Error("Tidak ada model yang ditemukan di endpoint ini");
       }
-      return data.data.map((m: any) => m.id);
+      interface Model { id: string }
+      return data.data.map((m: Model) => m.id);
     }
     throw new Error("Format response model tidak valid");
   } catch (error) {

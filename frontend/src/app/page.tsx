@@ -253,7 +253,7 @@ export default function Home() {
         getAvailableEncoders().then((res) => {
           setAvailableEncoders(res.available);
           setEncoder(res.current);
-        }).catch(() => {});
+        }).catch((e) => { console.warn("getAvailableEncoders (poll) failed", e); });
       }
     });
   }, []);
@@ -270,7 +270,7 @@ export default function Home() {
         getAvailableEncoders().then((res) => {
           setAvailableEncoders(res.available);
           setEncoder(res.current);
-        }).catch(() => {});
+        }).catch((e) => { console.warn("getAvailableEncoders (event) failed", e); });
       }).then((fn) => { unlisten = fn; });
 
       listen<string>("backend-error", (event) => {
@@ -290,7 +290,8 @@ export default function Home() {
               setBackendStatus("checking");
               try {
                 await restartBackend(settings?.storage_dir ?? "");
-              } catch {
+              } catch (e) {
+                console.error("restartBackend failed", e);
                 toast.error("Gagal merestart backend");
               }
             },
@@ -312,13 +313,13 @@ export default function Home() {
     const source = current ?? legacy;
     if (legacy && !current) {
       localStorage.setItem("cliply_recent_tasks", legacy);
-      localStorage.removeItem("cliply_recent_tasks");
+      localStorage.removeItem("clip_ai_recent_tasks");
     }
     if (source) {
       try {
         setRecentTasks(JSON.parse(source));
       } catch (e) {
-        /* ignore corrupt data */
+        console.warn("Failed to parse recent tasks from localStorage", e);
       }
     }
   }, []);
@@ -404,6 +405,7 @@ export default function Home() {
       }
       return fullUrl;
     } catch (e) {
+      console.warn("getCleanUrlLabel: invalid URL", e);
       return fullUrl;
     }
   };
