@@ -16,7 +16,7 @@ from typing import Dict, Optional
 import requests
 
 from ..config import STORAGE_DIR
-from .utils import extract_video_id
+from .utils import extract_video_id, sanitize_env
 
 import subprocess
 
@@ -560,6 +560,7 @@ def transcribe_video(media_path: str, task_id: str, language: Optional[str] = No
         language: ISO-639-1 language code (optional)
         video_url: YouTube URL for transcript API (optional)
     """
+    sanitize_env()
     task_dir = str(STORAGE_DIR / task_id)
     os.makedirs(task_dir, exist_ok=True)
     

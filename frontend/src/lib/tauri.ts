@@ -4,6 +4,7 @@ export interface AppSettings {
   storage_dir: string;
   first_run: boolean;
   gemini_api_key: string;
+  groq_api_key: string;
   openai_api_key: string;
   openai_base_url: string;
   openai_model: string;
