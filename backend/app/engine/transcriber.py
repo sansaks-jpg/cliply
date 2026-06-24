@@ -265,6 +265,7 @@ def _download_audio(video_path: str, task_dir: str) -> str:
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", video_path,
         "-vn", "-acodec", "libmp3lame", "-q:a", "4",
+        audio_path,
     ]
     subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
     return audio_path
