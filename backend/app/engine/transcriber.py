@@ -248,6 +248,7 @@ def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
 
         video_id = extract_video_id(video_url)
         if not video_id:
+            logger.debug("[transcribe] YouTube: could not extract video ID from %s", video_url)
             return None
 
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
@@ -257,19 +258,20 @@ def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
             transcript = transcript_list.find_manually_created_transcript(["id", "en"])
             entries = transcript.fetch()
             return _parse_youtube_transcript(entries)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[transcribe] YouTube: no manual transcript (id/en): %s", e)
 
         # Try auto-generated transcripts
         try:
             transcript = transcript_list.find_generated_transcript(["id", "en"])
             entries = transcript.fetch()
             return _parse_youtube_transcript(entries)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[transcribe] YouTube: no auto-generated transcript (id/en): %s", e)
 
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug("[transcribe] YouTube transcript API failed: %s", e)
         return None
 
 
@@ -569,7 +571,12 @@ def _try_groq_whisper(
         }
         if language:
             create_kwargs["language"] = language
+        logger.info("[transcribe] Sending request to Groq API...")
+        # Add explicit timeout of 60 seconds to prevent indefinite hanging
+        if "timeout" not in create_kwargs:
+            create_kwargs["timeout"] = 60.0
         result = client.audio.transcriptions.create(**create_kwargs)
+        logger.info("[transcribe] Groq API response received!")
 
         # Parse kata-kata jika tersedia
         words = []
@@ -783,6 +790,13 @@ def transcribe_video(
     except Exception as e:
         logger.warning("[transcribe] audio extraction failed: %s", e)
 
+    # Track failure reasons for the final error message
+    failure_reasons: list[str] = []
+    if video_url:
+        failure_reasons.append("YouTube: no transcript available for this video")
+    if audio_path is None:
+        failure_reasons.append("audio extraction failed (ffmpeg missing or video corrupt)")
+
     # 2. Try Groq Whisper (fast, no speaker detection, supports word timestamps)
     if audio_path:
         try:
@@ -793,8 +807,11 @@ def transcribe_video(
                 _update_transcribe_progress(task_id, 35.0, msg)
                 _write_srt(media_path, groq_result, task_dir)
                 return groq_result
+            reason = "no GROQ_API_KEY set" if not GROQ_API_KEY else "Groq returned no segments"
+            failure_reasons.append(f"Groq Whisper: {reason}")
         except Exception as e:
             logger.warning("[transcribe] Groq failed: %s", e)
+            failure_reasons.append(f"Groq Whisper: {e}")
 
     # 3. Try Gemini 2.5 Flash (with speaker detection)
     if audio_path:
@@ -806,10 +823,14 @@ def transcribe_video(
                 _update_transcribe_progress(task_id, 35.0, msg)
                 _write_srt(media_path, gemini_result, task_dir)
                 return gemini_result
+            reason = "no GEMINI_API_KEY set" if not GEMINI_API_KEY else "Gemini returned no segments"
+            failure_reasons.append(f"Gemini: {reason}")
         except Exception as e:
             logger.warning("[transcribe] Gemini failed: %s", e)
+            failure_reasons.append(f"Gemini: {e}")
 
     # 4. No transcription available
+    detail = "; ".join(failure_reasons) if failure_reasons else "unknown reason"
     raise RuntimeError(
-        "No transcription available — YouTube, Groq, and Gemini all failed."
+        f"No transcription available — {detail}."
     )
