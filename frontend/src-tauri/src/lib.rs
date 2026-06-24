@@ -50,6 +50,7 @@ pub struct AppSettings {
     pub storage_dir: String,
     pub first_run: bool,
     pub gemini_api_key: String,
+    pub groq_api_key: String,
     pub openai_api_key: String,
     pub openai_base_url: String,
     pub openai_model: String,
@@ -173,6 +174,7 @@ fn load_settings(app: &tauri::AppHandle) -> AppSettings {
         storage_dir: default_storage,
         first_run: true,
         gemini_api_key: "".to_string(),
+        groq_api_key: "".to_string(),
         openai_api_key: "".to_string(),
         openai_base_url: "".to_string(),
         openai_model: "gpt-4o-mini".to_string(),
@@ -193,6 +195,9 @@ fn load_settings(app: &tauri::AppHandle) -> AppSettings {
                     }
                     if let Some(g) = loaded_val.get("gemini_api_key").and_then(|v| v.as_str()) {
                         settings.gemini_api_key = g.to_string();
+                    }
+                    if let Some(g) = loaded_val.get("groq_api_key").and_then(|v| v.as_str()) {
+                        settings.groq_api_key = g.to_string();
                     }
                     if let Some(o) = loaded_val.get("openai_api_key").and_then(|v| v.as_str()) {
                         settings.openai_api_key = o.to_string();
@@ -364,6 +369,7 @@ fn start_backend_process(
         .current_dir(&backend_dir)
         .env("STORAGE_DIR", storage_dir)
         .env("GEMINI_API_KEY", &settings.gemini_api_key)
+        .env("GROQ_API_KEY", &settings.groq_api_key)
         .env("OPENAI_API_KEY", &settings.openai_api_key)
         .env("OPENAI_BASE_URL", &settings.openai_base_url)
         .env("OPENAI_MODEL", &settings.openai_model)

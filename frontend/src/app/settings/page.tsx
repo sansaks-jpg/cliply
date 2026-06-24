@@ -125,6 +125,7 @@ export default function SettingsPage() {
   // States untuk form API
   const [llmProvider, setLlmProvider] = useState<string>("openai");
   const [geminiApiKey, setGeminiApiKey] = useState<string>("");
+  const [groqApiKey, setGroqApiKey] = useState<string>("");
   const [openaiApiKey, setOpenaiApiKey] = useState<string>("");
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState<string>("");
   const [openaiModel, setOpenaiModel] = useState<string>("gpt-4o-mini");
@@ -165,6 +166,7 @@ export default function SettingsPage() {
           setSettings(s);
           setLlmProvider(s.llm_provider || "openai");
           setGeminiApiKey(s.gemini_api_key || "");
+          setGroqApiKey(s.groq_api_key || "");
           setOpenaiApiKey(s.openai_api_key || "");
           setOpenaiBaseUrl(s.openai_base_url || "");
           const modelVal = s.openai_model || "gpt-4o-mini";
@@ -231,6 +233,7 @@ export default function SettingsPage() {
         ...settings,
         llm_provider: llmProvider,
         gemini_api_key: geminiApiKey.trim(),
+        groq_api_key: groqApiKey.trim(),
         openai_api_key: openaiApiKey.trim(),
         openai_base_url: openaiBaseUrl.trim(),
         openai_model: openaiModel.trim(),
@@ -456,6 +459,25 @@ export default function SettingsPage() {
               />
               <p className="text-[10px] text-neutral-400">
                 Wajib digunakan untuk proses transkripsi suara & identifikasi nama pembicara (*diarization*).
+              </p>
+            </div>
+
+            {/* Groq API Key */}
+            <div className="space-y-2">
+              <Label htmlFor="groq-key" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                <Key className="w-3.5 h-3.5" />
+                Groq API Key
+              </Label>
+              <Input
+                id="groq-key"
+                type="password"
+                placeholder="gsk_..."
+                value={groqApiKey}
+                onChange={(e) => setGroqApiKey(e.target.value)}
+                className="h-10 text-sm border-border bg-background/20 rounded-xl focus-visible:ring-1 focus-visible:ring-white/20"
+              />
+              <p className="text-[10px] text-neutral-400">
+                Opsional — digunakan untuk transkripsi suara (Whisper). Kosongkan jika pakai Gemini untuk transkripsi.
               </p>
             </div>
 
