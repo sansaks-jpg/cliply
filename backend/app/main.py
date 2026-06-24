@@ -169,6 +169,17 @@ async def debug_providers() -> dict:
     }
 
 
+@app.get("/debug/build")
+async def debug_build() -> dict:
+    """Diagnostic endpoint to identify the running backend build."""
+    import os
+
+    return {
+        "version": config._get("APP_VERSION", "0.1.3"),
+        "pid": os.getpid(),
+    }
+
+
 @app.get("/models")
 async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict:
     """Proxy to fetch available models from an OpenAI-compatible endpoint, solving CORS."""

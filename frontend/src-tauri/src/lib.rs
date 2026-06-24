@@ -405,6 +405,7 @@ fn start_backend_process(
             return Err(err);
         }
     };
+    let spawned_pid = child.id();
 
     // 8. Check immediate exit
     match child.try_wait() {
@@ -437,7 +438,7 @@ fn start_backend_process(
         *proc_guard = Some(child);
     }
 
-    // 11. Poll /health endpoint (check process via state mutex)
+    // 11. Poll /health endpoint — require PID match to avoid accepting stale backend
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(2)))
         .build()
@@ -445,6 +446,7 @@ fn start_backend_process(
     let start = Instant::now();
     log_line(&mut log_file, "Waiting for backend to become ready...");
     let health_url = "http://127.0.0.1:8003/health";
+    let build_url = "http://127.0.0.1:8003/debug/build";
     let mut last_error = String::new();
 
     loop {
@@ -463,10 +465,36 @@ fn start_backend_process(
             return Err(err);
         }
 
-        // b) Try health endpoint
+        // b) Try health endpoint — then verify PID matches our spawned process
         match agent.get(health_url).call() {
             Ok(resp) if resp.status() == 200 => {
-                log_line(&mut log_file, "Backend is ready (health check passed)");
+                // Health endpoint responded. Now verify PID via /debug/build.
+                match agent.get(build_url).call() {
+                    Ok(build_resp) if build_resp.status() == 200 => {
+                        if let Ok(body) = build_resp.body_mut().read_json::<serde_json::Value>() {
+                            let reported_pid = body.get("pid").and_then(|v| v.as_u64()).unwrap_or(0);
+                            if reported_pid != spawned_pid as u64 {
+                                let msg = format!(
+                                    "Health check PID mismatch: expected {}, got {}. Stale backend on port 8003.",
+                                    spawned_pid, reported_pid
+                                );
+                                log_line(&mut log_file, &msg);
+                                last_error = msg;
+                                thread::sleep(BACKEND_POLL_INTERVAL);
+                                continue;
+                            }
+                            log_line(&mut log_file, &format!(
+                                "Backend is ready (PID {} verified via /debug/build)", spawned_pid
+                            ));
+                        } else {
+                            log_line(&mut log_file, "Backend is ready (could not parse /debug/build JSON, trusting health check)");
+                        }
+                    }
+                    _ => {
+                        // /debug/build not available — older backend, accept health check
+                        log_line(&mut log_file, "Backend is ready (health check passed, /debug/build unavailable)");
+                    }
+                }
                 spawn_backend_monitor(app);
                 let _ = app.emit("backend-ready", true);
                 return Ok(());

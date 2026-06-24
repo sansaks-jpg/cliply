@@ -242,7 +242,7 @@ def _clean_hallucinations(
 
 
 def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
-    """Try to get transcript using youtube-transcript-api."""
+    """Try to get transcript using youtube-transcript-api v1.x."""
     logger.info("[transcribe] YouTube: attempting transcript API for %s", video_url)
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
@@ -259,7 +259,8 @@ def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
             return None
 
         logger.info("[transcribe] YouTube: video_id=%s, listing transcripts...", video_id)
-        transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+        api = YouTubeTranscriptApi()
+        transcript_list = api.list(video_id)
 
         # Try manual transcripts first (Indonesian, then English)
         try:
