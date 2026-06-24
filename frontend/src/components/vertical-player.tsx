@@ -44,9 +44,9 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
     scheduleHide();
   }, [scheduleHide]);
 
-  const togglePlay = (e: React.MouseEvent) => {
+  const togglePlay = (e?: React.MouseEvent) => {
     // Don't toggle if click is on seekbar area
-    if ((e.target as HTMLElement).closest("[data-seekbar]")) return;
+    if (e && (e.target as HTMLElement).closest("[data-seekbar]")) return;
     const v = videoRef.current;
     if (!v) return;
     if (v.paused) {
@@ -55,6 +55,13 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
       v.pause();
       setShowControls(true);
       if (hideTimer.current) clearTimeout(hideTimer.current);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      togglePlay();
     }
   };
 
@@ -143,12 +150,20 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
 
   return (
     <div
-      className={`${isAbsolute ? "" : "relative"} bg-black overflow-hidden cursor-pointer select-none ${className}`}
+      className={`${isAbsolute ? "" : "relative"} bg-black overflow-hidden select-none ${className}`}
       style={isAbsolute ? {} : { aspectRatio: "9 / 16" }}
-      onClick={togglePlay}
       onMouseMove={revealControls}
       onTouchStart={revealControls}
     >
+      {/* Play/Pause overlay button for accessibility (avoids nesting interactive elements) */}
+      <button
+        type="button"
+        className="absolute inset-0 w-full h-full cursor-pointer focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[var(--accent-violet)] z-0"
+        aria-label={playing ? "Jeda video" : "Putar video"}
+        onClick={togglePlay}
+        onKeyDown={handleKeyDown}
+      />
+
       <video
         ref={videoRef}
         src={src}
@@ -167,12 +182,12 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
 
       {/* Bottom gradient */}
       <div
-        className={`absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/80 via-black/30 to-transparent transition-opacity duration-300 pointer-events-none ${showControls || !playing ? "opacity-100" : "opacity-0"}`}
+        className={`absolute z-10 inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/80 via-black/30 to-transparent transition-opacity duration-300 pointer-events-none ${showControls || !playing ? "opacity-100" : "opacity-0"}`}
       />
 
       {/* Center play/pause */}
       <div
-        className={`absolute inset-0 flex items-center justify-center transition-all duration-200 pointer-events-none ${showControls || !playing ? "opacity-100" : "opacity-0"}`}
+        className={`absolute z-10 inset-0 flex items-center justify-center transition-all duration-200 pointer-events-none ${showControls || !playing ? "opacity-100" : "opacity-0"}`}
       >
         <div
           className={`w-12 h-12 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center transition-all duration-200 ${!playing ? "scale-110" : "scale-95 opacity-80"}`}
@@ -187,7 +202,7 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
 
       {/* Bottom controls: time + seekbar + mute */}
       <div
-        className={`absolute inset-x-0 bottom-0 px-3 pb-3 pt-2 flex flex-col gap-1.5 transition-opacity duration-300 ${showControls || !playing ? "opacity-100" : "opacity-0"}`}
+        className={`absolute z-10 inset-x-0 bottom-0 px-3 pb-3 pt-2 flex flex-col gap-1.5 transition-opacity duration-300 ${showControls || !playing ? "opacity-100" : "opacity-0"}`}
         data-seekbar="true"
       >
         {/* Time display */}
@@ -230,14 +245,17 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
 
           {/* Mute button */}
           <button
+            type="button"
             data-seekbar="true"
             onClick={toggleMute}
-            className="w-7 h-7 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center hover:bg-black/50 transition-colors flex-shrink-0"
+            aria-label={muted ? "Nyalakan suara" : "Matikan suara"}
+            title={muted ? "Nyalakan suara" : "Matikan suara"}
+            className="w-7 h-7 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center hover:bg-black/50 transition-colors flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
           >
             {muted ? (
-              <VolumeX className="w-3.5 h-3.5 text-white" />
+              <VolumeX className="w-3.5 h-3.5 text-white" aria-hidden="true" />
             ) : (
-              <Volume2 className="w-3.5 h-3.5 text-white" />
+              <Volume2 className="w-3.5 h-3.5 text-white" aria-hidden="true" />
             )}
           </button>
         </div>

@@ -1,0 +1,3 @@
+## 2024-06-24 - Accessibility Overlays vs Nested Interactive Elements
+**Learning:** When making a container interactive (like a video player area), adding `role="button"` to a `div` that already contains inner interactive elements (like a mute `<button>`) creates nested interactive elements. This violates ARIA authoring guidelines and can cause unpredictable screen reader behavior.
+**Action:** Instead of adding `role="button"` and `tabIndex={0}` to the parent container, use an absolutely positioned, transparent `<button>` that spans the entire container's `inset-0`. Ensure the overlay button acts as an accessible sibling to other interactive controls.
