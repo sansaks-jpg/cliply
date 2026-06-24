@@ -470,7 +470,7 @@ fn start_backend_process(
             Ok(resp) if resp.status() == 200 => {
                 // Health endpoint responded. Now verify PID via /debug/build.
                 match agent.get(build_url).call() {
-                    Ok(build_resp) if build_resp.status() == 200 => {
+                    Ok(mut build_resp) if build_resp.status() == 200 => {
                         if let Ok(body) = build_resp.body_mut().read_json::<serde_json::Value>() {
                             let reported_pid = body.get("pid").and_then(|v| v.as_u64()).unwrap_or(0);
                             if reported_pid != spawned_pid as u64 {
