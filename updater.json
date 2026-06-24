@@ -1,6 +1,6 @@
 {
   "version": "0.1.3",
-  "notes": "v0.1.3 — fix Groq word mapping, api_key header security, docstring cleanup",
+  "notes": "v0.1.3 — fix Tauri empty env vars overriding .env API keys, improved transcription error messages",
   "pub_date": "2026-06-24T00:00:00Z",
   "platforms": {
     "windows-x86_64": {
