@@ -122,6 +122,53 @@ async def list_encoders() -> dict:
     }
 
 
+@app.get("/debug/providers")
+async def debug_providers() -> dict:
+    """Diagnostic endpoint to verify transcription provider readiness."""
+    from .engine.transcriber import GEMINI_API_KEY, GROQ_API_KEY
+
+    groq_sdk = False
+    gemini_sdk = False
+    youtube_sdk = False
+    groq_import_error = None
+    gemini_import_error = None
+    youtube_import_error = None
+
+    try:
+        import groq  # noqa: F401
+
+        groq_sdk = True
+    except Exception as e:
+        groq_import_error = str(e)
+
+    try:
+        from google import genai  # noqa: F401
+
+        gemini_sdk = True
+    except Exception as e:
+        gemini_import_error = str(e)
+
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi  # noqa: F401
+
+        youtube_sdk = True
+    except Exception as e:
+        youtube_import_error = str(e)
+
+    return {
+        "groq_sdk": groq_sdk,
+        "gemini_sdk": gemini_sdk,
+        "youtube_sdk": youtube_sdk,
+        "groq_key_present": bool(GROQ_API_KEY),
+        "gemini_key_present": bool(GEMINI_API_KEY),
+        "groq_key_length": len(GROQ_API_KEY),
+        "gemini_key_length": len(GEMINI_API_KEY),
+        "groq_import_error": groq_import_error,
+        "gemini_import_error": gemini_import_error,
+        "youtube_import_error": youtube_import_error,
+    }
+
+
 @app.get("/models")
 async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict:
     """Proxy to fetch available models from an OpenAI-compatible endpoint, solving CORS."""
