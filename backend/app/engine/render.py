@@ -15,6 +15,7 @@ import numpy as np
 
 from scenedetect import detect, ContentDetector
 from ..config import RENDER_CFG, STORAGE_DIR, resolve_encoder
+from .utils import sanitize_env
 
 log = logging.getLogger(__name__)
 
@@ -1242,6 +1243,7 @@ def render_clips(
     subtitle_color_highlight: Optional[str] = None,
     encoder: str = "auto",
 ) -> List[Dict]:
+    sanitize_env()
     encoder_args = resolve_encoder(encoder)
     clips_dir = str(STORAGE_DIR / task_id / "clips")
     os.makedirs(clips_dir, exist_ok=True)

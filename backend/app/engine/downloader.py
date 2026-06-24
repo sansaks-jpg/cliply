@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config import DOWNLOAD_FORMAT, STORAGE_DIR
-from .utils import extract_video_id
+from .utils import extract_video_id, sanitize_env
 
 
 def _format_for(fmt: str) -> str:
@@ -28,6 +28,7 @@ def _existing_download(out_dir: str, video_id: str) -> Optional[str]:
 
 
 def download_video(video_url: str, task_id: str) -> str:
+    sanitize_env()
     import yt_dlp
 
     out_dir = str(STORAGE_DIR / task_id)

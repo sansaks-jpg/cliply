@@ -1,8 +1,18 @@
 """Shared utility functions for the video processing engine."""
 
+import os
 import re
 from typing import Optional
 from urllib.parse import parse_qs, urlparse
+
+
+def sanitize_env():
+    """Remove scoop-related paths from PATH to prevent WinError 448 on Windows."""
+    path = os.environ.get('PATH', '')
+    parts = path.split(os.pathsep)
+    cleaned = [p for p in parts if 'scoop' not in p.lower()]
+    if len(cleaned) != len(parts):
+        os.environ['PATH'] = os.pathsep.join(cleaned)
 
 
 def extract_video_id(source: str) -> Optional[str]:
