@@ -243,20 +243,29 @@ def _clean_hallucinations(
 
 def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
     """Try to get transcript using youtube-transcript-api."""
+    logger.info("[transcribe] YouTube: attempting transcript API for %s", video_url)
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
 
+        logger.info("[transcribe] YouTube: youtube_transcript_api SDK imported OK")
+    except Exception as e:
+        logger.error("[transcribe] YouTube: SDK import FAILED: %s", e, exc_info=True)
+        return None
+
+    try:
         video_id = extract_video_id(video_url)
         if not video_id:
             logger.debug("[transcribe] YouTube: could not extract video ID from %s", video_url)
             return None
 
+        logger.info("[transcribe] YouTube: video_id=%s, listing transcripts...", video_id)
         transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
 
         # Try manual transcripts first (Indonesian, then English)
         try:
             transcript = transcript_list.find_manually_created_transcript(["id", "en"])
             entries = transcript.fetch()
+            logger.info("[transcribe] YouTube: found manual transcript")
             return _parse_youtube_transcript(entries)
         except Exception as e:
             logger.debug("[transcribe] YouTube: no manual transcript (id/en): %s", e)
@@ -265,13 +274,15 @@ def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
         try:
             transcript = transcript_list.find_generated_transcript(["id", "en"])
             entries = transcript.fetch()
+            logger.info("[transcribe] YouTube: found auto-generated transcript")
             return _parse_youtube_transcript(entries)
         except Exception as e:
             logger.debug("[transcribe] YouTube: no auto-generated transcript (id/en): %s", e)
 
+        logger.info("[transcribe] YouTube: no transcript available for this video")
         return None
     except Exception as e:
-        logger.debug("[transcribe] YouTube transcript API failed: %s", e)
+        logger.warning("[transcribe] YouTube transcript API failed: %s", e, exc_info=True)
         return None
 
 
@@ -395,6 +406,11 @@ def _try_gemini_transcription(
     audio_path: str, task_id: Optional[str] = None
 ) -> Optional[Dict]:
     """Transcribe audio using Gemini 2.5 Flash with speaker detection."""
+    logger.info(
+        "[transcribe] GEMINI_API_KEY present: %s (length: %d)",
+        bool(GEMINI_API_KEY),
+        len(GEMINI_API_KEY),
+    )
     if not GEMINI_API_KEY:
         logger.warning("[transcribe] no GEMINI_API_KEY set")
         return None
@@ -402,7 +418,14 @@ def _try_gemini_transcription(
     try:
         from google import genai
 
-        msg = f"[transcribe] calling Gemini {GEMINI_MODEL} with {os.path.getsize(audio_path) / 1024 / 1024:.1f}MB audio"
+        logger.info("[transcribe] google.genai SDK imported OK")
+    except Exception as e:
+        logger.error("[transcribe] google.genai SDK import FAILED: %s", e, exc_info=True)
+        return None
+
+    try:
+        audio_size = os.path.getsize(audio_path)
+        msg = f"[transcribe] calling Gemini {GEMINI_MODEL} with {audio_size / 1024 / 1024:.1f}MB audio"
         logger.info(msg)
         _update_transcribe_progress(task_id, 20.0, msg)
 
@@ -549,6 +572,11 @@ def _try_groq_whisper(
     audio_path: str, task_id: Optional[str] = None, language: Optional[str] = None
 ) -> Optional[Dict]:
     """Transcribe audio using Groq API with whisper-large-v3."""
+    logger.info(
+        "[transcribe] GROQ_API_KEY present: %s (length: %d)",
+        bool(GROQ_API_KEY),
+        len(GROQ_API_KEY),
+    )
     if not GROQ_API_KEY:
         logger.warning("[transcribe] no GROQ_API_KEY set")
         return None
@@ -556,7 +584,14 @@ def _try_groq_whisper(
     try:
         from groq import Groq
 
-        msg = f"[transcribe] calling Groq {GROQ_MODEL} with {os.path.getsize(audio_path) / 1024 / 1024:.1f}MB audio"
+        logger.info("[transcribe] groq SDK imported OK")
+    except Exception as e:
+        logger.error("[transcribe] groq SDK import FAILED: %s", e, exc_info=True)
+        return None
+
+    try:
+        audio_size = os.path.getsize(audio_path)
+        msg = f"[transcribe] calling Groq {GROQ_MODEL} with {audio_size / 1024 / 1024:.1f}MB audio"
         logger.info(msg)
         _update_transcribe_progress(task_id, 28.0, msg)
         client = Groq(api_key=GROQ_API_KEY)
@@ -571,12 +606,12 @@ def _try_groq_whisper(
         }
         if language:
             create_kwargs["language"] = language
-        logger.info("[transcribe] Sending request to Groq API...")
+        logger.info("[transcribe] Sending request to Groq API (model=%s, file_size=%d bytes)...", GROQ_MODEL, audio_size)
         # Add explicit timeout of 60 seconds to prevent indefinite hanging
         if "timeout" not in create_kwargs:
             create_kwargs["timeout"] = 60.0
         result = client.audio.transcriptions.create(**create_kwargs)
-        logger.info("[transcribe] Groq API response received!")
+        logger.info("[transcribe] Groq API response received! duration=%s", getattr(result, "duration", "N/A"))
 
         # Parse kata-kata jika tersedia
         words = []
