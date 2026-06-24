@@ -61,7 +61,7 @@ export default function SettingsPage() {
   // States untuk update
   const [checkingUpdate, setCheckingUpdate] = useState<boolean>(false);
   const [updateAvailable, setUpdateAvailable] = useState<TauriUpdate | null>(null);
-  const [appVersion, setAppVersion] = useState<string>("0.1.1");
+  const [appVersion, setAppVersion] = useState<string>("0.1.2");
 
   const handleCheckUpdate = async () => {
     if (!tauriActive) {
