@@ -140,6 +140,9 @@ export async function deleteTask(taskId: string): Promise<void> {
   const res = await fetch(`${API_URL}/tasks/${taskId}`, {
     method: "DELETE",
   });
+  if (res.status === 404) {
+    return; // already deleted — treat as success
+  }
   if (!res.ok) {
     throw new Error(`Failed to delete task (${res.status})`);
   }

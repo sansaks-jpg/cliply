@@ -190,7 +190,12 @@ function TaskPageContent() {
       setError(null);
       return data;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Gagal memuat tugas");
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("404")) {
+        setError("Tugas tidak ditemukan. Mungkin sudah dihapus.");
+      } else {
+        setError(msg || "Gagal memuat tugas");
+      }
       return null;
     }
   }, [taskId]);

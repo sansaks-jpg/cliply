@@ -48,14 +48,17 @@ def download_video(video_url: str, task_id: str) -> str:
         "no_warnings": True,
         "noprogress": True,
     }
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(video_url, download=True)
-        path = ydl.prepare_filename(info)
-        if not os.path.exists(path):
-            stem, _ = os.path.splitext(path)
-            for ext in (".mp4", ".mkv", ".webm"):
-                if os.path.exists(stem + ext):
-                    path = stem + ext
-                    break
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=True)
+            path = ydl.prepare_filename(info)
+            if not os.path.exists(path):
+                stem, _ = os.path.splitext(path)
+                for ext in (".mp4", ".mkv", ".webm"):
+                    if os.path.exists(stem + ext):
+                        path = stem + ext
+                        break
+    except Exception as e:
+        raise RuntimeError(f"Download gagal: {e}") from e
 
     return path
