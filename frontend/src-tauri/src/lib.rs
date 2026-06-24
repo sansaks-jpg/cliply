@@ -364,16 +364,31 @@ fn start_backend_process(
     };
 
     // 6. Capture stdout + stderr
+    // Only inject env vars when the Tauri setting is non-empty.
+    // Empty values would override the backend .env file (load_dotenv uses
+    // override=False), silently wiping keys the user configured in .env.
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(&backend_dir)
-        .env("STORAGE_DIR", storage_dir)
-        .env("GEMINI_API_KEY", &settings.gemini_api_key)
-        .env("GROQ_API_KEY", &settings.groq_api_key)
-        .env("OPENAI_API_KEY", &settings.openai_api_key)
-        .env("OPENAI_BASE_URL", &settings.openai_base_url)
-        .env("OPENAI_MODEL", &settings.openai_model)
-        .env("LLM_PROVIDER", &settings.llm_provider);
+        .env("STORAGE_DIR", storage_dir);
+    if !settings.gemini_api_key.is_empty() {
+        cmd.env("GEMINI_API_KEY", &settings.gemini_api_key);
+    }
+    if !settings.groq_api_key.is_empty() {
+        cmd.env("GROQ_API_KEY", &settings.groq_api_key);
+    }
+    if !settings.openai_api_key.is_empty() {
+        cmd.env("OPENAI_API_KEY", &settings.openai_api_key);
+    }
+    if !settings.openai_base_url.is_empty() {
+        cmd.env("OPENAI_BASE_URL", &settings.openai_base_url);
+    }
+    if !settings.openai_model.is_empty() {
+        cmd.env("OPENAI_MODEL", &settings.openai_model);
+    }
+    if !settings.llm_provider.is_empty() {
+        cmd.env("LLM_PROVIDER", &settings.llm_provider);
+    }
 
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
