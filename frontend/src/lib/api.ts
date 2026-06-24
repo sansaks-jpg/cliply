@@ -1,7 +1,7 @@
 /** API client for the Cliply backend.
  *
  * All requests go to NEXT_PUBLIC_API_URL (the FastAPI service). In dev that's
- * http://localhost:8000; in docker-compose it's the backend service name.
+ * http://localhost:8003; in docker-compose it's the backend service name.
  */
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8003";
@@ -148,14 +148,18 @@ export async function deleteTask(taskId: string): Promise<void> {
   }
 }
 
-export async function getAvailableModels(baseUrl: string, apiKey: string): Promise<string[]> {
+export async function getAvailableModels(
+  baseUrl: string,
+  apiKey: string,
+): Promise<string[]> {
   if (!baseUrl) return ["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"];
   try {
-    const params = new URLSearchParams({
-      base_url: baseUrl,
-      api_key: apiKey
+    const params = new URLSearchParams({ base_url: baseUrl });
+    const reqHeaders: Record<string, string> = {};
+    if (apiKey) reqHeaders["api-key"] = apiKey;
+    const res = await fetch(`${API_URL}/models?${params.toString()}`, {
+      headers: reqHeaders,
     });
-    const res = await fetch(`${API_URL}/models?${params.toString()}`);
     if (!res.ok) {
       let detail = "Gagal mengambil model dari backend proxy";
       try {
@@ -175,7 +179,9 @@ export async function getAvailableModels(baseUrl: string, apiKey: string): Promi
       if (data.data.length === 0) {
         throw new Error("Tidak ada model yang ditemukan di endpoint ini");
       }
-      interface Model { id: string }
+      interface Model {
+        id: string;
+      }
       return data.data.map((m: Model) => m.id);
     }
     throw new Error("Format response model tidak valid");
@@ -184,4 +190,3 @@ export async function getAvailableModels(baseUrl: string, apiKey: string): Promi
     throw error;
   }
 }
-

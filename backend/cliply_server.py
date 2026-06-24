@@ -2,8 +2,9 @@
 
 Menerima argumen:
   --storage-dir <path>   Override lokasi penyimpanan file
-#   --port <port>          Port uvicorn (default 8003)
-# """
+  --port <port>          Port uvicorn (default 8003)
+"""
+
 import os
 import sys
 
@@ -43,6 +44,7 @@ def main():
             sys.path.insert(0, meipass)
 
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host="127.0.0.1",

@@ -41,7 +41,7 @@
                            │ HTTP (fetch) + EventSource (SSE)
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ FastAPI backend  (port :8000)                                   │
+│ FastAPI backend  (port :8003)                                   │
 │  app/main.py                                                    │
 │  app/routes/tasks.py   POST /tasks, GET /tasks/{id}, SSE        │
 │  app/routes/media.py   serve mp4, thumbnail                     │

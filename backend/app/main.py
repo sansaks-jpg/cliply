@@ -3,13 +3,14 @@
 Run locally:
     uvicorn app.main:app --reload --port 8003
 """
+
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from redis.exceptions import RedisError
 
 from fastapi import FastAPI, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from redis.exceptions import RedisError
 
 from . import config
 from .routes import media, tasks
@@ -20,13 +21,16 @@ from .state import store
 async def lifespan(app: FastAPI):
     # Suppress harmless WinError 10054 noise from asyncio event loop
     import asyncio
+
     loop = asyncio.get_running_loop()
     _orig_handler = loop.get_exception_handler()
+
     def _filter_asyncio_error(loop, context):
         exc = context.get("exception")
         if isinstance(exc, ConnectionResetError):
             return
         (_orig_handler or loop.default_exception_handler)(loop, context)
+
     loop.set_exception_handler(_filter_asyncio_error)
 
     # Ensure storage dir exists on boot.
@@ -36,7 +40,9 @@ async def lifespan(app: FastAPI):
     try:
         recovered = await store.recover_from_storage()
         if recovered:
-            logging.getLogger(__name__).info("Boot recovery: %d task(s) recovered from storage", recovered)
+            logging.getLogger(__name__).info(
+                "Boot recovery: %d task(s) recovered from storage", recovered
+            )
     except (OSError, RedisError) as exc:
         logging.getLogger(__name__).warning("Boot recovery failed: %s", exc)
     yield
@@ -49,17 +55,21 @@ async def lifespan(app: FastAPI):
 
 class _SuppressConnectionResetError(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        if record.exc_info and record.exc_info[1] and isinstance(record.exc_info[1], ConnectionResetError):
+        if (
+            record.exc_info
+            and record.exc_info[1]
+            and isinstance(record.exc_info[1], ConnectionResetError)
+        ):
             return False
         return True
+
 
 logging.getLogger("uvicorn.error").addFilter(_SuppressConnectionResetError())
 
 app = FastAPI(
     title="Clip-AI Backend",
-    description="YouTube → viral 9:16 shorts. FastAPI wrapper over the "
-    "backend engine.",
-    version="0.1.2",
+    description="YouTube → viral 9:16 shorts. FastAPI wrapper over the backend engine.",
+    version="0.1.3",
     lifespan=lifespan,
 )
 
@@ -116,8 +126,10 @@ async def list_encoders() -> dict:
 async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict:
     """Proxy to fetch available models from an OpenAI-compatible endpoint, solving CORS."""
     from urllib.parse import urlparse
+
     import requests
     from fastapi.concurrency import run_in_threadpool
+
     if not base_url:
         return {"data": []}
 
@@ -132,13 +144,12 @@ async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict
     if not formatted_url.endswith("/models"):
         formatted_url = f"{formatted_url}/models"
 
-    headers = {
-        "Content-Type": "application/json"
-    }
+    headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
+
         def _fetch():
             return requests.get(formatted_url, headers=headers, timeout=8)
 
@@ -153,4 +164,3 @@ async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict
     except Exception as e:
         logging.getLogger(__name__).warning("Proxy models request failed: %s", e)
         return {"data": [], "error": str(e)}
-
