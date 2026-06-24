@@ -1,8 +1,9 @@
 """Runtime configuration for the FastAPI clip service.
 
 All settings come from environment variables (loaded from `.env` at import).
-# Defaults match the values in `backend/.env.example`.
+Defaults match the values in `backend/.env.example`.
 """
+
 import logging
 import os
 from dataclasses import dataclass
@@ -64,9 +65,9 @@ FFMPEG_ENCODER = _get("FFMPEG_ENCODER", "auto").lower()
 
 ENCODER_MAP: dict[str, str] = {
     "nvidia": "h264_nvenc -preset p4 -rc vbr -cq 20",
-    "intel":  "h264_qsv -global_quality 20",
-    "amd":    "h264_amf -quality quality -usage transcoding",
-    "cpu":    "libx264 -preset fast -crf 20",
+    "intel": "h264_qsv -global_quality 20",
+    "amd": "h264_amf -quality quality -usage transcoding",
+    "cpu": "libx264 -preset fast -crf 20",
 }
 
 
@@ -83,7 +84,7 @@ def get_available_encoders() -> list[str]:
 
 def resolve_encoder(encoder: str) -> str:
     """Return ffmpeg `-c:v ...` args string for the given encoder key.
-    
+
     'auto' → picks first available HW encoder, falls back to libx264.
     """
     if encoder == "auto":
@@ -125,6 +126,7 @@ class RenderConstants:
 
     All values can be overridden via environment variables prefixed with RENDER_.
     """
+
     SAMPLE_FPS: int = _get_positive_int("RENDER_SAMPLE_FPS", 2)
     EMA_FACTOR: float = float(_get("RENDER_EMA_FACTOR", "0.15"))
     CONFIDENCE_THRESHOLD: float = float(_get("RENDER_CONFIDENCE_THRESHOLD", "0.30"))
@@ -134,8 +136,12 @@ class RenderConstants:
     CUT_THRESHOLD: float = float(_get("RENDER_CUT_THRESHOLD", "0.97"))
     MOTION_WEIGHT: float = float(_get("RENDER_MOTION_WEIGHT", "0.6"))
     SIZE_WEIGHT: float = float(_get("RENDER_SIZE_WEIGHT", "0.4"))
-    GROUP_REACTION_MIN_FACES: int = _get_positive_int("RENDER_GROUP_REACTION_MIN_FACES", 3)
-    GROUP_REACTION_MOTION_THRESH: float = float(_get("RENDER_GROUP_REACTION_MOTION_THRESH", "0.3"))
+    GROUP_REACTION_MIN_FACES: int = _get_positive_int(
+        "RENDER_GROUP_REACTION_MIN_FACES", 3
+    )
+    GROUP_REACTION_MOTION_THRESH: float = float(
+        _get("RENDER_GROUP_REACTION_MOTION_THRESH", "0.3")
+    )
     MIN_HOLD_SAMPLES: int = _get_positive_int("RENDER_MIN_HOLD_SAMPLES", 3)
     SWITCH_MARGIN: float = float(_get("RENDER_SWITCH_MARGIN", "0.15"))
     MIN_SHOT_HOLD_SAMPLES: int = _get_positive_int("RENDER_MIN_SHOT_HOLD_SAMPLES", 3)
