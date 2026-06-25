@@ -550,6 +550,7 @@ export default function SettingsPage() {
                   disabled={loadingModels}
                   className="border-neutral-800 text-neutral-300 hover:bg-neutral-900 rounded-xl h-10 px-3 flex-shrink-0"
                   title="Muat Ulang Model"
+                  aria-label="Muat Ulang Model"
                 >
                   <RefreshCw className={`w-4 h-4 ${loadingModels ? "animate-spin" : ""}`} />
                 </Button>

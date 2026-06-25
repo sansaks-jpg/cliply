@@ -488,7 +488,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <ThemeToggle />
             {isTauriApp && (
-              <Link href="/settings" className="p-2 hover:bg-neutral-900 border border-transparent hover:border-neutral-800 rounded-xl transition-all" title="Pengaturan">
+              <Link href="/settings" className="p-2 hover:bg-neutral-900 border border-transparent hover:border-neutral-800 rounded-xl transition-all" title="Pengaturan" aria-label="Pengaturan">
                 <Settings className="w-5 h-5 text-neutral-300" />
               </Link>
             )}
