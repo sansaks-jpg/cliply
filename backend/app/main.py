@@ -183,6 +183,9 @@ async def debug_build() -> dict:
 @app.get("/models")
 async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict:
     """Proxy to fetch available models from an OpenAI-compatible endpoint, solving CORS."""
+    import asyncio
+    import ipaddress
+    import socket
     from urllib.parse import urlparse
 
     import requests
@@ -191,25 +194,52 @@ async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict
     if not base_url:
         return {"data": []}
 
-    # SSRF protection: hanya izinkan localhost / trusted origins
-    TRUSTED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
     parsed = urlparse(base_url)
     host = parsed.hostname or ""
-    if host and host not in TRUSTED_HOSTS:
-        return {"data": [], "error": "Untrusted host"}
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
-    formatted_url = base_url.rstrip("/")
+    if not host:
+        return {"data": [], "error": "Invalid host"}
+
+    # SSRF protection: Resolve host asynchronously and validate against loopback/0.0.0.0
+    loop = asyncio.get_running_loop()
+    try:
+        addr_info = await loop.getaddrinfo(host, port)
+        valid_ip = None
+        for result in addr_info:
+            ip = result[4][0]
+            ip_obj = ipaddress.ip_address(ip)
+            if ip_obj.is_loopback or str(ip_obj) == "0.0.0.0":
+                valid_ip = ip
+                break
+
+        if not valid_ip:
+            return {"data": [], "error": "Untrusted host"}
+    except socket.gaierror:
+        return {"data": [], "error": "Cannot resolve host"}
+    except ValueError:
+        return {"data": [], "error": "Invalid IP address"}
+
+    # Rewrite URL to use IP address to prevent DNS Rebinding / TOCTOU
+    # wrap IPv6 in brackets
+    ip_host = f"[{valid_ip}]" if ":" in valid_ip else valid_ip
+    netloc = f"{ip_host}:{port}" if parsed.port else ip_host
+    safe_base_url = parsed._replace(netloc=netloc).geturl()
+
+    formatted_url = safe_base_url.rstrip("/")
     if not formatted_url.endswith("/models"):
         formatted_url = f"{formatted_url}/models"
 
     headers = {"Content-Type": "application/json"}
+    headers["Host"] = host
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
     try:
 
         def _fetch():
-            return requests.get(formatted_url, headers=headers, timeout=8)
+            # disable redirects to prevent redirect to a non-local IP
+            return requests.get(formatted_url, headers=headers, timeout=8, allow_redirects=False)
 
         response = await run_in_threadpool(_fetch)
         if response.status_code == 200:
