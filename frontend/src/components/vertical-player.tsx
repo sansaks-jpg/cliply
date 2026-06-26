@@ -232,6 +232,7 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
           <button
             data-seekbar="true"
             onClick={toggleMute}
+            aria-label={muted ? "Unmute video" : "Mute video"}
             className="w-7 h-7 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center hover:bg-black/50 transition-colors flex-shrink-0"
           >
             {muted ? (
