@@ -659,6 +659,8 @@ export default function Home() {
                             key={styleKey}
                             type="button"
                             onClick={() => setSubtitleStyle(styleKey)}
+                            aria-pressed={isActive}
+                            aria-label={`Gaya subtitle ${styleKey.replace(/-/g, " ")}`}
                             className={`text-xs font-bold px-3 py-2.5 rounded-xl border transition-all text-left flex items-center justify-between cursor-pointer ${
                               isActive
                                 ? "bg-gradient-violet border-transparent text-white shadow-md glow-accent"
