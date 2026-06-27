@@ -12,12 +12,8 @@ import {
   Video,
   Sliders,
   Sparkles,
-  Languages,
-  Cpu,
   Film,
   Settings,
-  Smartphone,
-  Monitor,
   Check,
   ExternalLink,
   ChevronDown

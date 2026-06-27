@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   isTauri,
   getSettings,
-  setStorageDir,
   saveAppSettings,
   pickStorageDir,
   openStorageDir,
@@ -94,7 +93,6 @@ export default function SettingsPage() {
     setRestarting(true);
     toast.info("Mengunduh dan memasang pembaruan...");
     try {
-      let downloaded = 0;
       let contentLength = 0;
       await updateAvailable.downloadAndInstall((event: TauriUpdateEvent) => {
         switch (event.event) {
@@ -103,7 +101,6 @@ export default function SettingsPage() {
             toast.info(`Unduhan dimulai: ${contentLength} byte.`);
             break;
           case 'Progress':
-            downloaded += (event.data?.chunkLength as number) || 0;
             break;
           case 'Finished':
             toast.success("Unduhan selesai. Memasang pembaruan...");
@@ -267,7 +264,7 @@ export default function SettingsPage() {
     if (!settings?.storage_dir) return;
     try {
       await openStorageDir(settings.storage_dir);
-    } catch (err) {
+    } catch {
       toast.error("Gagal membuka folder di explorer.");
     }
   };
