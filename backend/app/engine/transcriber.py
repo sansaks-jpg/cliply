@@ -663,15 +663,30 @@ def _try_groq_whisper(
 
         # Hubungkan kata-kata ke segmen menggunakan waktu tengah (mid-time) kata
         if words and segments:
+            import bisect
+
+            seg_starts = [s["start"] for s in segments]
+
             for w in words:
                 mid_time = (w["start"] + w["end"]) / 2.0
+
+                # Optimisasi O(N log M) menggunakan binary search
+                idx = bisect.bisect_right(seg_starts, mid_time)
+
+                candidates = []
+                if idx > 0:
+                    candidates.append(segments[idx - 1])
+                if idx < len(segments):
+                    candidates.append(segments[idx])
+
                 best_seg = None
                 min_distance = float("inf")
 
-                for seg_dict in segments:
+                for seg_dict in candidates:
                     # Jika waktu tengah kata berada di dalam rentang waktu segmen
                     if seg_dict["start"] <= mid_time <= seg_dict["end"]:
                         best_seg = seg_dict
+                        min_distance = 0
                         break
                     # Jika di luar, cari segmen dengan batas terdekat
                     dist = min(

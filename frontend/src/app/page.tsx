@@ -484,7 +484,7 @@ export default function Home() {
           <div className="flex items-center gap-3">
             <ThemeToggle />
             {isTauriApp && (
-              <Link href="/settings" className="p-2 hover:bg-neutral-900 border border-transparent hover:border-neutral-800 rounded-xl transition-all" title="Pengaturan">
+              <Link href="/settings" className="p-2 hover:bg-neutral-900 border border-transparent hover:border-neutral-800 rounded-xl transition-all" title="Pengaturan" aria-label="Pengaturan">
                 <Settings className="w-5 h-5 text-neutral-300" />
               </Link>
             )}
@@ -655,6 +655,8 @@ export default function Home() {
                             key={styleKey}
                             type="button"
                             onClick={() => setSubtitleStyle(styleKey)}
+                            aria-pressed={isActive}
+                            aria-label={`Gaya subtitle ${styleKey.replace(/-/g, " ")}`}
                             className={`text-xs font-bold px-3 py-2.5 rounded-xl border transition-all text-left flex items-center justify-between cursor-pointer ${
                               isActive
                                 ? "bg-gradient-violet border-transparent text-white shadow-md glow-accent"
