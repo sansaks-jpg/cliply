@@ -69,7 +69,7 @@ logging.getLogger("uvicorn.error").addFilter(_SuppressConnectionResetError())
 app = FastAPI(
     title="Clip-AI Backend",
     description="YouTube → viral 9:16 shorts. FastAPI wrapper over the backend engine.",
-    version="0.1.3",
+    version="0.1.5",
     lifespan=lifespan,
 )
 
@@ -175,7 +175,7 @@ async def debug_build() -> dict:
     import os
 
     return {
-        "version": config._get("APP_VERSION", "0.1.3"),
+        "version": config._get("APP_VERSION", "0.1.5"),
         "pid": os.getpid(),
     }
 
