@@ -2,7 +2,8 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
@@ -17,7 +18,10 @@ const LOG_MAX_FILES: u32 = 3;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-pub struct BackendState(pub Mutex<Option<Child>>);
+pub struct BackendState {
+    pub child: Mutex<Option<Child>>,
+    pub monitor_cancel: Arc<AtomicBool>,
+}
 
 fn kill_child(mut child: Child) {
     #[cfg(windows)]
@@ -37,7 +41,8 @@ fn kill_child(mut child: Child) {
 
 impl Drop for BackendState {
     fn drop(&mut self) {
-        if let Ok(mut guard) = self.0.lock() {
+        self.monitor_cancel.store(true, Ordering::SeqCst);
+        if let Ok(mut guard) = self.child.lock() {
             if let Some(child) = guard.take() {
                 kill_child(child);
             }
@@ -233,9 +238,9 @@ fn log_line(file: &mut fs::File, msg: &str) {
 
 fn stream_to_log<R: BufRead + Send + 'static>(reader: R, mut log_file: fs::File, prefix: &'static str) {
     thread::spawn(move || {
-        let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
         for line in reader.lines() {
             if let Ok(l) = line {
+                let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
                 let _ = writeln!(log_file, "{} [{}] {}", ts, prefix, l);
             }
         }
@@ -266,20 +271,30 @@ fn rotate_logs(log_path: &PathBuf) {
 
 fn spawn_backend_monitor(app: &tauri::AppHandle) {
     let app_clone = app.clone();
+    let cancel = app_clone.state::<BackendState>().monitor_cancel.clone();
+    // Reset cancel flag so this monitor runs; any previous monitor will see it was cancelled
+    // via the sleep+check cycle (it checks cancel before emitting events).
+    // We also set cancel=true briefly in start_backend_process before calling this.
+    cancel.store(false, Ordering::SeqCst);
     thread::spawn(move || {
         loop {
             thread::sleep(Duration::from_secs(3));
+            if cancel.load(Ordering::SeqCst) {
+                return; // Another monitor replaced us
+            }
             let exit_status = {
                 let state = app_clone.state::<BackendState>();
-                let mut guard = match state.0.lock() {
+                let mut guard = match state.child.lock() {
                     Ok(g) => g,
                     Err(_) => return,
                 };
                 guard.as_mut().and_then(|c| c.try_wait().ok().flatten())
             };
             if let Some(status) = exit_status {
-                let code = status.code().unwrap_or(-1);
-                let _ = app_clone.emit("backend-crashed", code);
+                if !cancel.load(Ordering::SeqCst) {
+                    let code = status.code().unwrap_or(-1);
+                    let _ = app_clone.emit("backend-crashed", code);
+                }
                 return;
             }
         }
@@ -328,7 +343,7 @@ fn start_backend_process(
 
     // 3. Kill old process if any
     {
-        let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
+        let mut proc_guard = state.child.lock().map_err(|e| e.to_string())?;
         if let Some(mut child) = proc_guard.take() {
             log_line(&mut log_file, "Killing previous backend process...");
             let _ = child.kill();
@@ -434,7 +449,7 @@ fn start_backend_process(
 
     // 10. Move child to state (ownership transferred — no clone needed)
     {
-        let mut proc_guard = state.0.lock().map_err(|e| e.to_string())?;
+        let mut proc_guard = state.child.lock().map_err(|e| e.to_string())?;
         *proc_guard = Some(child);
     }
 
@@ -452,7 +467,7 @@ fn start_backend_process(
     loop {
         // a) Check if process died (via state mutex — non-blocking)
         let exit_status = {
-            let mut guard = state.0.lock().map_err(|e| e.to_string())?;
+            let mut guard = state.child.lock().map_err(|e| e.to_string())?;
             guard.as_mut().and_then(|c| c.try_wait().ok().flatten())
         };
         if let Some(status) = exit_status {
@@ -495,6 +510,9 @@ fn start_backend_process(
                         log_line(&mut log_file, "Backend is ready (health check passed, /debug/build unavailable)");
                     }
                 }
+                // Cancel any existing monitor thread before starting a new one
+                state.monitor_cancel.store(true, Ordering::SeqCst);
+                thread::sleep(Duration::from_millis(100)); // Brief pause for old monitor to exit
                 spawn_backend_monitor(app);
                 let _ = app.emit("backend-ready", true);
                 return Ok(());
@@ -607,12 +625,16 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             // Register backend state
-            let state = BackendState(Mutex::new(None));
+            let state = BackendState {
+                child: Mutex::new(None),
+                monitor_cancel: Arc::new(AtomicBool::new(false)),
+            };
             app.manage(state);
 
             // Load settings and start backend
             let settings = load_settings(app.handle());
-            log::info!("Loaded settings: {:?}", settings);
+            log::info!("Loaded settings: storage_dir={}, first_run={}, llm_provider={}, openai_model={}",
+                settings.storage_dir, settings.first_run, settings.llm_provider, settings.openai_model);
 
             let state_ref = app.state::<BackendState>();
             if let Err(e) = start_backend_process(app.handle(), &state_ref, &settings.storage_dir, &settings) {
@@ -643,7 +665,8 @@ pub fn run() {
                 use tauri::Manager;
                 // Paksa bunuh backend process jika masih berjalan
                 if let Some(state) = app_handle.try_state::<BackendState>() {
-                    if let Ok(mut guard) = state.0.lock() {
+                    state.monitor_cancel.store(true, Ordering::SeqCst);
+                    if let Ok(mut guard) = state.child.lock() {
                         if let Some(child) = guard.take() {
                             kill_child(child);
                         }

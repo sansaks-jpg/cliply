@@ -471,213 +471,211 @@ def _analyze_video(
                     
                 is_group = False
                 
+                # ── FACE DETECTION (master & individual) ──────────────────
                 if is_master_segment:
-                    # ── BEHAVIOR SEGMEN MASTER ────────────────────────────────
-                    # Paksa shot_type = "wide_cut" (letterbox blur penuh), letakkan di tengah.
-                    # Kita tidak mendeteksi wajah di segmen master untuk performa tinggi & zero noise.
-                    target_cx = src_w // 2
-                    target_cy = src_h // 2
-                    face_ratio = 0.0
-                    shot_type_to_use = "wide_cut"
-                    num_faces_detected = 2  # dummy count for master
+                    # Master segment: detect faces at lower threshold, find active speaker
+                    faces = _detect_faces(detector, face_detector, frame, max(0.20, RENDER_CFG.CONFIDENCE_THRESHOLD - 0.10))
                 else:
-                    # ── BEHAVIOR SEGMEN INDIVIDU ──────────────────────────────
-                    # Camera Lock Anchor
-                    locked_cx = int(active_seg.get("avg_cx", src_w // 2)) if active_seg else src_w // 2
-                    
-                    # Deteksi wajah diaktifkan untuk menyesuaikan target_cy dan zoom
+                    # Individual segment: detect faces at normal threshold
                     faces = _detect_faces(detector, face_detector, frame, RENDER_CFG.CONFIDENCE_THRESHOLD)
-                    
-                    # Filter spasial: abaikan wajah dari sisi yang salah untuk mencegah cross-talk
-                    filtered_faces = []
-                    for face in faces:
-                        cx, cy, conf, face_h, bbox = face
-                        if seg_type == "left":
-                            if cx < src_w * 0.6:
-                                filtered_faces.append(face)
-                        elif seg_type == "right":
-                            if cx > src_w * 0.4:
-                                filtered_faces.append(face)
-                        else:
+
+                # Camera Lock Anchor
+                locked_cx = int(active_seg.get("avg_cx", src_w // 2)) if active_seg else src_w // 2
+
+                # Filter spasial: abaikan wajah dari sisi yang salah untuk mencegah cross-talk
+                filtered_faces = []
+                for face in faces:
+                    cx, cy, conf, face_h, bbox = face
+                    if seg_type == "left":
+                        if cx < src_w * 0.6:
                             filtered_faces.append(face)
-                            
-                    num_faces_detected = len(filtered_faces)
-                    current_faces = []
-                    
-                    if num_faces_detected > 0:
-                        # Greedy One-to-One Matching untuk mencegah ID swap & double assignment dengan threshold adaptif (Bug #6)
-                        candidates = []
-                        for f_idx, (cx, cy, conf, face_h, bbox) in enumerate(filtered_faces):
-                            face_height_px = face_h * src_h
-                            local_threshold = max(50.0, face_height_px * 1.5)
-                            
-                            for tid, tinfo in tracked_faces.items():
-                                dist = np.hypot(cx - tinfo["cx"], cy - tinfo["cy"])
-                                if dist < local_threshold:
-                                    candidates.append((dist, f_idx, tid))
-                                    
-                        candidates.sort(key=lambda x: x[0])
-                        
-                        matched_faces_map = {}  # f_idx -> tid
-                        assigned_tids = set()
-                        
-                        for dist, f_idx, tid in candidates:
-                            if f_idx not in matched_faces_map and tid not in assigned_tids:
-                                matched_faces_map[f_idx] = tid
-                                assigned_tids.add(tid)
-                                
-                        for f_idx, face in enumerate(filtered_faces):
-                            cx, cy, conf, face_h, bbox = face
-                            bbox_prev = None
-                            
-                            if f_idx in matched_faces_map:
-                                tid = matched_faces_map[f_idx]
-                                bbox_prev = tracked_faces[tid].get("bbox")
-                                tracked_faces[tid].update({
-                                    "cx": cx,
-                                    "cy": cy,
-                                    "face_h": face_h,
-                                    "missed_frames": 0,
-                                    "bbox": bbox
-                                })
-                            else:
-                                # Recycle ID: ambil ID integer terkecil yang sedang tidak aktif
-                                assigned_ids = set(tracked_faces.keys())
-                                tid = 0
-                                while tid in assigned_ids:
-                                    tid += 1
-                                    
-                                tracked_faces[tid] = {
-                                    "cx": cx,
-                                    "cy": cy,
-                                    "face_h": face_h,
-                                    "missed_frames": 0,
-                                    "bbox": bbox
-                                }
-                                
-                            # Hitung mouth motion untuk wajah ini dengan frame sampel sebelumnya (Bug #2)
-                            motion_val = _compute_mouth_motion(frame, frame_prev_sample, bbox, bbox_prev)
-                            
-                            # Normalisasi score: size vs motion (sehingga gerakan mulut memiliki pengaruh seimbang)
-                            size_score = min(1.0, face_h / 0.5)
-                            total_score = RENDER_CFG.MOTION_WEIGHT * motion_val + RENDER_CFG.SIZE_WEIGHT * size_score
-                            
-                            current_faces.append({
-                                "id": tid,
+                    elif seg_type == "right":
+                        if cx > src_w * 0.4:
+                            filtered_faces.append(face)
+                    else:
+                        filtered_faces.append(face)
+
+                num_faces_detected = len(filtered_faces)
+                current_faces = []
+
+                if num_faces_detected > 0:
+                    # Greedy One-to-One Matching untuk mencegah ID swap & double assignment dengan threshold adaptif (Bug #6)
+                    candidates = []
+                    for f_idx, (cx, cy, conf, face_h, bbox) in enumerate(filtered_faces):
+                        face_height_px = face_h * src_h
+                        local_threshold = max(50.0, face_height_px * 1.5)
+
+                        for tid, tinfo in tracked_faces.items():
+                            dist = np.hypot(cx - tinfo["cx"], cy - tinfo["cy"])
+                            if dist < local_threshold:
+                                candidates.append((dist, f_idx, tid))
+
+                    candidates.sort(key=lambda x: x[0])
+
+                    matched_faces_map = {}  # f_idx -> tid
+                    assigned_tids = set()
+
+                    for dist, f_idx, tid in candidates:
+                        if f_idx not in matched_faces_map and tid not in assigned_tids:
+                            matched_faces_map[f_idx] = tid
+                            assigned_tids.add(tid)
+
+                    for f_idx, face in enumerate(filtered_faces):
+                        cx, cy, conf, face_h, bbox = face
+                        bbox_prev = None
+
+                        if f_idx in matched_faces_map:
+                            tid = matched_faces_map[f_idx]
+                            bbox_prev = tracked_faces[tid].get("bbox")
+                            tracked_faces[tid].update({
                                 "cx": cx,
                                 "cy": cy,
                                 "face_h": face_h,
-                                "bbox": bbox,
-                                "motion": motion_val,
-                                "score": total_score
+                                "missed_frames": 0,
+                                "bbox": bbox
                             })
-                            
-                    # Kelola masa tenggang missed tracker untuk SEMUA tracker (baik ada deteksi wajah di frame ini atau tidak)
-                    # Reset active_speaker_id dengan aman jika tracker dihapus (Bug #1)
-                    detected_ids = {f["id"] for f in current_faces}
-                    for tid in list(tracked_faces.keys()):
-                        if tid not in detected_ids:
-                            tracked_faces[tid]["missed_frames"] += 1
-                            if tracked_faces[tid]["missed_frames"] > RENDER_CFG.MAX_MISSED_SAMPLES:
-                                del tracked_faces[tid]
-                                if active_speaker_id == tid:
-                                    active_speaker_id = None
-                                    speaker_hold_counter = 0
-                                
-                    if num_faces_detected > 0:
-                        face_lost_counter = 0
-                        
-                        # Tentukan is_group_reaction
-                        if num_faces_detected >= RENDER_CFG.GROUP_REACTION_MIN_FACES:
-                            avg_motion = sum(f["motion"] for f in current_faces) / num_faces_detected
-                            if avg_motion >= RENDER_CFG.GROUP_REACTION_MOTION_THRESH:
-                                is_group = True
-                                
-                        # Tentukan wajah utama dengan mempertimbangkan hysteresis dan mouth motion
-                        best_face = max(current_faces, key=lambda f: f["score"])
-                        curr_active_face = next((f for f in current_faces if f["id"] == active_speaker_id), None)
-                        
-                        if active_speaker_id is None or curr_active_face is None:
-                            active_speaker_id = best_face["id"]
-                            speaker_hold_counter = 1
+                        else:
+                            # Recycle ID: ambil ID integer terkecil yang sedang tidak aktif
+                            assigned_ids = set(tracked_faces.keys())
+                            tid = 0
+                            while tid in assigned_ids:
+                                tid += 1
+
+                            tracked_faces[tid] = {
+                                "cx": cx,
+                                "cy": cy,
+                                "face_h": face_h,
+                                "missed_frames": 0,
+                                "bbox": bbox
+                            }
+
+                        # Hitung mouth motion untuk wajah ini dengan frame sampel sebelumnya (Bug #2)
+                        motion_val = _compute_mouth_motion(frame, frame_prev_sample, bbox, bbox_prev)
+
+                        # Normalisasi score: size vs motion (sehingga gerakan mulut memiliki pengaruh seimbang)
+                        size_score = min(1.0, face_h / 0.5)
+                        total_score = RENDER_CFG.MOTION_WEIGHT * motion_val + RENDER_CFG.SIZE_WEIGHT * size_score
+
+                        current_faces.append({
+                            "id": tid,
+                            "cx": cx,
+                            "cy": cy,
+                            "face_h": face_h,
+                            "bbox": bbox,
+                            "motion": motion_val,
+                            "score": total_score
+                        })
+
+                # Kelola masa tenggang missed tracker untuk SEMUA tracker (baik ada deteksi wajah di frame ini atau tidak)
+                # Reset active_speaker_id dengan aman jika tracker dihapus (Bug #1)
+                detected_ids = {f["id"] for f in current_faces}
+                for tid in list(tracked_faces.keys()):
+                    if tid not in detected_ids:
+                        tracked_faces[tid]["missed_frames"] += 1
+                        if tracked_faces[tid]["missed_frames"] > RENDER_CFG.MAX_MISSED_SAMPLES:
+                            del tracked_faces[tid]
+                            if active_speaker_id == tid:
+                                active_speaker_id = None
+                                speaker_hold_counter = 0
+
+                if num_faces_detected > 0:
+                    face_lost_counter = 0
+
+                    # Tentukan is_group_reaction
+                    if num_faces_detected >= RENDER_CFG.GROUP_REACTION_MIN_FACES:
+                        avg_motion = sum(f["motion"] for f in current_faces) / num_faces_detected
+                        if avg_motion >= RENDER_CFG.GROUP_REACTION_MOTION_THRESH:
+                            is_group = True
+
+                    # Tentukan wajah utama dengan mempertimbangkan hysteresis dan mouth motion
+                    best_face = max(current_faces, key=lambda f: f["score"])
+                    curr_active_face = next((f for f in current_faces if f["id"] == active_speaker_id), None)
+
+                    if active_speaker_id is None or curr_active_face is None:
+                        active_speaker_id = best_face["id"]
+                        speaker_hold_counter = 1
+                        main_face = best_face
+                    else:
+                        if best_face["id"] == active_speaker_id:
+                            speaker_hold_counter += 1
                             main_face = best_face
                         else:
-                            if best_face["id"] == active_speaker_id:
-                                speaker_hold_counter += 1
+                            score_diff = best_face["score"] - curr_active_face["score"]
+                            if speaker_hold_counter >= RENDER_CFG.MIN_HOLD_SAMPLES and score_diff >= RENDER_CFG.SWITCH_MARGIN:
+                                active_speaker_id = best_face["id"]
+                                speaker_hold_counter = 1
                                 main_face = best_face
                             else:
-                                score_diff = best_face["score"] - curr_active_face["score"]
-                                if speaker_hold_counter >= RENDER_CFG.MIN_HOLD_SAMPLES and score_diff >= RENDER_CFG.SWITCH_MARGIN:
-                                    active_speaker_id = best_face["id"]
-                                    speaker_hold_counter = 1
-                                    main_face = best_face
-                                else:
-                                    speaker_hold_counter += 1
-                                    main_face = curr_active_face
-                        
-                        # Deadzone Tracking horizontal & Snap instan
-                        if is_group:
-                            # Group Reaction: posisikan di median dari semua wajah yang terdeteksi untuk stabilitas spasial (Bug #4)
-                            target_cx = int(np.median([f["cx"] for f in current_faces]))
-                            target_cy = int(np.median([f["cy"] for f in current_faces]))
-                            face_ratio = 0.0  # Paksa rasio kecil agar masuk wide shot
+                                speaker_hold_counter += 1
+                                main_face = curr_active_face
+
+                    # Deadzone Tracking horizontal & Snap instan
+                    if is_group:
+                        speaking_faces = [f for f in current_faces if f["motion"] > 0.05]
+                        if speaking_faces:
+                            speaker = max(speaking_faces, key=lambda f: f["motion"])
+                            target_cx = speaker["cx"]
+                            target_cy = speaker["cy"]
+                            face_ratio = speaker["face_h"]
                         else:
-                            live_cx = main_face["cx"]
-                            
-                            if is_first_frame_of_cut:
-                                target_cx = live_cx
-                                is_first_frame_of_cut = False
-                            else:
-                                deadzone_margin = int(crop_w * 0.10)
-                                diff_x = live_cx - last_valid_cx
-                                
-                                if abs(diff_x) < deadzone_margin:
-                                    target_cx = last_valid_cx
-                                else:
-                                    target_cx = live_cx
-                                    
-                                # Mean reversion: tarik kembali perlahan ke locked_cx (anchor) untuk mencegah drift horizontal
-                                target_cx = int(0.75 * target_cx + 0.25 * locked_cx)
-                                
+                            target_cx = main_face["cx"]
                             target_cy = main_face["cy"]
                             face_ratio = main_face["face_h"]
-                        
-                        # Klasifikasi tipe shot dengan hysteresis
-                        shot_type_raw = _classify_shot(face_ratio)
-                        if is_group:
-                            shot_type_raw = "wide_cut"
-                        elif shot_type_raw == "wide_cut":
-                            shot_type_raw = "closeup"  # Paksa crop di segmen individu
-                            
-                        if shot_type_raw == last_shot_type:
+                    else:
+                        live_cx = main_face["cx"]
+
+                        if is_first_frame_of_cut:
+                            target_cx = live_cx
+                            is_first_frame_of_cut = False
+                        else:
+                            deadzone_margin = int(crop_w * 0.10)
+                            diff_x = live_cx - last_valid_cx
+
+                            if abs(diff_x) < deadzone_margin:
+                                target_cx = last_valid_cx
+                            else:
+                                target_cx = live_cx
+
+                            # Mean reversion: tarik kembali perlahan ke locked_cx (anchor) untuk mencegah drift horizontal
+                            target_cx = int(0.75 * target_cx + 0.25 * locked_cx)
+
+                        target_cy = main_face["cy"]
+                        face_ratio = main_face["face_h"]
+
+                    # Klasifikasi tipe shot dengan hysteresis
+                    shot_type_raw = _classify_shot(face_ratio)
+                    if shot_type_raw == "wide_cut":
+                        shot_type_raw = "closeup"
+
+                    if shot_type_raw == last_shot_type:
+                        shot_hold_counter += 1
+                        shot_type_to_use = last_shot_type
+                    else:
+                        if shot_hold_counter >= RENDER_CFG.MIN_SHOT_HOLD_SAMPLES:
+                            last_shot_type = shot_type_raw
+                            shot_hold_counter = 1
+                            shot_type_to_use = shot_type_raw
+                        else:
                             shot_hold_counter += 1
                             shot_type_to_use = last_shot_type
-                        else:
-                            if shot_hold_counter >= RENDER_CFG.MIN_SHOT_HOLD_SAMPLES:
-                                last_shot_type = shot_type_raw
-                                shot_hold_counter = 1
-                                shot_type_to_use = shot_type_raw
-                            else:
-                                shot_hold_counter += 1
-                                shot_type_to_use = last_shot_type
-                                
-                        last_valid_cx = target_cx
-                        last_valid_cy = target_cy
-                        last_valid_ratio = face_ratio
-                        last_shot_type = shot_type_to_use
+
+                    last_valid_cx = target_cx
+                    last_valid_cy = target_cy
+                    last_valid_ratio = face_ratio
+                    last_shot_type = shot_type_to_use
+                else:
+                    # Wajah hilang sementara (oklusi/nengok) -> TAHAN POSISI TERAKHIR secara mutlak.
+                    # Jika wajah hilang terlalu lama (> 3 detik / ~6 sampel), perlahan kembalikan ke anchor segment (Bug #5)
+                    face_lost_counter += 1
+                    if face_lost_counter > 6:
+                        target_cx = int(0.90 * last_valid_cx + 0.10 * locked_cx)
+                        target_cy = int(0.90 * last_valid_cy + 0.10 * (src_h // 2))
                     else:
-                        # Wajah hilang sementara (oklusi/nengok) -> TAHAN POSISI TERAKHIR secara mutlak.
-                        # Jika wajah hilang terlalu lama (> 3 detik / ~6 sampel), perlahan kembalikan ke anchor segment (Bug #5)
-                        face_lost_counter += 1
-                        if face_lost_counter > 6:
-                            target_cx = int(0.90 * last_valid_cx + 0.10 * locked_cx)
-                            target_cy = int(0.90 * last_valid_cy + 0.10 * (src_h // 2))
-                        else:
-                            target_cx = last_valid_cx
-                            target_cy = last_valid_cy
-                            
-                        face_ratio = last_valid_ratio
-                        shot_type_to_use = last_shot_type
+                        target_cx = last_valid_cx
+                        target_cy = last_valid_cy
+
+                    face_ratio = last_valid_ratio
+                    shot_type_to_use = last_shot_type
                         
                 samples.append(SampleFrame(
                     time=t,
