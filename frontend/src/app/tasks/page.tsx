@@ -205,7 +205,7 @@ function TaskPageContent() {
     let active = true;
     (async () => {
       setLoading(true);
-      const data = await refresh();
+      await refresh();
       if (active) setLoading(false);
     })();
     return () => {
