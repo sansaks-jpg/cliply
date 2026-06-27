@@ -23,7 +23,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8003 http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'"
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:8003 http://ipc.localhost; img-src 'self' data:; media-src 'self' http://127.0.0.1:8003 blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self'"
     }
   },
   "bundle": {
