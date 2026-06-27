@@ -72,3 +72,6 @@ next-env.d.ts
 # Agent loop working files
 _agent-loop/
 archive/
+
+# Backend ad-hoc test scripts (not part of CI)
+backend/test_*.py
