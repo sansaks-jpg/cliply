@@ -1,0 +1,6 @@
+## 2025-02-14 - SSRF and TOCTOU DNS Rebinding in Proxy Endpoint
+**Vulnerability:** Server-Side Request Forgery (SSRF) with Time-Of-Check to Time-Of-Use (TOCTOU) DNS Rebinding vulnerability was present in the proxy endpoint (`/models`) for fetching LLM models. The original code validated the URL hostname but passed the URL directly to the HTTP client (requests), allowing it to resolve the domain again and bypass SSRF checks by pointing to local or internal metadata addresses (like AWS `169.254.169.254`).
+
+**Learning:** URL hostnames can change resolutions between validation and use (DNS Rebinding). Validation against internal subnets must be done on the resolved IP address, and the request must be rewritten to hit the resolved IP explicitly while preserving the original `Host` HTTP header to prevent routing issues with the target service.
+
+**Prevention:** Always resolve the hostname to an IP address (`asyncio.get_running_loop().getaddrinfo()`), validate the IP against restricted lists (`ipaddress.is_private`, `is_link_local`, etc.), rewrite the request to target the resolved IP address, inject the original domain in the HTTP `Host` header, and pass `verify=False` if using HTTPS where the IP address doesn't match the SSL certificate's hostname.

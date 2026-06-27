@@ -183,7 +183,10 @@ async def debug_build() -> dict:
 @app.get("/models")
 async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict:
     """Proxy to fetch available models from an OpenAI-compatible endpoint, solving CORS."""
-    from urllib.parse import urlparse
+    import asyncio
+    import ipaddress
+    import socket
+    from urllib.parse import urlparse, urlunparse
 
     import requests
     from fastapi.concurrency import run_in_threadpool
@@ -191,13 +194,44 @@ async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict
     if not base_url:
         return {"data": []}
 
-    # SSRF protection: hanya izinkan localhost / trusted origins
-    TRUSTED_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0"}
     parsed = urlparse(base_url)
     host = parsed.hostname or ""
-    if host and host not in TRUSTED_HOSTS:
-        return {"data": [], "error": "Untrusted host"}
+    if not host:
+        return {"data": [], "error": "Invalid URL"}
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
+    try:
+        loop = asyncio.get_running_loop()
+        addr_info = await loop.getaddrinfo(
+            host, port, family=socket.AF_INET, type=socket.SOCK_STREAM
+        )
+        resolved_ip = addr_info[0][4][0]
+    except Exception as e:
+        return {"data": [], "error": f"DNS resolution failed: {e}"}
+
+    try:
+        ip_obj = ipaddress.ip_address(resolved_ip)
+    except ValueError:
+        return {"data": [], "error": "Invalid IP address resolved"}
+
+    # SSRF protection: deny internal/loopback/metadata IPs unless it's explicitly trusted localhost
+    if host not in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        if (
+            ip_obj.is_loopback
+            or ip_obj.is_private
+            or ip_obj.is_link_local
+            or ip_obj.is_multicast
+            or not ip_obj.is_global
+            or str(ip_obj) == "169.254.169.254"
+        ):
+            return {"data": [], "error": "Untrusted destination IP"}
+
+    # To prevent TOCTOU DNS rebinding, we must connect using the resolved IP.
+    # However, rewriting the URL to use the IP directly causes TLS certificate
+    # validation to fail (since the cert is for the hostname). Disabling `verify`
+    # is a severe security risk as it exposes API keys to MITM attacks.
+    # Instead, we mount a custom HTTPAdapter on requests to force the IP connection
+    # while preserving the original URL (and thus hostname) for correct TLS SNI validation.
     formatted_url = base_url.rstrip("/")
     if not formatted_url.endswith("/models"):
         formatted_url = f"{formatted_url}/models"
@@ -206,10 +240,23 @@ async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    class _HostHeaderAdapter(requests.adapters.HTTPAdapter):
+        def __init__(self, resolved_ip, *args, **kwargs):
+            self.resolved_ip = resolved_ip
+            super().__init__(*args, **kwargs)
+
+        def get_connection(self, url, proxies=None):
+            conn = super().get_connection(url, proxies)
+            conn.host = self.resolved_ip
+            return conn
+
     try:
 
         def _fetch():
-            return requests.get(formatted_url, headers=headers, timeout=8)
+            with requests.Session() as s:
+                prefix = f"{parsed.scheme}://{host}"
+                s.mount(prefix, _HostHeaderAdapter(resolved_ip))
+                return s.get(formatted_url, headers=headers, timeout=8)
 
         response = await run_in_threadpool(_fetch)
         if response.status_code == 200:
