@@ -76,18 +76,27 @@ def _cut_subclip(source_path: str, start: float, end: float, out_path: str,
 
 
 def _letterbox(frame: np.ndarray, crop_w: int, crop_h: int) -> np.ndarray:
+    """Center the horizontal frame in a 9:16 canvas with a zoomed-in blurred background.
+
+    The background is the original frame scaled to FILL the crop dimensions
+    (zoomed/cropped to cover the entire 9:16 area), then heavily blurred.
+    """
     h, w = frame.shape[:2]
+
+    # Foreground: scale frame to fit inside crop (preserve aspect ratio)
     scale = min(crop_w / w, crop_h / h)
     new_w, new_h = int(w * scale), int(h * scale)
-    resized = cv2.resize(frame, (new_w, new_h))
+    resized = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
 
-    # Optimasi Blur Background via Downscaling (Beban CPU turun 99%+)
-    small_w = 128
-    small_h = int(small_w * (h / w))
-    small_bg = cv2.resize(frame, (small_w, small_h))
-    small_bg = cv2.GaussianBlur(small_bg, (9, 9), 0)
-    bg = cv2.resize(small_bg, (crop_w, crop_h))
+    # Background: scale frame to FILL crop (zoomed, may crop edges)
+    bg_scale = max(crop_w / w, crop_h / h)
+    bg_w, bg_h = int(w * bg_scale), int(h * bg_scale)
+    # Downscale first for fast blur, then upscale
+    small_bg = cv2.resize(frame, (crop_w // 4, crop_h // 4), interpolation=cv2.INTER_AREA)
+    small_bg = cv2.GaussianBlur(small_bg, (51, 51), 0)
+    bg = cv2.resize(small_bg, (crop_w, crop_h), interpolation=cv2.INTER_LINEAR)
 
+    # Center foreground on blurred background
     x_off = (crop_w - new_w) // 2
     y_off = (crop_h - new_h) // 2
     bg[y_off:y_off + new_h, x_off:x_off + new_w] = resized
@@ -295,10 +304,9 @@ def _analyze_video(
                 if num_faces_detected > 0:
                     face_lost_counter = 0
 
-                    if num_faces_detected >= RENDER_CFG.GROUP_REACTION_MIN_FACES:
-                        avg_motion = sum(f["motion"] for f in current_faces) / num_faces_detected
-                        if avg_motion >= RENDER_CFG.GROUP_REACTION_MOTION_THRESH:
-                            is_group = True
+                    if num_faces_detected >= 2:
+                        # 2+ orang di frame → tampilkan horizontal + blur
+                        is_group = True
 
                     effective_switch_margin = sp.switch_margin
                     if num_faces_detected > 2:
@@ -341,16 +349,10 @@ def _analyze_video(
 
                     # Deadzone Tracking horizontal & Snap instan
                     if is_group:
-                        speaking_faces = [f for f in current_faces if f["motion"] > 0.05]
-                        if speaking_faces:
-                            speaker = max(speaking_faces, key=lambda f: f["motion"])
-                            target_cx = speaker["cx"]
-                            target_cy = speaker["cy"]
-                            face_ratio = speaker["face_h"]
-                        else:
-                            target_cx = main_face["cx"]
-                            target_cy = main_face["cy"]
-                            face_ratio = main_face["face_h"]
+                        # 2+ orang: tampilkan horizontal + blur background, bukan crop
+                        target_cx = src_w // 2
+                        target_cy = src_h // 2
+                        face_ratio = 0.0  # force wide_cut classification
                     else:
                         live_cx = main_face["cx"]
 
