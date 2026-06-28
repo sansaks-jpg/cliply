@@ -17,6 +17,35 @@ from scenedetect import detect, ContentDetector
 from ..config import RENDER_CFG, STORAGE_DIR, resolve_encoder
 
 
+class FaceKalmanTracker:
+    """8-state constant-velocity Kalman filter for smooth face tracking."""
+    def __init__(self):
+        self.kf = cv2.KalmanFilter(8, 4, 0, cv2.CV_32F)
+        dt = 1.0
+        self.kf.transitionMatrix = np.array([
+            [1,0,0,0,dt,0,0,0],
+            [0,1,0,0,0,dt,0,0],
+            [0,0,1,0,0,0,dt,0],
+            [0,0,0,1,0,0,0,dt],
+            [0,0,0,0,1,0,0,0],
+            [0,0,0,0,0,1,0,0],
+            [0,0,0,0,0,0,1,0],
+            [0,0,0,0,0,0,0,1],
+        ], dtype=np.float32)
+        self.kf.measurementMatrix = np.eye(4, 8, dtype=np.float32)
+        cv2.setIdentity(self.kf.processNoiseCov, 1e-4)
+        cv2.setIdentity(self.kf.measurementNoiseCov, 1e-1)
+        cv2.setIdentity(self.kf.errorCovPost, 1.0)
+
+    def predict(self):
+        return self.kf.predict()
+
+    def update(self, bbox):
+        """bbox = [cx, cy, w, h]"""
+        meas = np.array([bbox[0], bbox[1], bbox[2], bbox[3]], dtype=np.float32).reshape(4, 1)
+        return self.kf.correct(meas)
+
+
 @dataclass
 class SensitivityParams:
     """Runtime-adjusted detection parameters derived from sensitivity (0-100)."""
@@ -29,23 +58,19 @@ class SensitivityParams:
     max_missed_samples: int
 
 
-def apply_sensitivity(sensitivity: int) -> SensitivityParams:
-    """Map sensitivity 0-100 to detection parameters.
+def apply_sensitivity(sensitivity: int = 50, face_detector: str = "yunet") -> SensitivityParams:
+    """Return SensitivityParams tuned per face detector model.
 
-    0 = most sensitive (aggressive detection, fast speaker switching)
-    50 = defaults from RENDER_CFG
-    100 = most stable (conservative detection, slow switching)
+    ``sensitivity`` param is DEPRECATED — thresholds are auto-tuned per model.
+    Kept for backward compatibility.
     """
-    t = max(0, min(100, sensitivity)) / 100.0  # 0.0..1.0
-    return SensitivityParams(
-        confidence_threshold=0.15 + t * 0.30,        # 0.15 .. 0.45
-        motion_weight=0.75 - t * 0.30,               # 0.75 .. 0.45
-        size_weight=0.25 + t * 0.30,                  # 0.25 .. 0.55
-        switch_margin=0.05 + t * 0.20,                # 0.05 .. 0.25
-        min_hold_samples=max(1, int(1 + t * 5)),      # 1 .. 6
-        min_shot_hold_samples=max(1, int(1 + t * 5)), # 1 .. 6
-        max_missed_samples=max(2, int(2 + t * 4)),    # 2 .. 6
-    )
+    _PER_MODEL = {
+        "yunet":        SensitivityParams(0.35, 0.60, 0.40, 0.12, 3, 3, 4),
+        "mediapipe":    SensitivityParams(0.25, 0.65, 0.35, 0.15, 4, 4, 5),
+        "yolov8-face":  SensitivityParams(0.40, 0.55, 0.45, 0.10, 3, 3, 3),
+        "ssd":          SensitivityParams(0.50, 0.60, 0.40, 0.15, 4, 4, 4),
+    }
+    return _PER_MODEL.get(face_detector, _PER_MODEL["yunet"])
 from .utils import sanitize_env
 
 log = logging.getLogger(__name__)
@@ -334,44 +359,56 @@ def _detect_faces_ssd(net, frame: np.ndarray, conf_threshold: float = 0.5) -> Li
 def _compute_mouth_motion(frame_curr: np.ndarray, frame_prev: Optional[np.ndarray], 
                           bbox_curr: Tuple[int, int, int, int],
                           bbox_prev: Optional[Tuple[int, int, int, int]]) -> float:
-    """Compute motion energy in mouth region (lower 40% of face bbox) with motion compensation and smoothing."""
+    """Compute motion energy in mouth region (lower 40% of face bbox) with motion compensation.
+
+    Rejects global head motion by shifting prev ROI to align with current bbox center.
+    """
     if frame_prev is None or bbox_prev is None:
         return 0.0
-    
-    # 1. Dapatkan ROI mulut sekarang
+
     x1_c, y1_c, x2_c, y2_c = bbox_curr
+    x1_p, y1_p, x2_p, y2_p = bbox_prev
+
+    # Motion compensation: compute bbox center shift
+    cx_c = (x1_c + x2_c) // 2
+    cy_c = (y1_c + y2_c) // 2
+    cx_p = (x1_p + x2_p) // 2
+    cy_p = (y1_p + y2_p) // 2
+    dx = cx_c - cx_p
+    dy = cy_c - cy_p
+
+    # Apply shift to prev mouth ROI (lower 40% of face bbox)
     h_c = y2_c - y1_c
     my1_c = max(0, min(y1_c + int(h_c * 0.6), frame_curr.shape[0] - 1))
     my2_c = max(0, min(y2_c, frame_curr.shape[0]))
     mx1_c = max(0, min(x1_c, frame_curr.shape[1] - 1))
     mx2_c = max(0, min(x2_c, frame_curr.shape[1]))
-    
     if my2_c <= my1_c or mx2_c <= mx1_c:
         return 0.0
-        
     region_curr = _to_gray(frame_curr[my1_c:my2_c, mx1_c:mx2_c])
     region_curr = cv2.GaussianBlur(region_curr, (5, 5), 0)
-    
-    # 2. Dapatkan ROI mulut sebelumnya (motion compensated ROI)
-    x1_p, y1_p, x2_p, y2_p = bbox_prev
+
+    # Motion-compensated prev mouth ROI (shifted by dx, dy)
     h_p = y2_p - y1_p
-    my1_p = max(0, min(y1_p + int(h_p * 0.6), frame_prev.shape[0] - 1))
-    my2_p = max(0, min(y2_p, frame_prev.shape[0]))
-    mx1_p = max(0, min(x1_p, frame_prev.shape[1] - 1))
-    mx2_p = max(0, min(x2_p, frame_prev.shape[1]))
-    
+    my1_p = max(0, min(y1_p + int(h_p * 0.6) + dy, frame_prev.shape[0] - 1))
+    my2_p = max(0, min(y2_p + dy, frame_prev.shape[0]))
+    mx1_p = max(0, min(x1_p + dx, frame_prev.shape[1] - 1))
+    mx2_p = max(0, min(x2_p + dx, frame_prev.shape[1]))
     if my2_p <= my1_p or mx2_p <= mx1_p:
         return 0.0
-        
     region_prev = _to_gray(frame_prev[my1_p:my2_p, mx1_p:mx2_p])
-    
-    # 3. Resize region_prev agar berukuran persis sama dengan region_curr jika berbeda
     if region_prev.shape != region_curr.shape:
         region_prev = cv2.resize(region_prev, (region_curr.shape[1], region_curr.shape[0]))
     region_prev = cv2.GaussianBlur(region_prev, (5, 5), 0)
-        
+
     diff = cv2.absdiff(region_curr, region_prev)
-    return float(np.mean(diff)) / 255.0
+    motion = float(np.mean(diff)) / 255.0
+
+    # Normalize by face height ratio to make scale-invariant
+    face_h_ratio = h_c / frame_curr.shape[0]
+    if face_h_ratio > 0.01:
+        motion = motion / face_h_ratio
+    return min(1.0, motion)
 
 
 
@@ -621,7 +658,21 @@ def _analyze_video(
                         if avg_motion >= RENDER_CFG.GROUP_REACTION_MOTION_THRESH:
                             is_group = True
 
-                    # Tentukan wajah utama dengan mempertimbangkan hysteresis dan mouth motion
+                    # Multi-face penalty + smooth motion + active speaker bonus
+                    effective_switch_margin = sp.switch_margin
+                    if num_faces_detected > 2:
+                        effective_switch_margin *= 1.5
+
+                    for f in current_faces:
+                        if "motion_history" not in f:
+                            f["motion_history"] = []
+                        f["motion_history"].append(f["motion"])
+                        if len(f["motion_history"]) > 3:
+                            f["motion_history"].pop(0)
+                        smooth_motion = sum(f["motion_history"]) / len(f["motion_history"])
+                        bonus = 0.05 if f["id"] == active_speaker_id else 0
+                        f["score"] = sp.motion_weight * smooth_motion + sp.size_weight * min(1.0, f.get("face_h", 1.0) / 0.5) + bonus
+
                     best_face = max(current_faces, key=lambda f: f["score"])
                     curr_active_face = next((f for f in current_faces if f["id"] == active_speaker_id), None)
 
@@ -635,7 +686,7 @@ def _analyze_video(
                             main_face = best_face
                         else:
                             score_diff = best_face["score"] - curr_active_face["score"]
-                            if speaker_hold_counter >= sp.min_hold_samples and score_diff >= sp.switch_margin:
+                            if speaker_hold_counter >= sp.min_hold_samples and score_diff >= effective_switch_margin:
                                 active_speaker_id = best_face["id"]
                                 speaker_hold_counter = 1
                                 main_face = best_face
@@ -734,58 +785,53 @@ def _analyze_video(
 
 
 def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: int) -> List[Tuple[int, int, float, str, bool]]:
-    """Apply non-causal smoothing (moving average within scene boundaries) to eliminate camera lag."""
+    """Apply Kalman-filter smoothing within scene boundaries for jitter-free tracking."""
     if not samples:
         return []
-        
-    n = len(samples)
-    smoothed = []
-    
-    # 1. Bagi sampel menjadi beberapa segmen scene terpisah berdasarkan boundary cut
+
+    # Group samples into scenes separated by cuts
     scenes = []
     current_scene = []
-    
     for s in samples:
         if s.is_cut and current_scene:
             scenes.append(current_scene)
             current_scene = [s]
         else:
             current_scene.append(s)
-            
     if current_scene:
         scenes.append(current_scene)
-        
-    # 2. Terapkan moving average di dalam masing-masing scene secara terpisah
-    window_size = 3  # FIX: Turunin ke 3 biar gak telat ngerender pergerakan
-    half_w = window_size // 2
-    
+
+    result = []
     for scene in scenes:
-        scene_len = len(scene)
-        for i, s in enumerate(scene):
-            # Jika ini adalah segmen master, kita paksa di tengah (tidak usah di-smooth)
+        if not scene:
+            continue
+        # wide_cut (master) segments: no smoothing, pass through
+        if all(s.shot_type == "wide_cut" for s in scene):
+            for s in scene:
+                result.append((s.raw_cx, s.raw_cy, s.face_ratio, s.shot_type, s.is_cut))
+            continue
+
+        # One Kalman tracker per scene, reset on first frame
+        kalman = FaceKalmanTracker()
+        first = True
+        for s in scene:
             if s.shot_type == "wide_cut":
-                smoothed.append((s.raw_cx, s.raw_cy, 0.0, s.shot_type, s.is_cut))
+                result.append((s.raw_cx, s.raw_cy, s.face_ratio, s.shot_type, s.is_cut))
                 continue
-                
-            # Moving average dengan penanganan batas (boundary clamping)
-            sum_cx = 0
-            sum_cy = 0
-            sum_ratio = 0.0
-            count = 0
-            
-            for j in range(max(0, i - half_w), min(scene_len, i + half_w + 1)):
-                sum_cx += scene[j].raw_cx
-                sum_cy += scene[j].raw_cy
-                sum_ratio += scene[j].face_ratio
-                count += 1
-                
-            smooth_cx = int(sum_cx / count) if count > 0 else s.raw_cx
-            smooth_cy = int(sum_cy / count) if count > 0 else s.raw_cy
-            smooth_ratio = sum_ratio / count if count > 0 else s.face_ratio
-            
-            smoothed.append((smooth_cx, smooth_cy, smooth_ratio, s.shot_type, s.is_cut))
-            
-    return smoothed
+            if first:
+                kalman.update([s.raw_cx, s.raw_cy, int(s.face_ratio * src_w), int(s.face_ratio * src_h)])
+                smooth_cx, smooth_cy = s.raw_cx, s.raw_cy
+                first = False
+            else:
+                # Predict then correct
+                kalman.predict()
+                corrected = kalman.update([s.raw_cx, s.raw_cy, int(s.face_ratio * src_w), int(s.face_ratio * src_h)])
+                smooth_cx = int(corrected[0][0])
+                smooth_cy = int(corrected[1][0])
+
+            result.append((smooth_cx, smooth_cy, s.face_ratio, s.shot_type, s.is_cut))
+
+    return result
 
 
 def _generate_camera_segments(source_path: str, detector, face_detector: str) -> List[Dict[str, Any]]:
@@ -1278,7 +1324,7 @@ def render_clips(
     sensitivity: int = 50,
 ) -> List[Dict]:
     sanitize_env()
-    sp = apply_sensitivity(sensitivity)
+    sp = apply_sensitivity(sensitivity, face_detector)  # sensitivity deprecated — auto-tuned per model
     encoder_args = resolve_encoder(encoder)
     clips_dir = str(STORAGE_DIR / task_id / "clips")
     os.makedirs(clips_dir, exist_ok=True)
