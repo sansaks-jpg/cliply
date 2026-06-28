@@ -1,5 +1,10 @@
 """Transcribe video — YouTube → Gemini 2.5 Flash (speaker detection) → Groq Whisper.
 
+Submodules:
+  - transcriber_youtube: YouTube transcript API provider
+  - transcriber_gemini: Google Gemini 2.5 Flash provider
+  - transcriber_groq: Groq Whisper provider
+
 Pipeline:
 1. youtube-transcript-api (fast, free, no speaker detection)
 2. Google AI Studio Gemini 2.5 Flash (speaker detection, diarization)
@@ -68,8 +73,6 @@ def _write_srt(media_path: str, transcript: Dict, task_dir: str) -> Path:
     # Also cache as JSON to preserve speaker detection info and other fields
     json_cache_path = Path(task_dir) / "transcript.json"
     try:
-        import json
-
         json_cache_path.write_text(json.dumps(transcript, indent=2), encoding="utf-8")
     except Exception as e:
         logger.warning(f"[transcribe] failed to write JSON cache: %s", e)
@@ -83,7 +86,7 @@ def _load_srt(cache_path: Path) -> Dict:
         return {"duration": 0.0, "segments": []}
     segments = []
     for block in re.split(r"\n\s*\n", content):
-        lines = [l.strip("\ufeff") for l in block.splitlines() if l.strip()]
+        lines = [l.strip("﻿") for l in block.splitlines() if l.strip()]
         if not lines:
             continue
         if "-->" not in lines[0] and len(lines) > 1 and "-->" in lines[1]:
@@ -105,26 +108,9 @@ def _load_srt(cache_path: Path) -> Dict:
 
 # ── Hallucination Cleaner ────────────────────────────────────────
 
-# Kata-kata pendek/filler yang berpotensi jadi hallucination loop
 _FILLER_WORDS = {
-    "oke",
-    "ok",
-    "he eh",
-    "hehe",
-    "iya",
-    "eh",
-    "uh",
-    "um",
-    "mm",
-    "hmm",
-    "ya",
-    "yah",
-    "yep",
-    "yes",
-    "no",
-    "nah",
-    "okay",
-    "alright",
+    "oke", "ok", "he eh", "hehe", "iya", "eh", "uh", "um", "mm", "hmm",
+    "ya", "yah", "yep", "yes", "no", "nah", "okay", "alright",
 }
 
 
@@ -137,24 +123,14 @@ def _is_filler_segment(seg: Dict) -> bool:
 def _clean_hallucinations(
     segments: list, video_duration: float = 0.0, task_id: Optional[str] = None
 ) -> list:
-    """Bersihkan hallucination loops dari output Gemini.
-
-    Strategi:
-    1. Buang segmen di luar durasi video.
-    2. Perbaiki timestamp tidak valid (end <= start).
-    3. Deteksi blok berulang (>= 10 filler berturut-turut) dan potong.
-    4. Gabungkan blok setelah gap besar akibat pemotongan ke segmen berikutnya yang valid.
-    5. Deteksi & re-estimasi segmen dengan durasi per kata tidak wajar (>1.0 detik/kata).
-    """
+    """Bersihkan hallucination loops dari output Gemini."""
     if not segments:
         return segments
 
     cleaned: list = []
     n = len(segments)
 
-    HALLUCINATION_RUN = (
-        10  # minimum run consecutive fillers untuk dianggap hallucination
-    )
+    HALLUCINATION_RUN = 10
 
     i = 0
     while i < n:
@@ -162,25 +138,23 @@ def _clean_hallucinations(
         start = float(seg.get("start", 0.0))
         end = float(seg.get("end", 0.0))
 
-        # 1. Buang segmen yang melebihi durasi video (dengan toleransi 2 detik)
+        # 1. Buang segmen yang melebihi durasi video
         if video_duration > 0 and start > video_duration + 2.0:
             break
 
-        # 2. Perbaiki end < start (timestamp anomaly)
+        # 2. Perbaiki end < start
         if end < start:
-            # Coba ambil end dari segmen berikutnya yang valid
             for j in range(i + 1, min(i + 5, n)):
                 next_end = float(segments[j].get("end", 0.0))
                 if next_end > start:
                     end = next_end
                     break
             else:
-                # Perkiraan: +2 detik
                 end = start + 2.0
             seg = dict(seg)
             seg["end"] = end
 
-        # 3. Deteksi blok hallucination: hitung berapa filler berturut-turut mulai dari i
+        # 3. Deteksi blok hallucination
         if _is_filler_segment(seg):
             run_len = 0
             for j in range(i, min(i + HALLUCINATION_RUN + 1, n)):
@@ -189,7 +163,6 @@ def _clean_hallucinations(
                 else:
                     break
             if run_len >= HALLUCINATION_RUN:
-                # Ini adalah hallucination block — skip sampai ketemu non-filler berikutnya
                 skipped = 0
                 while i < n and _is_filler_segment(segments[i]):
                     i += 1
@@ -202,10 +175,9 @@ def _clean_hallucinations(
         cleaned.append(dict(seg) | {"start": start, "end": end})
         i += 1
 
-    # 4. Sort ulang berdasarkan start time (jaga-jaga kalau ada yang out of order)
     cleaned.sort(key=lambda s: s["start"])
 
-    # 5. Deteksi segmen dengan durasi per kata tidak wajar (hallucination timestamp panjang)
+    # 4. Deteksi segmen dengan durasi per kata tidak wajar
     MAX_SEC_PER_WORD = 1.0
     NORMAL_SEC_PER_WORD = 0.5
     re_estimated = 0
@@ -241,145 +213,16 @@ def _clean_hallucinations(
     return cleaned
 
 
-def _try_youtube_transcript(video_url: str) -> Optional[Dict]:
-    """Try to get transcript using youtube-transcript-api v1.x."""
-    logger.info("[transcribe] YouTube: attempting transcript API for %s", video_url)
-    try:
-        from youtube_transcript_api import YouTubeTranscriptApi
-
-        logger.info("[transcribe] YouTube: youtube_transcript_api SDK imported OK")
-    except Exception as e:
-        logger.error("[transcribe] YouTube: SDK import FAILED: %s", e, exc_info=True)
-        return None
-
-    try:
-        video_id = extract_video_id(video_url)
-        if not video_id:
-            logger.debug("[transcribe] YouTube: could not extract video ID from %s", video_url)
-            return None
-
-        logger.info("[transcribe] YouTube: video_id=%s, listing transcripts...", video_id)
-        api = YouTubeTranscriptApi()
-        transcript_list = api.list(video_id)
-
-        # Try manual transcripts first (Indonesian, then English)
-        try:
-            transcript = transcript_list.find_manually_created_transcript(["id", "en"])
-            entries = transcript.fetch()
-            logger.info("[transcribe] YouTube: found manual transcript")
-            return _parse_youtube_transcript(entries)
-        except Exception as e:
-            logger.debug("[transcribe] YouTube: no manual transcript (id/en): %s", e)
-
-        # Try auto-generated transcripts
-        try:
-            transcript = transcript_list.find_generated_transcript(["id", "en"])
-            entries = transcript.fetch()
-            logger.info("[transcribe] YouTube: found auto-generated transcript")
-            return _parse_youtube_transcript(entries)
-        except Exception as e:
-            logger.debug("[transcribe] YouTube: no auto-generated transcript (id/en): %s", e)
-
-        logger.info("[transcribe] YouTube: no transcript available for this video")
-        return None
-    except Exception as e:
-        logger.warning("[transcribe] YouTube transcript API failed: %s", e, exc_info=True)
-        return None
-
-
-def _parse_youtube_transcript(entries) -> Dict:
-    """Parse youtube-transcript-api entries into segments."""
-    segments = []
-    for entry in entries:
-        start = float(entry.start)
-        duration = float(entry.duration)
-        text = entry.text.strip().replace("\n", " ")
-        if text:
-            segments.append({"start": start, "end": start + duration, "text": text})
-    duration = segments[-1]["end"] if segments else 0.0
-    return {"duration": duration, "segments": segments}
-
-
-# ── Stage 2: Google AI Studio Gemini 2.5 Flash ───────────────────
-
-
 def _download_audio(video_path: str, task_dir: str) -> str:
     """Extract audio from video file using ffmpeg."""
     audio_path = os.path.join(task_dir, "audio.mp3")
     cmd = [
-        "ffmpeg",
-        "-y",
-        "-loglevel",
-        "error",
-        "-i",
-        video_path,
-        "-vn",
-        "-acodec",
-        "libmp3lame",
-        "-q:a",
-        "4",
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", video_path, "-vn", "-acodec", "libmp3lame", "-q:a", "4",
         audio_path,
     ]
     subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
     return audio_path
-
-
-def _parse_lax_json(json_str: str, task_id: Optional[str] = None) -> dict:
-    """Parse JSON string, attempting to repair it if it is truncated or has extra text."""
-    json_str = json_str.strip()
-
-    # 1. Clean markdown code blocks if present
-    if json_str.startswith("```"):
-        lines = json_str.splitlines()
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        json_str = "\n".join(lines).strip()
-
-    # 2. Try parsing directly
-    try:
-        return json.loads(json_str)
-    except json.JSONDecodeError as e:
-        msg = f"[transcribe] JSON decode failed directly: {e}. Attempting to repair truncated JSON..."
-        logger.warning("%s", msg)
-        _update_transcribe_progress(task_id, 24.0, msg)
-
-    # 3. Try to repair truncated JSON by finding last valid segment
-    # We search for '}' from the end, truncate there, and append ']}'
-    idx = len(json_str)
-    while True:
-        idx = json_str.rfind("}", 0, idx)
-        if idx == -1:
-            break
-
-        candidate = json_str[: idx + 1]
-        # We need to close the array and the object
-        # Let's try to append ']}' first (most common for truncated {"segments": [...]})
-        try:
-            return json.loads(candidate + "]}")
-        except json.JSONDecodeError:
-            pass
-
-        # Try appending just '}' if the array is already closed but not the object
-        try:
-            return json.loads(candidate + "}")
-        except json.JSONDecodeError:
-            pass
-
-        # Try appending just ']' if the object is not needed or already closed (unlikely but let's be safe)
-        try:
-            return json.loads(candidate + "]")
-        except json.JSONDecodeError:
-            pass
-
-        # Try parsing the candidate as-is
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-
-    raise ValueError("Failed to repair truncated JSON response")
 
 
 def _update_transcribe_progress(task_id: Optional[str], pct: float, msg: str):
@@ -387,7 +230,6 @@ def _update_transcribe_progress(task_id: Optional[str], pct: float, msg: str):
         return
     try:
         import asyncio
-
         from ..state import store
 
         loop = getattr(store, "loop", None)
@@ -398,329 +240,7 @@ def _update_transcribe_progress(task_id: Optional[str], pct: float, msg: str):
         else:
             logger.info("[transcribe progress] Task %s: %.1f%% - %s", task_id, pct, msg)
     except Exception as e:
-        import logging
-
         logging.getLogger(__name__).error("Failed to update transcribe progress: %s", e)
-
-
-def _try_gemini_transcription(
-    audio_path: str, task_id: Optional[str] = None
-) -> Optional[Dict]:
-    """Transcribe audio using Gemini 2.5 Flash with speaker detection."""
-    logger.info(
-        "[transcribe] GEMINI_API_KEY present: %s (length: %d)",
-        bool(GEMINI_API_KEY),
-        len(GEMINI_API_KEY),
-    )
-    if not GEMINI_API_KEY:
-        logger.warning("[transcribe] no GEMINI_API_KEY set")
-        return None
-
-    try:
-        from google import genai
-
-        logger.info("[transcribe] google.genai SDK imported OK")
-    except Exception as e:
-        logger.error("[transcribe] google.genai SDK import FAILED: %s", e, exc_info=True)
-        return None
-
-    try:
-        audio_size = os.path.getsize(audio_path)
-        msg = f"[transcribe] calling Gemini {GEMINI_MODEL} with {audio_size / 1024 / 1024:.1f}MB audio"
-        logger.info(msg)
-        _update_transcribe_progress(task_id, 20.0, msg)
-
-        client = genai.Client(api_key=GEMINI_API_KEY)
-
-        # Upload audio file
-        audio_file = client.files.upload(file=audio_path)
-
-        # Prompt for transcription with speaker detection
-        prompt = """Transcribe this audio with speaker diarization.
-
-For each segment, provide:
-- start: start time in seconds (float)
-- end: end time in seconds (float)
-- speaker: speaker label (e.g., "Speaker 1", "Speaker 2", etc.)
-- text: what they said
-
-Rules:
-- Detect different speakers based on voice characteristics
-- Use consistent speaker labels throughout
-- Include timestamps for each segment
-- DO NOT transcribe word-by-word. Each segment must contain a complete sentence or a natural phrase (typically 5 to 15 words, or 2 to 7 seconds of continuous speech).
-- Group words by the same speaker into readable sentences/clauses instead of splitting them into single words or extremely short fragments.
-- Keep natural sentence breaks and proper punctuation.
-
-Respond with JSON only:
-{"segments": [{"start": float, "end": float, "speaker": "string", "text": "string"}]}"""
-
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=[audio_file, prompt],
-            config={
-                "temperature": 0.1,
-                "response_mime_type": "application/json",
-            },
-        )
-
-        # Parse response
-        result = response.text
-        if not result:
-            return None
-
-        parsed = _parse_lax_json(result, task_id)
-        segments = parsed.get("segments", [])
-
-        if not segments:
-            return None
-
-        # Convert to our format
-        formatted_segments = []
-        for seg in segments:
-            # support both start/end and start_time/end_time in case the model outputs start_time/end_time
-            start_val = (
-                seg.get("start")
-                if seg.get("start") is not None
-                else seg.get("start_time", 0.0)
-            )
-            end_val = (
-                seg.get("end")
-                if seg.get("end") is not None
-                else seg.get("end_time", 0.0)
-            )
-            formatted_segments.append(
-                {
-                    "start": float(start_val),
-                    "end": float(end_val),
-                    "text": seg.get("text", "").strip(),
-                    "speaker": seg.get("speaker", ""),
-                }
-            )
-
-        # Ambil estimasi durasi audio sebelum cleaning
-        raw_duration = formatted_segments[-1]["end"] if formatted_segments else 0.0
-        try:
-            probe = subprocess.run(
-                [
-                    "ffprobe",
-                    "-v",
-                    "error",
-                    "-show_entries",
-                    "format=duration",
-                    "-of",
-                    "json",
-                    audio_path,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                creationflags=CREATION_FLAGS,
-            )
-            audio_duration = float(
-                json.loads(probe.stdout).get("format", {}).get("duration", 0.0)
-            )
-        except Exception:
-            audio_duration = 0.0
-
-        # Detect timestamp compression hallucination (Gemini sometimes compresses timestamps)
-        # If transcript spans < 10% of actual audio duration, rescale proportionally
-        if (
-            audio_duration > 30
-            and raw_duration > 0
-            and raw_duration < audio_duration * 0.1
-        ):
-            scale_factor = audio_duration / raw_duration
-            logger.warning(
-                "[transcribe] timestamps compressed (%.1fs vs %.1fs actual). Rescaling by %.1fx",
-                raw_duration,
-                audio_duration,
-                scale_factor,
-            )
-            for seg in formatted_segments:
-                seg["start"] *= scale_factor
-                seg["end"] *= scale_factor
-            raw_duration = formatted_segments[-1]["end"] if formatted_segments else 0.0
-
-        # Bersihkan hallucination sebelum return
-        formatted_segments = _clean_hallucinations(
-            formatted_segments, video_duration=audio_duration, task_id=task_id
-        )
-
-        duration = (
-            min(formatted_segments[-1]["end"], audio_duration or raw_duration)
-            if formatted_segments
-            else 0.0
-        )
-        msg = f"[transcribe] Gemini returned {len(formatted_segments)} segments with speaker detection"
-        logger.info(msg)
-        _update_transcribe_progress(task_id, 34.0, msg)
-
-        return {"duration": duration, "segments": formatted_segments}
-
-    except Exception as e:
-        import traceback
-
-        logger.warning("[transcribe] Gemini failed: %s", e)
-        logger.debug(traceback.format_exc())
-        return None
-
-
-# ── Stage 3: Groq Whisper ────────────────────────────────────────
-
-
-def _try_groq_whisper(
-    audio_path: str, task_id: Optional[str] = None, language: Optional[str] = None
-) -> Optional[Dict]:
-    """Transcribe audio using Groq API with whisper-large-v3."""
-    logger.info(
-        "[transcribe] GROQ_API_KEY present: %s (length: %d)",
-        bool(GROQ_API_KEY),
-        len(GROQ_API_KEY),
-    )
-    if not GROQ_API_KEY:
-        logger.warning("[transcribe] no GROQ_API_KEY set")
-        return None
-
-    try:
-        from groq import Groq
-
-        logger.info("[transcribe] groq SDK imported OK")
-    except Exception as e:
-        logger.error("[transcribe] groq SDK import FAILED: %s", e, exc_info=True)
-        return None
-
-    try:
-        audio_size = os.path.getsize(audio_path)
-        msg = f"[transcribe] calling Groq {GROQ_MODEL} with {audio_size / 1024 / 1024:.1f}MB audio"
-        logger.info(msg)
-        _update_transcribe_progress(task_id, 28.0, msg)
-        client = Groq(api_key=GROQ_API_KEY)
-
-        with open(audio_path, "rb") as f:
-            audio_data = (os.path.basename(audio_path), f.read())
-        create_kwargs: dict = {
-            "file": audio_data,
-            "model": GROQ_MODEL,
-            "response_format": "verbose_json",
-            "timestamp_granularities": ["word", "segment"],
-        }
-        if language:
-            create_kwargs["language"] = language
-        logger.info("[transcribe] Sending request to Groq API (model=%s, file_size=%d bytes)...", GROQ_MODEL, audio_size)
-        # Add explicit timeout of 60 seconds to prevent indefinite hanging
-        if "timeout" not in create_kwargs:
-            create_kwargs["timeout"] = 60.0
-        result = client.audio.transcriptions.create(**create_kwargs)
-        logger.info("[transcribe] Groq API response received! duration=%s", getattr(result, "duration", "N/A"))
-
-        # Parse kata-kata jika tersedia
-        words = []
-        raw_words = getattr(result, "words", None)
-        if raw_words:
-            for w in raw_words:
-                if isinstance(w, dict):
-                    words.append(
-                        {
-                            "word": w.get("word", "").strip(),
-                            "start": float(w.get("start", 0.0)),
-                            "end": float(w.get("end", 0.0)),
-                        }
-                    )
-                else:
-                    words.append(
-                        {
-                            "word": getattr(w, "word", "").strip(),
-                            "start": float(getattr(w, "start", 0.0)),
-                            "end": float(getattr(w, "end", 0.0)),
-                        }
-                    )
-
-        # Parse Groq response segments
-        segments = []
-        if hasattr(result, "segments") and result.segments:
-            for seg in result.segments:
-                seg_dict = {
-                    "start": float(
-                        seg["start"]
-                        if isinstance(seg, dict)
-                        else getattr(seg, "start", 0.0)
-                    ),
-                    "end": float(
-                        seg["end"]
-                        if isinstance(seg, dict)
-                        else getattr(seg, "end", 0.0)
-                    ),
-                    "text": (
-                        seg["text"]
-                        if isinstance(seg, dict)
-                        else getattr(seg, "text", "")
-                    ).strip(),
-                }
-                segments.append(seg_dict)
-        elif hasattr(result, "text") and result.text:
-            segments.append({"start": 0.0, "end": 0.0, "text": result.text.strip()})
-
-        # Hubungkan kata-kata ke segmen menggunakan waktu tengah (mid-time) kata
-        if words and segments:
-            import bisect
-
-            seg_starts = [s["start"] for s in segments]
-
-            for w in words:
-                mid_time = (w["start"] + w["end"]) / 2.0
-
-                # Optimisasi O(N log M) menggunakan binary search
-                idx = bisect.bisect_right(seg_starts, mid_time)
-
-                candidates = []
-                if idx > 0:
-                    candidates.append(segments[idx - 1])
-                if idx < len(segments):
-                    candidates.append(segments[idx])
-
-                best_seg = None
-                min_distance = float("inf")
-
-                for seg_dict in candidates:
-                    # Jika waktu tengah kata berada di dalam rentang waktu segmen
-                    if seg_dict["start"] <= mid_time <= seg_dict["end"]:
-                        best_seg = seg_dict
-                        min_distance = 0
-                        break
-                    # Jika di luar, cari segmen dengan batas terdekat
-                    dist = min(
-                        abs(mid_time - seg_dict["start"]),
-                        abs(mid_time - seg_dict["end"]),
-                    )
-                    if dist < min_distance:
-                        min_distance = dist
-                        best_seg = seg_dict
-
-                # Masukkan kata ke segmen terpilih
-                if best_seg is not None:
-                    if "words" not in best_seg:
-                        best_seg["words"] = []
-                    best_seg["words"].append(w)
-        # Akhir pemetaan kata
-
-        duration = (
-            float(result.duration)
-            if hasattr(result, "duration")
-            else (segments[-1]["end"] if segments else 0.0)
-        )
-        logger.info(
-            "[transcribe] Groq returned %d segments (with word-level timestamps)",
-            len(segments),
-        )
-        return {"duration": duration, "segments": segments}
-
-    except Exception as e:
-        import traceback
-
-        logger.warning("[transcribe] Groq failed: %s", e)
-        logger.debug(traceback.format_exc())
-        return None
 
 
 # ── Main Entry Point ─────────────────────────────────────────────
@@ -732,14 +252,7 @@ def transcribe_video(
     language: Optional[str] = None,
     video_url: Optional[str] = None,
 ) -> Dict:
-    """Transcribe video — YouTube → Gemini → Groq fallback.
-
-    Args:
-        media_path: local video file path
-        task_id: task ID for caching
-        language: ISO-639-1 language code (optional)
-        video_url: YouTube URL for transcript API (optional)
-    """
+    """Transcribe video — YouTube → Gemini → Groq fallback."""
     sanitize_env()
     task_dir = str(STORAGE_DIR / task_id)
     os.makedirs(task_dir, exist_ok=True)
@@ -749,27 +262,12 @@ def transcribe_video(
     cache_path = _transcript_cache_path(task_dir)
     source_mtime = os.path.getmtime(media_path)
 
-    # Get actual video duration for cache validation
     try:
         probe = subprocess.run(
-            [
-                "ffprobe",
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "json",
-                media_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=15,
-            creationflags=CREATION_FLAGS,
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", media_path],
+            capture_output=True, text=True, timeout=15, creationflags=CREATION_FLAGS,
         )
-        video_duration = float(
-            json.loads(probe.stdout).get("format", {}).get("duration", 0.0)
-        )
+        video_duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 0.0))
     except Exception:
         video_duration = 0.0
 
@@ -778,16 +276,10 @@ def transcribe_video(
             try:
                 cached = json.loads(json_cache_path.read_text(encoding="utf-8"))
                 cached_dur = cached.get("duration", 0)
-                # Validate cache: if transcript duration is < 10% of video duration, cache is bad
-                if (
-                    video_duration > 30
-                    and cached_dur > 0
-                    and cached_dur < video_duration * 0.1
-                ):
+                if video_duration > 30 and cached_dur > 0 and cached_dur < video_duration * 0.1:
                     logger.warning(
                         "[transcribe] cached transcript duration (%.1fs) is suspicious vs video (%.1fs). Re-transcribing.",
-                        cached_dur,
-                        video_duration,
+                        cached_dur, video_duration,
                     )
                 else:
                     logger.info("[transcribe] using cached JSON transcript")
@@ -800,15 +292,10 @@ def transcribe_video(
             try:
                 cached_srt = _load_srt(cache_path)
                 cached_dur = cached_srt.get("duration", 0)
-                if (
-                    video_duration > 30
-                    and cached_dur > 0
-                    and cached_dur < video_duration * 0.1
-                ):
+                if video_duration > 30 and cached_dur > 0 and cached_dur < video_duration * 0.1:
                     logger.warning(
                         "[transcribe] cached SRT duration (%.1fs) is suspicious vs video (%.1fs). Re-transcribing.",
-                        cached_dur,
-                        video_duration,
+                        cached_dur, video_duration,
                     )
                 else:
                     logger.info("[transcribe] using cached SRT transcript")
@@ -822,6 +309,7 @@ def transcribe_video(
         logger.info(msg)
         _update_transcribe_progress(task_id, 16.0, msg)
 
+        from .transcriber_youtube import _try_youtube_transcript
         yt_result = _try_youtube_transcript(video_url)
         if yt_result and yt_result.get("segments"):
             msg = f"[transcribe] got {len(yt_result['segments'])} segments from YouTube"
@@ -841,16 +329,16 @@ def transcribe_video(
     except Exception as e:
         logger.warning("[transcribe] audio extraction failed: %s", e)
 
-    # Track failure reasons for the final error message
     failure_reasons: list[str] = []
     if video_url:
         failure_reasons.append("YouTube: no transcript available for this video")
     if audio_path is None:
         failure_reasons.append("audio extraction failed (ffmpeg missing or video corrupt)")
 
-    # 2. Try Groq Whisper (fast, no speaker detection, supports word timestamps)
+    # 2. Try Groq Whisper (fast, word timestamps)
     if audio_path:
         try:
+            from .transcriber_groq import _try_groq_whisper
             groq_result = _try_groq_whisper(audio_path, task_id, language=language)
             if groq_result and groq_result.get("segments"):
                 msg = f"[transcribe] got {len(groq_result['segments'])} segments from Groq (with word timestamps)"
@@ -867,6 +355,7 @@ def transcribe_video(
     # 3. Try Gemini 2.5 Flash (with speaker detection)
     if audio_path:
         try:
+            from .transcriber_gemini import _try_gemini_transcription
             gemini_result = _try_gemini_transcription(audio_path, task_id)
             if gemini_result and gemini_result.get("segments"):
                 msg = f"[transcribe] got {len(gemini_result['segments'])} segments from Gemini"
@@ -882,6 +371,4 @@ def transcribe_video(
 
     # 4. No transcription available
     detail = "; ".join(failure_reasons) if failure_reasons else "unknown reason"
-    raise RuntimeError(
-        f"No transcription available — {detail}."
-    )
+    raise RuntimeError(f"No transcription available — {detail}.")
