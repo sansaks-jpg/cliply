@@ -266,7 +266,7 @@ export default function Home() {
     const fn = async () => {
       try {
         const res = await fetch(API_URL + '/tasks');
-        if (res.ok) { const data = await res.json(); setActiveTasks((data.tasks||[]).filter((t:any) => t.status === 'processing' || t.status === 'queued')); }
+        if (res.ok) { const data = await res.json(); setActiveTasks((data.tasks||[]).filter((t: {status:string}) => t.status === 'processing' || t.status === 'queued')); }
       } catch {}
     };
     fn(); const id = setInterval(fn, 10000); return () => clearInterval(id);
