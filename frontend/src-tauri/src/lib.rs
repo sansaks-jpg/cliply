@@ -22,29 +22,65 @@ const CREATE_NO_WINDOW: u32 = 0x08000000;
 /// terminated when the parent exits — even if the parent crashes or is killed.
 #[cfg(windows)]
 fn assign_to_job_object(pid: u32) {
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::JobObjects::*;
+    use std::ptr;
+
+    #[repr(C)]
+    struct JobObjectBasicLimitInformation {
+        per_process_user_time_limit: i64,
+        per_job_user_time_limit: i64,
+        limit_flags: u32,
+        minimum_working_set_size: usize,
+        maximum_working_set_size: usize,
+        active_process_limit: u32,
+        affinity: usize,
+        priority_class: u32,
+        scheduling_class: u32,
+    }
+
+    #[repr(C)]
+    struct JobObjectExtendedLimitInformation {
+        basic_limit_information: JobObjectBasicLimitInformation,
+        io_info: [u8; 32], // IO_COUNTERS placeholder
+        process_memory_limit: usize,
+        job_memory_limit: usize,
+        peak_process_memory_used: usize,
+        peak_job_memory_used: usize,
+    }
+
+    const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
+    const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
+    const PROCESS_ALL_ACCESS: u32 = 0x001F0FFF;
+
+    extern "system" {
+        fn CreateJobObjectW(lpJobAttributes: *const u8, lpName: *const u16) -> usize;
+        fn SetInformationJobObject(
+            hJob: usize,
+            JobObjectInfoClass: i32,
+            lpJobObjectInfo: *const u8,
+            cbJobObjectInfoLength: u32,
+        ) -> i32;
+        fn AssignProcessToJobObject(hJob: usize, hProcess: usize) -> i32;
+        fn OpenProcess(dwDesiredAccess: u32, bInheritHandle: i32, dwProcessId: u32) -> usize;
+        fn CloseHandle(hObject: usize) -> i32;
+    }
+
     unsafe {
-        let job = CreateJobObjectW(None, None).unwrap_or(HANDLE(std::ptr::null_mut()));
-        if job.0.is_null() {
+        let job = CreateJobObjectW(ptr::null(), ptr::null());
+        if job == 0 {
             return;
         }
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let mut info: JobObjectExtendedLimitInformation = std::mem::zeroed();
+        info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let _ = SetInformationJobObject(
             job,
-            JobObjectExtendedLimitInformation,
-            &info as *const _ as *const _,
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
+            &info as *const _ as *const u8,
+            std::mem::size_of::<JobObjectExtendedLimitInformation>() as u32,
         );
-        let proc_handle = windows::Win32::System::Threading::OpenProcess(
-            windows::Win32::System::Threading::PROCESS_ALL_ACCESS,
-            false,
-            pid,
-        );
-        if let Ok(h) = proc_handle {
-            let _ = AssignProcessToJobObject(job, h);
-            let _ = windows::Win32::Foundation::CloseHandle(h);
+        let proc_handle = OpenProcess(PROCESS_ALL_ACCESS, 0, pid);
+        if proc_handle != 0 {
+            let _ = AssignProcessToJobObject(job, proc_handle);
+            let _ = CloseHandle(proc_handle);
         }
         // Don't close job handle — it stays alive for the process lifetime
     }
