@@ -129,6 +129,17 @@ async def get_task(task_id: str) -> dict:
     return record.to_dict()
 
 
+@router.post("/{task_id}/cancel")
+async def cancel_task(task_id: str):
+    record = await store.get(task_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if record.status in ("completed", "error", "cancelled"):
+        return {"status": record.status, "message": "Task already finished"}
+    await store.cancel(task_id)
+    return {"status": "cancelling", "message": "Cancel signal sent"}
+
+
 @router.delete("/{task_id}", status_code=204)
 async def delete_task(task_id: str) -> None:
     deleted = await store.delete(task_id)

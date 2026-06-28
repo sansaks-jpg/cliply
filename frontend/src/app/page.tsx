@@ -120,7 +120,7 @@ const STYLE_DEFINITIONS: Record<string, {
   }
 };
 
-const getDynamicPreviewStyles = (styleKey: string) => {
+const getDynamicPreviewStyles = (styleKey: string, colorPrimary?: string, colorHighlight?: string) => {
   const fontMap: Record<string, string> = {
     "viral-bold":    "Montserrat",
     "tiktok":        "Plus Jakarta Sans",
@@ -164,7 +164,11 @@ const getDynamicPreviewStyles = (styleKey: string) => {
   const boxBgColor = "rgba(118,230,0,0.2)";
   const outlineColor = styleKey === "neon-gradient" ? "#FFF000" : undefined;
 
-  return { fontFamily, primaryColor, highlightColor, boxColor, boxBgColor, outlineColor };
+  // Override with custom colors if provided
+  const finalPrimaryColor = colorPrimary || primaryColor;
+  const finalHighlightColor = colorHighlight || highlightColor;
+
+  return { fontFamily, primaryColor: finalPrimaryColor, highlightColor: finalHighlightColor, boxColor, boxBgColor, outlineColor };
 };
 
 const makeTextShadow = (ow: number, oc: string) => {
@@ -393,13 +397,13 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
-  // Memoize heavy style calculations that depend only on subtitleStyle
+  // Memoize heavy style calculations that depend on subtitleStyle and custom colors
   const memoizedStyles = useMemo(() => {
     const activeStyle = STYLE_DEFINITIONS[subtitleStyle] || STYLE_DEFINITIONS["viral-bold"];
-    const preview = getDynamicPreviewStyles(subtitleStyle);
+    const preview = getDynamicPreviewStyles(subtitleStyle, subtitleColorPrimary, subtitleColorHighlight);
     const textShadow = makeTextShadow(activeStyle.outlineWidth, activeStyle.outlineColor);
     return { activeStyle, preview, textShadow };
-  }, [subtitleStyle]);
+  }, [subtitleStyle, subtitleColorPrimary, subtitleColorHighlight]);
 
   const isValid = YOUTUBE_RE.test(url.trim());
 
@@ -675,6 +679,10 @@ export default function Home() {
                       <span className="flex items-center gap-1.5">
                         <Sliders className="w-3.5 h-3.5" />
                         Sensitivitas Deteksi
+                        <span className="group relative inline-flex items-center">
+                          <span className="w-4 h-4 rounded-full bg-gray-600 text-gray-300 text-xs flex items-center justify-center cursor-help">?</span>
+                          <span className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 text-xs bg-gray-800 text-gray-200 rounded-lg whitespace-nowrap z-50">Sensitivitas deteksi wajah. Nilai rendah = lebih sensitif (deteksi lebih banyak wajah). Nilai tinggi = lebih stabil (hanya wajah yang jelas).</span>
+                        </span>
                       </span>
                       <span className="font-mono text-[var(--accent-violet)]">{sensitivity}%</span>
                     </Label>
