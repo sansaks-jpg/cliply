@@ -98,12 +98,32 @@ def resolve_encoder(encoder: str) -> str:
 
 # --- Infra -------------------------------------------------------------------
 REDIS_URL = _get("REDIS_URL", "redis://localhost:6379")
-# Storage dir is resolved relative to the repo root and created lazily.
-STORAGE_DIR = Path(_get("STORAGE_DIR", "./storage"))
+# Storage dir: prefer env var (set by Tauri), then Tauri settings.json, then default.
+_STORAGE_ENV = _get("STORAGE_DIR")
+if not _STORAGE_ENV:
+    # Fallback: read from Tauri settings.json (Roaming app config)
+    import json as _json
+    for _tauri_dir in [
+        Path(os.environ.get("APPDATA", "")) / "com.cliply.app",
+        Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))) / "com.cliply.app",
+    ]:
+        _tauri_settings = _tauri_dir / "settings.json"
+        if _tauri_settings.exists():
+            try:
+                _ts = _json.loads(_tauri_settings.read_text(encoding="utf-8"))
+                _ts_dir = _ts.get("storage_dir", "")
+                if _ts_dir:
+                    _STORAGE_ENV = _ts_dir
+                    log.info("STORAGE_DIR from Tauri settings: %s", _ts_dir)
+                    break
+            except (OSError, ValueError):
+                pass
+
+STORAGE_DIR = Path(_STORAGE_ENV or "./storage")
 if not STORAGE_DIR.is_absolute():
     STORAGE_DIR = (_REPO_ROOT / STORAGE_DIR).resolve()
 
-log.info("STORAGE_DIR resolved to: %s (env=%s)", STORAGE_DIR, _get("STORAGE_DIR") or "(not set)")
+log.info("STORAGE_DIR resolved to: %s (env=%s)", STORAGE_DIR, _STORAGE_ENV or "(default)")
 
 FONTS_DIR = Path(_get("FONTS_DIR", "./fonts"))
 if not FONTS_DIR.is_absolute():
