@@ -1,4 +1,4 @@
-# Clip-AI
+# Cliply
 
 Automatic YouTube → viral 9:16 short clips generator. Paste a YouTube URL, and the AI pipeline downloads, transcribes, analyzes virality, tracks faces, crops to vertical, and burns karaoke subtitles — all in one go.
 
