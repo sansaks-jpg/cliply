@@ -209,11 +209,10 @@ export default function Home() {
   const [subtitleColorHighlight, setSubtitleColorHighlight] = useState(() => _lsGet("subtitleColorHighlight", ""));
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [encoder, setEncoder] = useState(() => _lsGet("encoder", "auto"));
-  const [sensitivity, setSensitivity] = useState(() => {
-    if (typeof window === "undefined") return 50;
-    const v = localStorage.getItem("cliply_detection_sensitivity");
-    return v ? parseInt(v, 10) : 50;
-  });
+  const [sensitivity] = useState(50);  // [DEPRECATED] — auto-tuned per model
+  const [fetchedTitle, setFetchedTitle] = useState<string | null>(null);
+  const [isFetchingTitle, setIsFetchingTitle] = useState(false);
+  const [activeTasks, setActiveTasks] = useState<any[]>([]);
   const [availableEncoders, setAvailableEncoders] = useState<string[]>(["auto", "cpu"]);
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
@@ -230,7 +229,6 @@ export default function Home() {
   useEffect(() => { _lsSet("subtitleStyle", subtitleStyle); }, [subtitleStyle]);
   useEffect(() => { _lsSet("faceDetector", faceDetector); }, [faceDetector]);
   useEffect(() => { _lsSet("encoder", encoder); }, [encoder]);
-  useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cliply_detection_sensitivity", String(sensitivity)); }, [sensitivity]);
   useEffect(() => { _lsSet("subtitleColorPrimary", subtitleColorPrimary); }, [subtitleColorPrimary]);
   useEffect(() => { _lsSet("subtitleColorHighlight", subtitleColorHighlight); }, [subtitleColorHighlight]);
 
@@ -249,6 +247,31 @@ export default function Home() {
         });
       });
     }
+  }, []);
+
+  // YouTube URL metadata fetch (debounced 800ms)
+  useEffect(() => {
+    if (!YOUTUBE_RE.test(url.trim()) || !url.trim()) { setFetchedTitle(null); return; }
+    const timer = setTimeout(async () => {
+      setIsFetchingTitle(true);
+      try {
+        const res = await fetch(API_URL + '/video-info?url=' + encodeURIComponent(url.trim()));
+        if (res.ok) { const data = await res.json(); setFetchedTitle(data.title || null); }
+      } catch { setFetchedTitle(null); }
+      setIsFetchingTitle(false);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [url]);
+
+  // Active tasks polling
+  useEffect(() => {
+    const fn = async () => {
+      try {
+        const res = await fetch(API_URL + '/tasks');
+        if (res.ok) { const data = await res.json(); setActiveTasks((data.tasks||[]).filter((t:any) => t.status === 'processing' || t.status === 'queued')); }
+      } catch {}
+    };
+    fn(); const id = setInterval(fn, 10000); return () => clearInterval(id);
   }, []);
 
   const handleSetupComplete = async (selectedPath: string) => {
@@ -551,6 +574,23 @@ export default function Home() {
           </div>
         )}
 
+        {/* Active Tasks Banner */}
+        {activeTasks.length > 0 && (
+          <div className="mb-4 mx-auto max-w-3xl w-full bg-gradient-to-r from-[var(--accent-violet)]/10 to-[var(--accent-indigo)]/10 border border-[var(--accent-violet)]/30 rounded-2xl p-3 space-y-2 animate-in fade-in slide-in-from-top-4 duration-500">
+            {activeTasks.slice(0, 3).map((t: any) => (
+              <Link key={t.task_id} href={`/tasks?id=${t.task_id}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--accent-violet)] opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--accent-violet)]"></span>
+                </span>
+                <span className="text-sm font-medium truncate">{t.url?.slice(0, 60)}</span>
+                <span className="text-xs text-muted-foreground ml-auto">{Math.round(t.progress)}%</span>
+              </Link>
+            ))}
+            {activeTasks.length > 3 && <p className="text-xs text-muted-foreground">+{activeTasks.length - 3} tugas lagi</p>}
+          </div>
+        )}
+
         {/* Hero Section */}
         <section className="text-center space-y-6 max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
 
@@ -590,26 +630,30 @@ export default function Home() {
                 onChange={(e) => setUrl(e.target.value)}
                 onFocus={() => setUrlFocused(true)}
                 onBlur={() => setUrlFocused(false)}
-                className="h-12 pl-11 pr-36 text-sm font-medium border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60 w-full shadow-none"
+                className="h-12 pl-11 text-sm font-medium border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60 w-full shadow-none"
                 autoFocus
               />
-              <Button
-                type="submit"
-                disabled={!isValid || submitting}
-                className="absolute right-2 h-9 px-5 rounded-xl bg-gradient-violet hover:opacity-90 text-white font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-default shadow-md flex items-center gap-1.5 [&_svg]:size-4"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Memproses</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Buat Klip</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </Button>
+              <div className="flex flex-col items-end">
+                {isFetchingTitle && <span className="text-[10px] text-muted-foreground mb-0.5">Memuat judul...</span>}
+                {fetchedTitle && !isFetchingTitle && <span className="text-[10px] text-muted-foreground truncate max-w-[200px] mb-0.5">{fetchedTitle}</span>}
+                <Button
+                  type="submit"
+                  disabled={!isValid || submitting}
+                  className="h-9 px-5 rounded-xl bg-gradient-violet hover:opacity-90 text-white font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-default shadow-md flex items-center gap-1.5 [&_svg]:size-4"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Memproses</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Buat Klip</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </form>
 
@@ -672,34 +716,6 @@ export default function Home() {
                         <SelectItem value="ssd">SSD ResNet (Ringan)</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="sensitivity" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5 justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Sliders className="w-3.5 h-3.5" />
-                        Sensitivitas Deteksi
-                        <span className="group relative inline-flex items-center">
-                          <span className="w-4 h-4 rounded-full bg-gray-600 text-gray-300 text-xs flex items-center justify-center cursor-help">?</span>
-                          <span className="invisible group-hover:visible absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 text-xs bg-gray-800 text-gray-200 rounded-lg whitespace-nowrap z-50">Sensitivitas deteksi wajah. Nilai rendah = lebih sensitif (deteksi lebih banyak wajah). Nilai tinggi = lebih stabil (hanya wajah yang jelas).</span>
-                        </span>
-                      </span>
-                      <span className="font-mono text-[var(--accent-violet)]">{sensitivity}%</span>
-                    </Label>
-                    <input
-                      id="sensitivity"
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={sensitivity}
-                      onChange={(e) => setSensitivity(parseInt(e.target.value, 10))}
-                      className="w-full h-2 bg-background/40 rounded-lg appearance-none cursor-pointer accent-[var(--accent-violet)]"
-                    />
-                    <div className="flex justify-between text-[10px] text-muted-foreground">
-                      <span>Ketat</span>
-                      <span>Default</span>
-                      <span>Longgar</span>
-                    </div>
                   </div>
 
                   {/* Gaya Subtitle Section */}

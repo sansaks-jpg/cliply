@@ -125,6 +125,48 @@ async def list_encoders() -> dict:
     }
 
 
+@app.get("/video-info")
+async def video_info(url: str) -> dict:
+    """Fetch YouTube video metadata (title, author, thumbnail) via oEmbed."""
+    import requests
+    from fastapi.concurrency import run_in_threadpool
+
+    def _fetch_oembed():
+        try:
+            r = requests.get("https://www.youtube.com/oembed", params={"url": url, "format": "json"}, timeout=5)
+            if r.status_code == 200:
+                return r.json()
+        except Exception:
+            pass
+        return None
+
+    result = await run_in_threadpool(_fetch_oembed)
+    if result:
+        return {
+            "title": result.get("title", ""),
+            "author": result.get("author_name", ""),
+            "thumbnail": result.get("thumbnail_url", ""),
+        }
+
+    # Fallback: yt-dlp info extract (no download)
+    try:
+        import subprocess, json as _json
+        cmd = ["yt-dlp", "--dump-json", "--no-download", url]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15,
+                           creationflags=0x08000000 if os.name == "nt" else 0)
+        if r.returncode == 0:
+            data = _json.loads(r.stdout)
+            return {
+                "title": data.get("title", ""),
+                "author": data.get("uploader", ""),
+                "thumbnail": data.get("thumbnail", ""),
+            }
+    except Exception:
+        pass
+
+    return {"title": "", "author": "", "thumbnail": ""}
+
+
 @app.get("/debug/providers")
 async def debug_providers() -> dict:
     """Diagnostic endpoint to verify transcription provider readiness."""
