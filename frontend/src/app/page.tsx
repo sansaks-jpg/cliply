@@ -201,8 +201,6 @@ export default function Home() {
 
   // Configurations (persisted in localStorage)
   const [numClips, setNumClips] = useState(() => _lsGet("numClips", "auto"));
-  const [aspectRatio] = useState(() => _lsGet("aspectRatio", "9:16"));
-  const [language] = useState(() => _lsGet("language", "auto"));
   const [subtitleStyle, setSubtitleStyle] = useState(() => _lsGet("subtitleStyle", "viral-bold"));
   const [faceDetector, setFaceDetector] = useState(() => _lsGet("faceDetector", "yunet"));
   const [subtitleColorPrimary, setSubtitleColorPrimary] = useState(() => _lsGet("subtitleColorPrimary", ""));
@@ -210,8 +208,8 @@ export default function Home() {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [encoder, setEncoder] = useState(() => _lsGet("encoder", "auto"));
   const [sensitivity] = useState(50);  // [DEPRECATED] — auto-tuned per model
-  const [fetchedTitle, setFetchedTitle] = useState<string | null>(null);
-  const [isFetchingTitle, setIsFetchingTitle] = useState(false);
+  const [videoPreview, setVideoPreview] = useState<{title: string; author: string; thumbnail: string} | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [activeTasks, setActiveTasks] = useState<Array<{task_id: string; url: string; progress: number; status: string}>>([]);
   const [availableEncoders, setAvailableEncoders] = useState<string[]>(["auto", "cpu"]);
   const [showAdvanced, setShowAdvanced] = useState(true);
@@ -246,20 +244,6 @@ export default function Home() {
       });
     }
   }, []);
-
-  // YouTube URL metadata fetch (debounced 800ms)
-  useEffect(() => {
-    if (!YOUTUBE_RE.test(url.trim()) || !url.trim()) { setFetchedTitle(null); return; }
-    const timer = setTimeout(async () => {
-      setIsFetchingTitle(true);
-      try {
-        const res = await fetch(API_URL + '/video-info?url=' + encodeURIComponent(url.trim()));
-        if (res.ok) { const data = await res.json(); setFetchedTitle(data.title || null); }
-      } catch { setFetchedTitle(null); }
-      setIsFetchingTitle(false);
-    }, 800);
-    return () => clearTimeout(timer);
-  }, [url]);
 
   // Active tasks polling
   useEffect(() => {
@@ -428,10 +412,35 @@ export default function Home() {
 
   const isValid = YOUTUBE_RE.test(url.trim());
 
+  // Step 1: Fetch video preview
+  const handlePreview = async () => {
+    if (!isValid || previewLoading) return;
+    setPreviewLoading(true);
+    setVideoPreview(null);
+    try {
+      const res = await fetch(API_URL + '/video-info?url=' + encodeURIComponent(url.trim()));
+      if (!res.ok) throw new Error("Gagal mengambil info video");
+      const data = await res.json();
+      if (!data.title) throw new Error("Video tidak ditemukan atau tidak valid");
+      setVideoPreview({ title: data.title, author: data.author || "", thumbnail: data.thumbnail || "" });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Gagal mengambil info video.");
+      setVideoPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // Step 2: Submit task to backend
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValid || submitting) return;
-
+    if (!videoPreview) {
+      // Tahap 1: preview dulu
+      await handlePreview();
+      return;
+    }
+    // Tahap 2: submit task
+    if (submitting) return;
     setSubmitting(true);
     try {
       const opts = {
@@ -625,35 +634,70 @@ export default function Home() {
                 placeholder="Tempel tautan video YouTube di sini..."
                 aria-label="Tautan video YouTube"
                 value={url}
-                onChange={(e) => setUrl(e.target.value)}
+                onChange={(e) => { setUrl(e.target.value); if (videoPreview) setVideoPreview(null); }}
                 onFocus={() => setUrlFocused(true)}
                 onBlur={() => setUrlFocused(false)}
                 className="h-12 pl-11 text-sm font-medium border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60 w-full shadow-none"
                 autoFocus
               />
-              <div className="flex flex-col items-end">
-                {isFetchingTitle && <span className="text-[10px] text-muted-foreground mb-0.5">Memuat judul...</span>}
-                {fetchedTitle && !isFetchingTitle && <span className="text-[10px] text-muted-foreground truncate max-w-[200px] mb-0.5">{fetchedTitle}</span>}
-                <Button
-                  type="submit"
-                  disabled={!isValid || submitting}
-                  className="h-9 px-5 rounded-xl bg-gradient-violet hover:opacity-90 text-white font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-default shadow-md flex items-center gap-1.5 [&_svg]:size-4"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Memproses</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Buat Klip</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  )}
-                </Button>
-              </div>
+              <Button
+                type="submit"
+                disabled={!isValid || submitting || previewLoading}
+                className="h-9 px-5 rounded-xl bg-gradient-violet hover:opacity-90 text-white font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-default shadow-md flex items-center gap-1.5 [&_svg]:size-4"
+              >
+                {previewLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Memuat...</span>
+                  </>
+                ) : videoPreview ? (
+                  <>
+                    <span>Proses Klip</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                ) : (
+                  <>
+                    <span>Buat Klip</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </Button>
             </div>
           </form>
+
+          {/* Video Preview Card */}
+          {videoPreview && (
+            <div className="w-full rounded-2xl glass-panel p-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex gap-4 items-start">
+                {videoPreview.thumbnail && (
+                  <div className="relative shrink-0 w-40 aspect-video rounded-xl overflow-hidden bg-muted">
+                    <Image
+                      src={videoPreview.thumbnail}
+                      alt={videoPreview.title}
+                      fill
+                      className="object-cover"
+                      unoptimized
+                    />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0 space-y-1">
+                  <p className="text-sm font-bold leading-snug line-clamp-2">{videoPreview.title}</p>
+                  {videoPreview.author && (
+                    <p className="text-xs text-muted-foreground">{videoPreview.author}</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground/60 truncate">{url.trim()}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setVideoPreview(null); }}
+                  className="shrink-0 w-7 h-7 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground flex items-center justify-center transition-colors cursor-pointer"
+                  aria-label="Batal preview"
+                >
+                  <span className="text-xs font-bold">✕</span>
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Quick Toggle Configuration Drawer */}
           <div className="rounded-2xl glass-panel overflow-hidden">
@@ -712,6 +756,26 @@ export default function Home() {
                         <SelectItem value="mediapipe">MediaPipe BlazeFace (Cepat)</SelectItem>
                         <SelectItem value="yolov8-face">YOLOv8-Face (Terbaik)</SelectItem>
                         <SelectItem value="ssd">SSD ResNet (Ringan)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Encoder Selection */}
+                  <div className="space-y-2">
+                    <Label htmlFor="encoder" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5" />
+                      Video Encoder
+                    </Label>
+                    <Select value={encoder} onValueChange={setEncoder}>
+                      <SelectTrigger id="encoder" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
+                        <SelectValue placeholder="Encoder" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableEncoders.map((enc) => (
+                          <SelectItem key={enc} value={enc}>
+                            {enc === "auto" ? "Auto (Deteksi Otomatis)" : enc === "cpu" ? "CPU (x264)" : enc.toUpperCase()}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

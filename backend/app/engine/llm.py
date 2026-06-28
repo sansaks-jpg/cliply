@@ -48,9 +48,14 @@ def call_openai_llm(prompt: str) -> str:
                         timeout=_LLM_TIMEOUT,
                     )
                     return res.choices[0].message.content or ""
-                except Exception as e:
+                except Exception as je:
+                    json_status = getattr(je, "status_code", None)
+                    # Only fall back to stream if JSON format is genuinely unsupported (400/422)
+                    # Don't swallow 404/429/5xx — those are real errors that need retry
+                    if json_status and json_status not in (400, 422):
+                        raise
                     logger.warning(
-                        "JSON mode unsupported, falling back to stream: %s", e
+                        "JSON mode unsupported, falling back to stream: %s", je
                     )
 
             # Standard stream fallback
@@ -68,8 +73,8 @@ def call_openai_llm(prompt: str) -> str:
         except Exception as e:
             last_err = e
             status = getattr(e, "status_code", None)
-            # Only retry on transient errors (404, 429, 500+)
-            if status and status not in (404, 429) and status < 500:
+            # Only retry on transient errors (429, 500+). 404 = endpoint/model not found, don't retry.
+            if status and status not in (429,) and status < 500:
                 raise
             delay = _LLM_RETRY_DELAY * (2 ** attempt)
             logger.warning(
