@@ -75,3 +75,13 @@ archive/
 
 # Backend ad-hoc test scripts (not part of CI)
 backend/test_*.py
+
+# ML model binaries (download on first run)
+backend/models/*.onnx
+backend/models/*.caffemodel
+backend/models/*.tflite
+backend/models/*.prototxt
+
+# Stale agent/tool config
+.agents/
+.jules/
