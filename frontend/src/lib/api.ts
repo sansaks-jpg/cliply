@@ -54,6 +54,7 @@ export interface CreateTaskOptions {
   subtitle_color_primary?: string;
   subtitle_color_highlight?: string;
   encoder?: string;
+  /** @deprecated — use face_detector auto-tuning */
   sensitivity?: number;
 }
 

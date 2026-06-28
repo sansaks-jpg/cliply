@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -60,6 +61,13 @@ def _seg_time(seg: Dict[str, Any], key: str) -> Optional[float]:
 
 def _split_words(text: str) -> List[str]:
     return text.strip().split()
+
+
+def _clean_text(text: str) -> str:
+    """Remove punctuation, keep only words and spaces."""
+    text = re.sub(r'[.,!?;:\\\'"\[\](){}\-—]', '', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 
 def _apply_case(text: str, case: str) -> str:
@@ -273,6 +281,7 @@ def _build_karaoke_base(
         t0 = _seg_time(seg, "start_time") or 0.0
         t1 = _seg_time(seg, "end_time") or 0.0
         text = (seg.get("text") or "").strip()
+        text = _clean_text(text)
         if not text or t1 <= t0:
             continue
         # Find wrapped lines and adaptive font size
@@ -369,6 +378,7 @@ def build_karaoke_sweep(
         t0 = _seg_time(seg, "start_time") or 0.0
         t1 = _seg_time(seg, "end_time") or 0.0
         text = (seg.get("text") or "").strip()
+        text = _clean_text(text)
         if not text or t1 <= t0:
             continue
             
@@ -477,6 +487,7 @@ def build_fade_in_word(
         t0 = _seg_time(seg, "start_time") or 0.0
         t1 = _seg_time(seg, "end_time") or 0.0
         text = (seg.get("text") or "").strip()
+        text = _clean_text(text)
         if not text or t1 <= t0:
             continue
         wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
@@ -532,6 +543,7 @@ def build_word_popup(
         t0 = _seg_time(seg, "start_time") or 0.0
         t1 = _seg_time(seg, "end_time") or 0.0
         text = (seg.get("text") or "").strip()
+        text = _clean_text(text)
         if not text or t1 <= t0:
             continue
         wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
@@ -588,6 +600,7 @@ def build_word_pop_scale(
         t0 = _seg_time(seg, "start_time") or 0.0
         t1 = _seg_time(seg, "end_time") or 0.0
         text = (seg.get("text") or "").strip()
+        text = _clean_text(text)
         if not text or t1 <= t0:
             continue
         words = _apply_case(text, case).split()
@@ -635,6 +648,7 @@ def build_word_box_highlight(
         t0 = _seg_time(seg, "start_time") or 0.0
         t1 = _seg_time(seg, "end_time") or 0.0
         text = (seg.get("text") or "").strip()
+        text = _clean_text(text)
         if not text or t1 <= t0:
             continue
             
@@ -906,6 +920,7 @@ def _chunk_segments(
         t0 = _seg_time(seg, "start_time") or 0.0
         t1 = _seg_time(seg, "end_time") or 0.0
         text = (seg.get("text") or "").strip()
+        text = _clean_text(text)
         if not text or t1 <= t0:
             continue
             
