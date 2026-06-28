@@ -46,27 +46,6 @@ jobs:
           pip install -r requirements-bundle.txt -r requirements-local.txt
         working-directory: backend
 
-      - name: Download face detection models
-        shell: pwsh
-        working-directory: backend
-        run: |
-          New-Item -ItemType Directory -Force -Path models
-          $models = @{
-            "face_detection_yunet_2023mar.onnx" = "https://github.com/opencv/opencv_3rdparty/raw/face_detection_yunet_2023mar/face_detection_yunet_2023mar.onnx"
-            "blaze_face_short_range.tflite" = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite"
-            "yolov8n-face.onnx" = "https://github.com/derronqi/yolov8-face/raw/main/yolov8n-face.onnx"
-            "deploy.prototxt" = "https://raw.githubusercontent.com/opencv/opencv/master/samples/dnn/face_detector/deploy.prototxt"
-            "res10_300x300_ssd_iter_140000.caffemodel" = "https://raw.githubusercontent.com/opencv/opencv_3rdparty/dnn_samples_face_detector_20170830/res10_300x300_ssd_iter_140000.caffemodel"
-          }
-          foreach ($entry in $models.GetEnumerator()) {
-            $outPath = "models/$($entry.Key)"
-            if (-not (Test-Path $outPath)) {
-              Write-Host "Downloading $($entry.Key)..."
-              Invoke-WebRequest -Uri $entry.Value -OutFile $outPath -UseBasicParsing
-            }
-          }
-          Write-Host "All models downloaded."
-
       - name: Build Python backend executable
         run: pyinstaller cliply.spec --noconfirm
         working-directory: backend
