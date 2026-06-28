@@ -359,6 +359,26 @@ function TaskPageContent() {
 
   const isCompleted = task.status === "completed";
 
+  // Cross-origin download via fetch+blob (browser ignores `download` attr for cross-origin)
+  const handleDownload = async () => {
+    if (!activeClipHref) return;
+    const filename = `clip-${activeClip?.title?.toLowerCase().replace(/[^a-z0-9]/g, "-") || "short"}.mp4`;
+    try {
+      const res = await fetch(activeClipHref);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(activeClipHref, "_blank");
+    }
+  };
+
   return (
     <div className={`h-screen overflow-y-auto bg-background text-foreground transition-colors duration-300 relative overflow-x-hidden flex flex-col ${isCompleted ? "lg:h-screen lg:overflow-hidden" : ""}`}>
 
@@ -438,7 +458,7 @@ function TaskPageContent() {
             </div>
 
             {/* Phone frame — flex-1 agar mengisi sisa ruang, aspect ratio dijaga via CSS */}
-            <div className="flex-1 min-h-0 flex items-center justify-center relative">
+            <div className="flex-1 min-h-[60vh] lg:min-h-0 flex items-center justify-center relative">
               <div className="absolute inset-0 rounded-[2rem] bg-[var(--accent-violet)] opacity-15 blur-3xl scale-105 pointer-events-none" />
               {/* Wrapper: tinggi 100% container, lebar auto dengan aspect 9:16 */}
               <div
@@ -470,11 +490,9 @@ function TaskPageContent() {
                   </Alert>
                 ) : (
                   activeClipHref && (
-                    <Button asChild size="sm" className="w-full h-9 rounded-xl bg-gradient-violet hover:opacity-90 text-white font-bold text-sm transition-all cursor-pointer shadow-md glow-accent flex items-center justify-center gap-2">
-                      <a href={activeClipHref} download={`clip-${activeClip.title?.toLowerCase().replace(/[^a-z0-9]/g, "-") || "short"}.mp4`}>
-                        <DownloadCloud className="w-4 h-4" />
-                        <span>Unduh Shorts</span>
-                      </a>
+                    <Button size="sm" onClick={handleDownload} className="w-full h-9 rounded-xl bg-gradient-violet hover:opacity-90 text-white font-bold text-sm transition-all cursor-pointer shadow-md glow-accent flex items-center justify-center gap-2">
+                      <DownloadCloud className="w-4 h-4" />
+                      <span>Unduh Shorts</span>
                     </Button>
                   )
                 )
