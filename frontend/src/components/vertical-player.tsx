@@ -158,7 +158,7 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
       {/* Play/Pause overlay button for accessibility (avoids nesting interactive elements) */}
       <button
         type="button"
-        className="absolute inset-0 w-full h-full cursor-pointer focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[var(--accent-violet)] z-0"
+        className="absolute inset-0 w-full h-full cursor-pointer focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[var(--accent-violet)] z-20"
         aria-label={playing ? "Jeda video" : "Putar video"}
         onClick={togglePlay}
         onKeyDown={handleKeyDown}
@@ -171,7 +171,7 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
         playsInline
         preload="metadata"
         muted={muted}
-        className="absolute inset-0 w-full h-full object-contain"
+        className="absolute inset-0 w-full h-full object-contain pointer-events-none"
         onEnded={() => { setPlaying(false); setShowControls(true); }}
         onPlay={() => { setPlaying(true); scheduleHide(); }}
         onPause={() => setPlaying(false)}
