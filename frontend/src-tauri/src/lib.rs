@@ -18,6 +18,41 @@ const LOG_MAX_FILES: u32 = 3;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+/// Assign a process to a Windows Job Object so ALL child processes are
+/// terminated when the parent exits — even if the parent crashes or is killed.
+#[cfg(windows)]
+fn assign_to_job_object(pid: u32) {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::JobObjects::*;
+    unsafe {
+        let job = CreateJobObjectW(None, None).unwrap_or(HANDLE(std::ptr::null_mut()));
+        if job.0.is_null() {
+            return;
+        }
+        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        let _ = SetInformationJobObject(
+            job,
+            JobObjectExtendedLimitInformation,
+            &info as *const _ as *const _,
+            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        );
+        let proc_handle = windows::Win32::System::Threading::OpenProcess(
+            windows::Win32::System::Threading::PROCESS_ALL_ACCESS,
+            false,
+            pid,
+        );
+        if let Ok(h) = proc_handle {
+            let _ = AssignProcessToJobObject(job, h);
+            let _ = windows::Win32::Foundation::CloseHandle(h);
+        }
+        // Don't close job handle — it stays alive for the process lifetime
+    }
+}
+
+#[cfg(not(windows))]
+fn assign_to_job_object(_pid: u32) {}
+
 pub struct BackendState {
     pub child: Mutex<Option<Child>>,
     pub monitor_cancel: Arc<AtomicBool>,
@@ -423,7 +458,10 @@ fn start_backend_process(
     };
     let spawned_pid = child.id();
 
-    // 8. Check immediate exit
+    // 8. Assign to Job Object for reliable process tree cleanup on Windows
+    assign_to_job_object(spawned_pid);
+
+    // 9. Check immediate exit
     match child.try_wait() {
         Ok(Some(status)) => {
             let err = format!("Backend exited immediately (code: {:?})", status.code());
@@ -632,21 +670,24 @@ pub fn run() {
             };
             app.manage(state);
 
-            // Load settings and start backend
+            // Load settings and start backend in background thread to avoid blocking UI
             let settings = load_settings(app.handle());
             log::info!("Loaded settings: storage_dir={}, first_run={}, llm_provider={}, openai_model={}",
                 settings.storage_dir, settings.first_run, settings.llm_provider, settings.openai_model);
 
-            let state_ref = app.state::<BackendState>();
-            if let Err(e) = start_backend_process(app.handle(), &state_ref, &settings.storage_dir, &settings) {
-                log::error!("Gagal menjalankan backend saat startup: {}", e);
-                let log_path = get_log_path(app.handle()).unwrap_or_default();
-                let payload = serde_json::json!({
-                    "error": e,
-                    "log_path": log_path.to_string_lossy(),
-                });
-                let _ = app.handle().emit("backend-error", payload.to_string());
-            }
+            let app_handle = app.handle().clone();
+            thread::spawn(move || {
+                let state = app_handle.state::<BackendState>();
+                if let Err(e) = start_backend_process(&app_handle, &state, &settings.storage_dir, &settings) {
+                    log::error!("Gagal menjalankan backend saat startup: {}", e);
+                    let log_path = get_log_path(&app_handle).unwrap_or_default();
+                    let payload = serde_json::json!({
+                        "error": e,
+                        "log_path": log_path.to_string_lossy(),
+                    });
+                    let _ = app_handle.emit("backend-error", payload.to_string());
+                }
+            });
 
             Ok(())
         })
