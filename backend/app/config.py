@@ -39,7 +39,7 @@ def _get_positive_int(key: str, default: int) -> int:
 # --- LLM (pluggable) ---------------------------------------------------------
 LLM_PROVIDER = _get("LLM_PROVIDER", "openai").lower()
 OPENAI_API_KEY = _get("OPENAI_API_KEY")
-OPENAI_BASE_URL = _get("OPENAI_BASE_URL", "http://127.0.0.1:8003/v1")
+OPENAI_BASE_URL = _get("OPENAI_BASE_URL", "http://127.0.0.1:20128/v1")
 OPENAI_MODEL = _get("OPENAI_MODEL", "gpt-4o-mini")
 ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = _get("ANTHROPIC_MODEL", "claude-haiku-4")
