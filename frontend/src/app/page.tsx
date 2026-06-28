@@ -201,8 +201,8 @@ export default function Home() {
 
   // Configurations (persisted in localStorage)
   const [numClips, setNumClips] = useState(() => _lsGet("numClips", "auto"));
-  const [aspectRatio, setAspectRatio] = useState(() => _lsGet("aspectRatio", "9:16"));
-  const [language, setLanguage] = useState(() => _lsGet("language", "auto"));
+  const [aspectRatio] = useState(() => _lsGet("aspectRatio", "9:16"));
+  const [language] = useState(() => _lsGet("language", "auto"));
   const [subtitleStyle, setSubtitleStyle] = useState(() => _lsGet("subtitleStyle", "viral-bold"));
   const [faceDetector, setFaceDetector] = useState(() => _lsGet("faceDetector", "yunet"));
   const [subtitleColorPrimary, setSubtitleColorPrimary] = useState(() => _lsGet("subtitleColorPrimary", ""));
@@ -212,7 +212,7 @@ export default function Home() {
   const [sensitivity] = useState(50);  // [DEPRECATED] — auto-tuned per model
   const [fetchedTitle, setFetchedTitle] = useState<string | null>(null);
   const [isFetchingTitle, setIsFetchingTitle] = useState(false);
-  const [activeTasks, setActiveTasks] = useState<any[]>([]);
+  const [activeTasks, setActiveTasks] = useState<Array<{task_id: string; url: string; progress: number; status: string}>>([]);
   const [availableEncoders, setAvailableEncoders] = useState<string[]>(["auto", "cpu"]);
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
@@ -224,8 +224,6 @@ export default function Home() {
 
   // Persist settings to localStorage on change
   useEffect(() => { _lsSet("numClips", numClips); }, [numClips]);
-  useEffect(() => { _lsSet("aspectRatio", aspectRatio); }, [aspectRatio]);
-  useEffect(() => { _lsSet("language", language); }, [language]);
   useEffect(() => { _lsSet("subtitleStyle", subtitleStyle); }, [subtitleStyle]);
   useEffect(() => { _lsSet("faceDetector", faceDetector); }, [faceDetector]);
   useEffect(() => { _lsSet("encoder", encoder); }, [encoder]);
@@ -577,7 +575,7 @@ export default function Home() {
         {/* Active Tasks Banner */}
         {activeTasks.length > 0 && (
           <div className="mb-4 mx-auto max-w-3xl w-full bg-gradient-to-r from-[var(--accent-violet)]/10 to-[var(--accent-indigo)]/10 border border-[var(--accent-violet)]/30 rounded-2xl p-3 space-y-2 animate-in fade-in slide-in-from-top-4 duration-500">
-            {activeTasks.slice(0, 3).map((t: any) => (
+            {activeTasks.slice(0, 3).map((t) => (
               <Link key={t.task_id} href={`/tasks?id=${t.task_id}`} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
                 <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--accent-violet)] opacity-75"></span>
