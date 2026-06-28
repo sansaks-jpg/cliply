@@ -54,6 +54,7 @@ export interface CreateTaskOptions {
   subtitle_color_primary?: string;
   subtitle_color_highlight?: string;
   encoder?: string;
+  sensitivity?: number;
 }
 
 export interface AvailableEncoders {

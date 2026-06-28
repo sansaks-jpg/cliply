@@ -3,6 +3,7 @@
 Lifted from shorts_generator/local/llm.py — adds Anthropic support.
 """
 import logging
+import time
 from typing import Callable
 
 from ..config import (
@@ -21,6 +22,8 @@ LLMFn = Callable[[str], str]
 
 
 _LLM_TIMEOUT = 60  # seconds per LLM call
+_LLM_MAX_RETRIES = 3
+_LLM_RETRY_DELAY = 2  # seconds, doubles each retry
 
 
 def call_openai_llm(prompt: str) -> str:
@@ -28,38 +31,54 @@ def call_openai_llm(prompt: str) -> str:
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not set.")
     client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL, timeout=_LLM_TIMEOUT)
-    
+
     messages = [{"role": "user", "content": prompt}]
-    
-    # Defensively attempt JSON response format if JSON is requested in the prompt
-    if "json" in prompt.lower():
+    last_err: Exception | None = None
+
+    for attempt in range(_LLM_MAX_RETRIES):
         try:
-            res = client.chat.completions.create(
+            # Defensively attempt JSON response format if JSON is requested in the prompt
+            if "json" in prompt.lower():
+                try:
+                    res = client.chat.completions.create(
+                        model=OPENAI_MODEL,
+                        temperature=0.7,
+                        messages=messages,
+                        response_format={"type": "json_object"},
+                        timeout=_LLM_TIMEOUT,
+                    )
+                    return res.choices[0].message.content or ""
+                except Exception as e:
+                    logger.warning(
+                        "JSON mode unsupported, falling back to stream: %s", e
+                    )
+
+            # Standard stream fallback
+            stream = client.chat.completions.create(
                 model=OPENAI_MODEL,
                 temperature=0.7,
+                stream=True,
                 messages=messages,
-                response_format={"type": "json_object"},
-                timeout=_LLM_TIMEOUT
             )
-            return res.choices[0].message.content or ""
+            parts = []
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    parts.append(chunk.choices[0].delta.content)
+            return "".join(parts)
         except Exception as e:
+            last_err = e
+            status = getattr(e, "status_code", None)
+            # Only retry on transient errors (404, 429, 500+)
+            if status and status not in (404, 429) and status < 500:
+                raise
+            delay = _LLM_RETRY_DELAY * (2 ** attempt)
             logger.warning(
-                f"Failed to use OpenAI response_format JSON mode (might be unsupported by local/mimo backend). "
-                f"Falling back to standard stream completion: {e}"
+                "LLM call failed (attempt %d/%d, status=%s), retrying in %ds: %s",
+                attempt + 1, _LLM_MAX_RETRIES, status, delay, e,
             )
+            time.sleep(delay)
 
-    # Standard stream fallback
-    stream = client.chat.completions.create(
-        model=OPENAI_MODEL,
-        temperature=0.7,
-        stream=True,
-        messages=messages,
-    )
-    parts = []
-    for chunk in stream:
-        if chunk.choices and chunk.choices[0].delta.content:
-            parts.append(chunk.choices[0].delta.content)
-    return "".join(parts)
+    raise RuntimeError(f"LLM call failed after {_LLM_MAX_RETRIES} attempts: {last_err}") from last_err
 
 
 def call_anthropic_llm(prompt: str) -> str:

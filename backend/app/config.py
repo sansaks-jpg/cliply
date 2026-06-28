@@ -14,10 +14,9 @@ from dotenv import load_dotenv
 log = logging.getLogger(__name__)
 
 # Load .env from the repo root (backend/.env)
-# override=False prevents .env from overwriting env vars already set by
-# the runtime (Docker, CI, systemd), which are considered authoritative.
+# override=True ensures .env values take precedence over stale system env vars.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_REPO_ROOT / ".env", override=False)
+load_dotenv(_REPO_ROOT / ".env", override=True)
 
 
 def _get(key: str, default: str = "") -> str:
@@ -39,7 +38,7 @@ def _get_positive_int(key: str, default: int) -> int:
 # --- LLM (pluggable) ---------------------------------------------------------
 LLM_PROVIDER = _get("LLM_PROVIDER", "openai").lower()
 OPENAI_API_KEY = _get("OPENAI_API_KEY")
-OPENAI_BASE_URL = _get("OPENAI_BASE_URL", "http://localhost:8003/v1")
+OPENAI_BASE_URL = _get("OPENAI_BASE_URL", "http://127.0.0.1:8003/v1")
 OPENAI_MODEL = _get("OPENAI_MODEL", "gpt-4o-mini")
 ANTHROPIC_API_KEY = _get("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = _get("ANTHROPIC_MODEL", "claude-haiku-4")

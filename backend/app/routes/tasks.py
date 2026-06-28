@@ -49,6 +49,7 @@ class CreateTaskRequest(BaseModel):
     subtitle_color_primary: Optional[str] = Field(default=None, description="Custom primary text color override (#RRGGBB).")
     subtitle_color_highlight: Optional[str] = Field(default=None, description="Custom highlight color override (#RRGGBB).")
     encoder: Optional[str] = Field(default=None, description="Encoder: auto | nvidia | intel | amd | cpu")
+    sensitivity: Optional[int] = Field(default=50, ge=0, le=100, description="Detection sensitivity 0-100 (50=default, 0=max sensitive, 100=max stable).")
 
 
 class TaskCreatedResponse(BaseModel):
@@ -84,6 +85,7 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
         subtitle_color_primary=req.subtitle_color_primary,
         subtitle_color_highlight=req.subtitle_color_highlight,
         encoder=encoder,
+        sensitivity=req.sensitivity or 50,
     )
 
     # Enqueue the background pipeline (no-op stub in Fase 0; real in Fase 1).

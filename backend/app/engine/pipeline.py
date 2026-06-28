@@ -124,6 +124,7 @@ async def run_pipeline(
         await store.set_progress(task_id, 62, "SMART_CROP", f"Analisis face-crop untuk {len(top)} klip…")
 
         s_encoder = getattr(record, "encoder", None) or encoder
+        s_sensitivity = getattr(record, "sensitivity", 50) or 50
 
         clips = await asyncio.to_thread(
             render_clips,
@@ -139,6 +140,7 @@ async def run_pipeline(
             subtitle_color_primary=s_color_primary,
             subtitle_color_highlight=s_color_highlight,
             encoder=s_encoder,
+            sensitivity=s_sensitivity,
         )
 
         clip_count = sum(1 for c in clips if c.get("clip_url"))
