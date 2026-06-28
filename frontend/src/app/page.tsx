@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { API_URL, createTask, deleteTask, getAvailableEncoders, waitForBackend, type BackendStatus } from "@/lib/api";
 import Link from "next/link";
@@ -1050,6 +1051,7 @@ export default function Home() {
               <span>Riwayat Workspace Proyek</span>
             </div>
 
+            <TooltipProvider>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {recentTasks.map((t) => (
                 <div
@@ -1075,16 +1077,22 @@ export default function Home() {
                   </div>
 
                   <div className="relative z-10 flex items-center gap-1 flex-shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => removeRecentTask(t.id, e)}
-                      aria-label="Delete history"
-                      title="Delete history"
-                      className="text-muted-foreground hover:text-red-500 hover:bg-red-500/10 w-9 h-9 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={(e) => removeRecentTask(t.id, e)}
+                          aria-label="Hapus riwayat"
+                          className="text-muted-foreground hover:text-red-500 hover:bg-red-500/10 w-9 h-9 rounded-lg opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Hapus riwayat</p>
+                      </TooltipContent>
+                    </Tooltip>
                     <div className="w-9 h-9 rounded-lg bg-secondary/60 flex items-center justify-center text-muted-foreground group-hover:text-[var(--accent-violet)] transition-all">
                       <ExternalLink className="w-4 h-4" />
                     </div>
@@ -1092,6 +1100,7 @@ export default function Home() {
                 </div>
               ))}
             </div>
+            </TooltipProvider>
           </section>
         )}
 
