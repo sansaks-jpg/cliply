@@ -11,6 +11,50 @@ This file documents the history of major modifications made to the `cliply` work
 
 ---
 
+## [2026-06-28 08:30 WIB] — v0.1.5: LLM Resilience, Settings Persistence, Sensitivity Slider, UI Fixes
+
+### Summary
+Release v0.1.5 dengan perbaikan stabilitas LLM, persistensi settings, kontrol sensitivitas deteksi speaker, dan berbagai fix UI/UX.
+
+### Changes
+* **LLM Resilience (`llm.py`)**:
+  * Menambahkan retry 3x dengan exponential backoff (2s, 4s, 8s) untuk transient errors (404, 429, 500+).
+  * Memperbaiki IPv6 resolution issue — mengubah default `OPENAI_BASE_URL` dari `localhost` ke `127.0.0.1`.
+  * Menghapus stale system env var `OPENAI_BASE_URL` yang menimpa `.env` config.
+
+* **Graceful Degradation (`highlights.py`)**:
+  * `segment_narrative` dan `rank_highlights` sekarang menangkap `RuntimeError` dari LLM dan mengembalikan fallback (empty list / single unit) alih-alih crash.
+  * Pipeline tetap berjalan meskipun LLM gagal total.
+
+* **Settings Persistence (`page.tsx`)**:
+  * Semua settings (numClips, aspectRatio, language, subtitleStyle, faceDetector, encoder) sekarang persist di `localStorage` dengan prefix `cliply_`.
+  * Settings ter-load otomatis saat halaman di-refresh.
+
+* **Detection Sensitivity Slider**:
+  * Frontend: slider 0-100 (default 50) di page.tsx dan settings/page.tsx, persist di `cliply_detection_sensitivity`.
+  * Backend: parameter `sensitivity` di `TaskRecord`, `CreateTaskRequest`, `pipeline.py`, dan `render.py`.
+  * Mapping: sensitivity → mouth motion threshold, hold samples, switch margin, motion/size weights.
+
+* **UI/UX Fixes**:
+  * `getCleanUrlLabel`: hapus `console.warn` spam untuk URL invalid.
+  * `vertical-player.tsx`: fix z-index layering — video `pointer-events-none`, button `z-5`, controls `z-10`.
+  * `vertical-player.tsx`: perbesar mute button (`w-9 h-9`).
+  * `tasks/page.tsx`: fix hooks order violation (useCallback sebelum early return).
+  * `tasks/page.tsx`: cross-origin download via fetch+blob (bukan `<a download>`).
+  * `tasks/page.tsx`: clean download filename `Cliply - {title} - Clip {N}.mp4`.
+  * `tasks/page.tsx`: mobile preview `min-h-[60vh]`.
+
+* **CI/CD (`build.yml`)**:
+  * Menghapus artifact upload step yang gagal karena storage quota.
+  * Release langsung attach MSI dari filesystem.
+
+* **CORS & Config**:
+  * Menambahkan CORS origins logging di startup.
+  * Menambahkan `/debug/cors` diagnostic endpoint.
+  * Menambahkan `http://127.0.0.1:3107` ke CORS_ORIGINS.
+
+---
+
 ## [2026-06-21 23:10 WIB] — CI Build Fixes for v0.1.1 Release
 
 ### Summary

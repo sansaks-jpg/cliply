@@ -2,16 +2,23 @@
 
 Automatic YouTube → viral 9:16 short clips generator. Paste a YouTube URL, and the AI pipeline downloads, transcribes, analyzes virality, tracks faces, crops to vertical, and burns karaoke subtitles — all in one go.
 
+**Version:** 0.1.5
+
 ## Features
 
 - **One-click** — paste YouTube link, get vertical clips
 - **AI virality analysis** — finds the best moments via local LLM (mimo-v2.5-pro)
 - **Smart face tracking** — OpenCV DNN SSD + MediaPipe + YuNet, mouth motion energy scoring
+- **Speaker detection** — mouth motion energy + face size scoring with hysteresis
+- **Detection sensitivity slider** — adjustable 0-100 sensitivity for speaker detection accuracy
 - **Shot classification** — closeup / medium / wide-cut, with dynamic zoom & letterbox
 - **Multi-style karaoke subtitles** — 10+ styles (viral-bold, tiktok, neon-glow, word-pop, etc.)
 - **Live progress (SSE)** — real-time stage updates in the browser
+- **Persistent settings** — all preferences saved in localStorage (clips, face detector, subtitle style, etc.)
 - **Dual caching** — transcripts cached as `.json` (speaker metadata) + `.srt`
 - **Pluggable LLM** — OpenAI / Gemini / Anthropic / local via env
+- **LLM resilience** — retry 3x with exponential backoff for transient errors
+- **Graceful degradation** — pipeline continues with fallback if LLM fails
 
 ## Architecture
 
@@ -125,7 +132,7 @@ Copy `.env.example` to `.env` and configure:
 ```env
 LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-...
-OPENAI_BASE_URL=http://localhost:20128/v1
+OPENAI_BASE_URL=http://127.0.0.1:20128/v1
 OPENAI_MODEL=mimo/mimo-v2.5-pro
 GEMINI_API_KEY=...
 ```
