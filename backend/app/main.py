@@ -45,6 +45,9 @@ async def lifespan(app: FastAPI):
             )
     except (OSError, RedisError) as exc:
         logging.getLogger(__name__).warning("Boot recovery failed: %s", exc)
+    logging.getLogger(__name__).info(
+        "CORS allowed origins: %s", config.CORS_ORIGINS
+    )
     yield
     # --- shutdown ---
     try:
@@ -178,6 +181,12 @@ async def debug_build() -> dict:
         "version": config._get("APP_VERSION", "0.1.5"),
         "pid": os.getpid(),
     }
+
+
+@app.get("/debug/cors")
+async def debug_cors() -> dict:
+    """Diagnostic endpoint showing allowed CORS origins."""
+    return {"allowed_origins": config.CORS_ORIGINS}
 
 
 @app.get("/models")

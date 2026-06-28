@@ -109,6 +109,7 @@ if not FONTS_DIR.is_absolute():
 
 CORS_ORIGINS = [
     "http://localhost:3107",
+    "http://127.0.0.1:3107",
     "http://tauri.localhost",
     "tauri://localhost",
 ]

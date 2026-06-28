@@ -82,7 +82,13 @@ export async function waitForBackend(
       });
       if (res.ok) return "ready";
     } catch (e) {
-      console.warn("waitForBackend: connection refused or timeout", e);
+      const msg =
+        e instanceof DOMException && e.name === "AbortError"
+          ? "timeout"
+          : e instanceof TypeError
+            ? "CORS block or connection refused"
+            : String(e);
+      console.warn(`waitForBackend: ${msg}`);
     }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
