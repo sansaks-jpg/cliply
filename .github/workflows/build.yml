@@ -101,11 +101,32 @@ jobs:
         run: pnpm tauri build
         working-directory: frontend
 
+      - name: Delete old artifacts to free storage quota
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const res = await github.rest.actions.listArtifactsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100,
+            });
+            for (const a of res.data.artifacts) {
+              if (a.name.startsWith('cliply-windows-') && a.name !== `cliply-windows-${context.ref.replace('refs/tags/', '')}`) {
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: a.id,
+                });
+                core.info(`Deleted old artifact: ${a.name}`);
+              }
+            }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: cliply-windows-${{ github.ref_name }}
           path: frontend/src-tauri/target/release/bundle/msi/*.msi
+          retention-days: 1
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
