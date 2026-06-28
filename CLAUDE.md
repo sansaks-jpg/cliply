@@ -60,16 +60,24 @@ backend/
 │   ├── engine/
 │   │   ├── pipeline.py    # run_pipeline() — orchestrates full flow
 │   │   ├── downloader.py  # yt-dlp video download
-│   │   ├── transcriber.py # Gemini → Groq Whisper → youtube-transcript-api fallback chain
-│   │   ├── highlights.py  # LLM-based viral highlight detection
+│   │   ├── transcriber.py # Main transcribe_video() — YouTube → Gemini → Groq fallback chain
+│   │   ├── transcriber_youtube.py  # YouTube transcript API provider
+│   │   ├── transcriber_gemini.py   # Gemini 2.5 Flash transcription (speaker diarization)
+│   │   ├── transcriber_groq.py     # Groq Whisper transcription (word timestamps)
+│   │   ├── highlights.py  # Main get_highlights_async() — 3-stage viral highlight detection
+│   │   ├── highlight_prompts.py    # LLM prompt templates and constants
+│   │   ├── highlight_validation.py # Unit and highlight validation logic
 │   │   ├── llm.py         # Pluggable LLM client (OpenAI/Anthropic/Gemini)
-│   │   ├── smart_crop.py  # Face/pose detector & shot type classifier (closeup/medium/wide)
-│   │   ├── subtitles.py   # ASS subtitle generation with karaoke animations
-│   │   ├── render.py      # ffmpeg rendering with smart-crop face tracking
+│   │   ├── render.py      # Smart-crop renderer — two-pass interpolation, face tracking
+│   │   ├── face_detection.py      # Multi-model face detector (YuNet/MediaPipe/YOLOv8/SSD)
+│   │   ├── camera_segments.py     # Scene cut detection & shot type classification
+│   │   ├── smoothing.py   # Kalman-filter smoothing & sample data structures
+│   │   ├── subtitles.py   # ASS subtitle generation — chunk, overlap resolve, header
+│   │   ├── subtitle_styles.py     # Style definitions and animation builder registry
+│   │   ├── subtitle_builders.py   # Animation builder implementations (karaoke, fade, popup)
 │   │   └── utils.py       # Helpers (video ID extraction, env sanitization)
 │   └── services/
 │       └── encoder_detection.py  # HW encoder detection (NVIDIA/Intel/AMD)
-├── shorts_generator/       # Legacy CLI engine library (SamurAIGPT)
 ├── main.py               # CLI entry point (argparse, for direct use)
 ├── cliply_server.py       # PyInstaller entry point (--storage-dir, --port)
 ├── cliply.spec            # PyInstaller spec file
@@ -78,6 +86,7 @@ backend/
 ├── requirements-bundle.txt # PyInstaller bundle deps (cloud-only transcription)
 ├── .env.example           # All env vars documented
 ├── fonts/                 # Subtitle font files
+├── models/                # Face detection models (gitignored, download on first run)
 └── storage/               # Runtime task data (gitignored)
 ```
 
