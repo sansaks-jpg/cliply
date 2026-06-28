@@ -151,7 +151,9 @@ async def video_info(url: str) -> dict:
     # Fallback: yt-dlp info extract (no download)
     try:
         import subprocess, json as _json
-        cmd = ["yt-dlp", "--dump-json", "--no-download", url]
+        # SEC-FIX: Prepend `--` to ensure the URL is treated as a positional argument,
+        # preventing yt-dlp option injection (e.g. `--exec`, `-o`) if the URL starts with a hyphen.
+        cmd = ["yt-dlp", "--dump-json", "--no-download", "--", url]
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=15,
                            creationflags=0x08000000 if os.name == "nt" else 0)
         if r.returncode == 0:
