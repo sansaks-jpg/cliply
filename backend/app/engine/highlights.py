@@ -239,7 +239,12 @@ def segment_narrative(transcript: Dict, content_info: Dict, llm_fn: LLMFn) -> Li
     last_errors = []
     current_prompt = prompt
     for attempt in range(1, MAX_HIGHLIGHT_ATTEMPTS + 1):
-        raw = llm_fn(current_prompt)
+        try:
+            raw = llm_fn(current_prompt)
+        except RuntimeError as e:
+            logger.warning(f"[SEGMENTATION] LLM call failed (attempt {attempt}): {e}")
+            last_errors.append(f"Attempt {attempt} failed: LLM error: {e}")
+            continue
         try:
             parsed = _parse_json_loose(raw)
             units = parsed.get("units", [])
@@ -266,7 +271,10 @@ def segment_narrative(transcript: Dict, content_info: Dict, llm_fn: LLMFn) -> Li
                 f"Please correct these mistakes. Return ONLY valid JSON with a top-level 'units' array conforming to the specifications. Ensure all segment IDs are correct and cover the full transcript."
             )
     
-    raise RuntimeError(f"Narrative segmentation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts: {last_errors[-1]}")
+    logger.error(f"Narrative segmentation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts, using fallback")
+    # Return a single unit covering the entire transcript as fallback
+    seg_ids = list(range(len(transcript.get("segments", []))))
+    return [{"start_segment": 0, "end_segment": seg_ids[-1] if seg_ids else 0, "type": "other"}]
 
 
 def _validate_units(units: List[Dict], transcript: Dict) -> List[Dict]:
@@ -412,7 +420,12 @@ def generate_highlights(
     last_errors = []
     current_prompt = prompt
     for attempt in range(1, MAX_HIGHLIGHT_ATTEMPTS + 1):
-        raw = llm_fn(current_prompt)
+        try:
+            raw = llm_fn(current_prompt)
+        except RuntimeError as e:
+            logger.warning(f"[HIGHLIGHTS] LLM call failed (attempt {attempt}): {e}")
+            last_errors.append(f"Attempt {attempt} failed: LLM error: {e}")
+            continue
         logger.info(f"[HIGHLIGHTS] Attempt {attempt}: LLM returned {len(raw)} chars")
         try:
             parsed = _parse_json_loose(raw)
@@ -441,7 +454,8 @@ def generate_highlights(
                 f"Please correct these mistakes. Ensure all highlights align with the provided narrative units (either fully within a single unit, or exact merges of contiguous units), hook sentences match the transcript verbatim, and overlap doesn't exceed 20% cumulative. Respond ONLY with valid JSON."
             )
     
-    raise RuntimeError(f"Highlight generation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts: {last_errors[-1]}")
+    logger.error(f"Highlight generation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts, returning empty")
+    return []
 
 
 # ── Alignment Helpers ─────────────────────────────────────────────────

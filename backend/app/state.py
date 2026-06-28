@@ -35,6 +35,7 @@ class TaskRecord:
     subtitle_color_primary: Optional[str] = None
     subtitle_color_highlight: Optional[str] = None
     encoder: Optional[str] = "auto"
+    sensitivity: int = 50
     status: str = "queued"
     progress: float = 0.0
     stage: str = ""
@@ -57,6 +58,7 @@ class TaskRecord:
             "subtitle_color_primary": self.subtitle_color_primary or "",
             "subtitle_color_highlight": self.subtitle_color_highlight or "",
             "encoder": self.encoder or "auto",
+            "sensitivity": self.sensitivity,
             "status": self.status,
             "progress": self.progress,
             "stage": self.stage,
@@ -136,6 +138,7 @@ class TaskStore:
         subtitle_color_primary: Optional[str] = None,
         subtitle_color_highlight: Optional[str] = None,
         encoder: Optional[str] = "auto",
+        sensitivity: int = 50,
     ) -> str:
         task_id = uuid.uuid4().hex[:12]
         record = TaskRecord(
@@ -150,6 +153,7 @@ class TaskStore:
             subtitle_color_primary=subtitle_color_primary,
             subtitle_color_highlight=subtitle_color_highlight,
             encoder=encoder,
+            sensitivity=sensitivity,
         )
         if await self._ensure_backend():
             await self._redis.hmset(_TASK.format(task_id), record.to_redis_hash())
@@ -177,6 +181,8 @@ class TaskStore:
                 data[k] = float(data[k])
         if "num_clips" in data:
             data["num_clips"] = int(data["num_clips"])
+        if "sensitivity" in data:
+            data["sensitivity"] = int(data["sensitivity"])
         nullables = ("language", "error", "subtitle_style", "face_detector", "subtitle_font",
                      "subtitle_color_primary", "subtitle_color_highlight", "encoder")
         for k in nullables:
@@ -184,7 +190,7 @@ class TaskStore:
                 data[k] = None
         for k, v in {"subtitle_style": None, "face_detector": "yunet", "subtitle_font": None,
                       "subtitle_color_primary": None, "subtitle_color_highlight": None,
-                      "encoder": "auto", "clips": []}.items():
+                      "encoder": "auto", "sensitivity": 50, "clips": []}.items():
             if k not in data:
                 data[k] = v
         return TaskRecord(**data)

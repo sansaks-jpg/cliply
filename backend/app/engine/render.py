@@ -15,6 +15,37 @@ import numpy as np
 
 from scenedetect import detect, ContentDetector
 from ..config import RENDER_CFG, STORAGE_DIR, resolve_encoder
+
+
+@dataclass
+class SensitivityParams:
+    """Runtime-adjusted detection parameters derived from sensitivity (0-100)."""
+    confidence_threshold: float
+    motion_weight: float
+    size_weight: float
+    switch_margin: float
+    min_hold_samples: int
+    min_shot_hold_samples: int
+    max_missed_samples: int
+
+
+def apply_sensitivity(sensitivity: int) -> SensitivityParams:
+    """Map sensitivity 0-100 to detection parameters.
+
+    0 = most sensitive (aggressive detection, fast speaker switching)
+    50 = defaults from RENDER_CFG
+    100 = most stable (conservative detection, slow switching)
+    """
+    t = max(0, min(100, sensitivity)) / 100.0  # 0.0..1.0
+    return SensitivityParams(
+        confidence_threshold=0.15 + t * 0.30,        # 0.15 .. 0.45
+        motion_weight=0.75 - t * 0.30,               # 0.75 .. 0.45
+        size_weight=0.25 + t * 0.30,                  # 0.25 .. 0.55
+        switch_margin=0.05 + t * 0.20,                # 0.05 .. 0.25
+        min_hold_samples=max(1, int(1 + t * 5)),      # 1 .. 6
+        min_shot_hold_samples=max(1, int(1 + t * 5)), # 1 .. 6
+        max_missed_samples=max(2, int(2 + t * 4)),    # 2 .. 6
+    )
 from .utils import sanitize_env
 
 log = logging.getLogger(__name__)
@@ -375,11 +406,14 @@ def _analyze_video(
     src_h: int,
     camera_segments: List[Dict[str, Any]],
     clip_start_offset: float = 0.0,
-    face_detector: str = "yunet"
+    face_detector: str = "yunet",
+    sp: Optional[SensitivityParams] = None,
 ) -> List[SampleFrame]:
     """Pass 1: Analyze video using ground-truth camera segments to guide crop decisions.
     Applies strict behavior per segment type (master vs individual closeups) to eliminate noise.
     """
+    if sp is None:
+        sp = apply_sensitivity(50)
     cap = cv2.VideoCapture(in_path)
     try:
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
@@ -453,8 +487,8 @@ def _analyze_video(
                     is_first_frame_of_cut = True
                     active_speaker_id = None
                     speaker_hold_counter = 0
-                    shot_hold_counter = RENDER_CFG.MIN_SHOT_HOLD_SAMPLES
-                    
+                    shot_hold_counter = sp.min_shot_hold_samples
+
                     # Default fallback spasial awal yang disesuaikan berdasarkan segmentasi
                     if active_seg is not None and "avg_cx" in active_seg:
                         last_valid_cx = int(active_seg["avg_cx"])
@@ -474,10 +508,10 @@ def _analyze_video(
                 # ── FACE DETECTION (master & individual) ──────────────────
                 if is_master_segment:
                     # Master segment: detect faces at lower threshold, find active speaker
-                    faces = _detect_faces(detector, face_detector, frame, max(0.20, RENDER_CFG.CONFIDENCE_THRESHOLD - 0.10))
+                    faces = _detect_faces(detector, face_detector, frame, max(0.20, sp.confidence_threshold - 0.10))
                 else:
                     # Individual segment: detect faces at normal threshold
-                    faces = _detect_faces(detector, face_detector, frame, RENDER_CFG.CONFIDENCE_THRESHOLD)
+                    faces = _detect_faces(detector, face_detector, frame, sp.confidence_threshold)
 
                 # Camera Lock Anchor
                 locked_cx = int(active_seg.get("avg_cx", src_w // 2)) if active_seg else src_w // 2
@@ -554,7 +588,7 @@ def _analyze_video(
 
                         # Normalisasi score: size vs motion (sehingga gerakan mulut memiliki pengaruh seimbang)
                         size_score = min(1.0, face_h / 0.5)
-                        total_score = RENDER_CFG.MOTION_WEIGHT * motion_val + RENDER_CFG.SIZE_WEIGHT * size_score
+                        total_score = sp.motion_weight * motion_val + sp.size_weight * size_score
 
                         current_faces.append({
                             "id": tid,
@@ -572,7 +606,7 @@ def _analyze_video(
                 for tid in list(tracked_faces.keys()):
                     if tid not in detected_ids:
                         tracked_faces[tid]["missed_frames"] += 1
-                        if tracked_faces[tid]["missed_frames"] > RENDER_CFG.MAX_MISSED_SAMPLES:
+                        if tracked_faces[tid]["missed_frames"] > sp.max_missed_samples:
                             del tracked_faces[tid]
                             if active_speaker_id == tid:
                                 active_speaker_id = None
@@ -601,7 +635,7 @@ def _analyze_video(
                             main_face = best_face
                         else:
                             score_diff = best_face["score"] - curr_active_face["score"]
-                            if speaker_hold_counter >= RENDER_CFG.MIN_HOLD_SAMPLES and score_diff >= RENDER_CFG.SWITCH_MARGIN:
+                            if speaker_hold_counter >= sp.min_hold_samples and score_diff >= sp.switch_margin:
                                 active_speaker_id = best_face["id"]
                                 speaker_hold_counter = 1
                                 main_face = best_face
@@ -651,7 +685,7 @@ def _analyze_video(
                         shot_hold_counter += 1
                         shot_type_to_use = last_shot_type
                     else:
-                        if shot_hold_counter >= RENDER_CFG.MIN_SHOT_HOLD_SAMPLES:
+                        if shot_hold_counter >= sp.min_shot_hold_samples:
                             last_shot_type = shot_type_raw
                             shot_hold_counter = 1
                             shot_type_to_use = shot_type_raw
@@ -1142,6 +1176,7 @@ def _reframe_vertical(
     fonts_dir: Optional[str] = None,
     face_detector: str = "yunet",
     encoder_args: str = "libx264 -preset fast -crf 20",
+    sp: Optional[SensitivityParams] = None,
 ) -> str:
     """Two-pass smart crop using ground-truth camera segments and non-causal smoothing."""
     if is_master:
@@ -1174,7 +1209,7 @@ def _reframe_vertical(
             camera_segments = _generate_camera_segments(in_path, detector, face_detector)
             
             # Pass 1: Analysis guided by camera segments
-            samples = _analyze_video(in_path, detector, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset=0.0, face_detector=face_detector)
+            samples = _analyze_video(in_path, detector, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset=0.0, face_detector=face_detector, sp=sp)
             
             if not samples:
                 log.warning("Samples kosong setelah _analyze_video. Fallback ke master letterbox.")
@@ -1240,8 +1275,10 @@ def render_clips(
     subtitle_color_primary: Optional[str] = None,
     subtitle_color_highlight: Optional[str] = None,
     encoder: str = "auto",
+    sensitivity: int = 50,
 ) -> List[Dict]:
     sanitize_env()
+    sp = apply_sensitivity(sensitivity)
     encoder_args = resolve_encoder(encoder)
     clips_dir = str(STORAGE_DIR / task_id / "clips")
     os.makedirs(clips_dir, exist_ok=True)
@@ -1330,6 +1367,7 @@ def render_clips(
                 fonts_dir=fonts_dir,
                 face_detector=face_detector,
                 encoder_args=encoder_args,
+                sp=sp,
             )
             results.append({**h, "clip_url": f"/clips/{task_id}/short_{i:02d}.mp4"})
         except Exception as e:

@@ -128,6 +128,15 @@ export default function SettingsPage() {
   const [openaiModel, setOpenaiModel] = useState<string>("gpt-4o-mini");
   const [availableModels, setAvailableModels] = useState<string[]>(["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]);
   const [loadingModels, setLoadingModels] = useState<boolean>(false);
+  const [sensitivity, setSensitivity] = useState<number>(() => {
+    if (typeof window === "undefined") return 50;
+    const v = localStorage.getItem("cliply_detection_sensitivity");
+    return v ? parseInt(v, 10) : 50;
+  });
+
+  useEffect(() => {
+    if (typeof window !== "undefined") localStorage.setItem("cliply_detection_sensitivity", String(sensitivity));
+  }, [sensitivity]);
 
   const loadModels = async (baseUrl: string, apiKey: string) => {
     if (!baseUrl) {
@@ -364,6 +373,36 @@ export default function SettingsPage() {
                 Cek Ulang Koneksi
               </Button>
             )}
+          </div>
+        </div>
+
+        {/* Sensitivity Control */}
+        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6 space-y-4 backdrop-blur-md">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-white">Sensitivitas Deteksi</h2>
+            <p className="text-xs text-neutral-400">
+              Atur seberapa ketat AI memilih momen viral. Nilai rendah = lebih ketat (klip lebih sedikit tapi lebih relevan). Nilai tinggi = lebih longgar (lebih banyak klip).
+            </p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="sensitivity-settings" className="text-xs font-bold text-neutral-400">Level Sensitivitas</Label>
+              <span className="text-sm font-mono font-bold text-white">{sensitivity}%</span>
+            </div>
+            <input
+              id="sensitivity-settings"
+              type="range"
+              min={0}
+              max={100}
+              value={sensitivity}
+              onChange={(e) => setSensitivity(parseInt(e.target.value, 10))}
+              className="w-full h-2 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-white"
+            />
+            <div className="flex justify-between text-[10px] text-neutral-500">
+              <span>Ketat</span>
+              <span>Default</span>
+              <span>Longgar</span>
+            </div>
           </div>
         </div>
 

@@ -186,13 +186,27 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [urlFocused, setUrlFocused] = useState(false);
 
-  // Configurations
-  const [numClips, setNumClips] = useState("auto");
-  const [aspectRatio, setAspectRatio] = useState("9:16");
-  const [language, setLanguage] = useState("auto");
-  const [subtitleStyle, setSubtitleStyle] = useState("viral-bold");
-  const [faceDetector, setFaceDetector] = useState("yunet");
-  const [encoder, setEncoder] = useState("auto");
+  // localStorage helpers
+  const _lsGet = (key: string, fallback: string) => {
+    if (typeof window === "undefined") return fallback;
+    return localStorage.getItem(`cliply_${key}`) || fallback;
+  };
+  const _lsSet = (key: string, value: string) => {
+    if (typeof window !== "undefined") localStorage.setItem(`cliply_${key}`, value);
+  };
+
+  // Configurations (persisted in localStorage)
+  const [numClips, setNumClips] = useState(() => _lsGet("numClips", "auto"));
+  const [aspectRatio, setAspectRatio] = useState(() => _lsGet("aspectRatio", "9:16"));
+  const [language, setLanguage] = useState(() => _lsGet("language", "auto"));
+  const [subtitleStyle, setSubtitleStyle] = useState(() => _lsGet("subtitleStyle", "viral-bold"));
+  const [faceDetector, setFaceDetector] = useState(() => _lsGet("faceDetector", "yunet"));
+  const [encoder, setEncoder] = useState(() => _lsGet("encoder", "auto"));
+  const [sensitivity, setSensitivity] = useState(() => {
+    if (typeof window === "undefined") return 50;
+    const v = localStorage.getItem("cliply_detection_sensitivity");
+    return v ? parseInt(v, 10) : 50;
+  });
   const [availableEncoders, setAvailableEncoders] = useState<string[]>(["auto", "cpu"]);
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
@@ -201,6 +215,15 @@ export default function Home() {
   const [isTauriApp, setIsTauriApp] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [showSetup, setShowSetup] = useState(false);
+
+  // Persist settings to localStorage on change
+  useEffect(() => { _lsSet("numClips", numClips); }, [numClips]);
+  useEffect(() => { _lsSet("aspectRatio", aspectRatio); }, [aspectRatio]);
+  useEffect(() => { _lsSet("language", language); }, [language]);
+  useEffect(() => { _lsSet("subtitleStyle", subtitleStyle); }, [subtitleStyle]);
+  useEffect(() => { _lsSet("faceDetector", faceDetector); }, [faceDetector]);
+  useEffect(() => { _lsSet("encoder", encoder); }, [encoder]);
+  useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cliply_detection_sensitivity", String(sensitivity)); }, [sensitivity]);
 
   useEffect(() => {
     const tauriActive = isTauri();
@@ -388,6 +411,7 @@ export default function Home() {
         subtitle_style: subtitleStyle,
         face_detector: faceDetector,
         encoder,
+        sensitivity,
       };
 
       const { task_id } = await createTask(url.trim(), opts);
@@ -436,8 +460,7 @@ export default function Home() {
         return `youtu.be/${u.pathname.substring(1)}`;
       }
       return fullUrl;
-    } catch (e) {
-      console.warn("getCleanUrlLabel: invalid URL", e);
+    } catch {
       return fullUrl;
     }
   };
@@ -638,6 +661,30 @@ export default function Home() {
                         <SelectItem value="ssd">SSD ResNet (Ringan)</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="sensitivity" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5 justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Sliders className="w-3.5 h-3.5" />
+                        Sensitivitas Deteksi
+                      </span>
+                      <span className="font-mono text-[var(--accent-violet)]">{sensitivity}%</span>
+                    </Label>
+                    <input
+                      id="sensitivity"
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={sensitivity}
+                      onChange={(e) => setSensitivity(parseInt(e.target.value, 10))}
+                      className="w-full h-2 bg-background/40 rounded-lg appearance-none cursor-pointer accent-[var(--accent-violet)]"
+                    />
+                    <div className="flex justify-between text-[10px] text-muted-foreground">
+                      <span>Ketat</span>
+                      <span>Default</span>
+                      <span>Longgar</span>
+                    </div>
                   </div>
 
                   {/* Gaya Subtitle Section */}
