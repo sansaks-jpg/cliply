@@ -34,10 +34,10 @@ def apply_sensitivity(sensitivity: int = 50, face_detector: str = "yunet") -> Se
     Kept for backward compatibility.
     """
     _PER_MODEL = {
-        "yunet":        SensitivityParams(0.35, 0.60, 0.40, 0.12, 3, 3, 4),
-        "mediapipe":    SensitivityParams(0.25, 0.65, 0.35, 0.15, 4, 4, 5),
-        "yolov8-face":  SensitivityParams(0.40, 0.55, 0.45, 0.10, 3, 3, 3),
-        "ssd":          SensitivityParams(0.50, 0.60, 0.40, 0.15, 4, 4, 4),
+        "yunet":        SensitivityParams(0.45, 0.50, 0.50, 0.20, 5, 5, 6),
+        "mediapipe":    SensitivityParams(0.35, 0.55, 0.45, 0.22, 6, 6, 7),
+        "yolov8-face":  SensitivityParams(0.50, 0.45, 0.55, 0.18, 5, 5, 5),
+        "ssd":          SensitivityParams(0.60, 0.50, 0.50, 0.22, 6, 6, 6),
     }
     return _PER_MODEL.get(face_detector, _PER_MODEL["yunet"])
 
@@ -52,7 +52,7 @@ def _load_face_detector(face_detector: str):
             model=_MODEL_YN,
             config="",
             input_size=(300, 300),
-            score_threshold=0.3,
+            score_threshold=0.45,
             nms_threshold=0.3
         )
     elif face_detector == "mediapipe":
@@ -66,7 +66,7 @@ def _load_face_detector(face_detector: str):
         options = FaceDetectorOptions(
             base_options=BaseOptions(model_asset_path=_MODEL_MP),
             running_mode=mp.tasks.vision.RunningMode.IMAGE,
-            min_detection_confidence=0.20
+            min_detection_confidence=0.35
         )
         return FaceDetector.create_from_options(options)
     elif face_detector == "yolov8-face":
