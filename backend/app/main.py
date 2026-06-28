@@ -220,7 +220,7 @@ async def debug_build() -> dict:
     import os
 
     return {
-        "version": config._get("APP_VERSION", "0.1.5"),
+        "version": config._get("APP_VERSION", "0.1.7"),
         "pid": os.getpid(),
     }
 
