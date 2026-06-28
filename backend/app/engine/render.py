@@ -664,12 +664,17 @@ def _analyze_video(
                         effective_switch_margin *= 1.5
 
                     for f in current_faces:
-                        if "motion_history" not in f:
-                            f["motion_history"] = []
-                        f["motion_history"].append(f["motion"])
-                        if len(f["motion_history"]) > 3:
-                            f["motion_history"].pop(0)
-                        smooth_motion = sum(f["motion_history"]) / len(f["motion_history"])
+                        # Store motion_history on tracked_faces (persists across frames)
+                        tinfo = tracked_faces.get(f["id"])
+                        if tinfo is not None:
+                            if "motion_history" not in tinfo:
+                                tinfo["motion_history"] = []
+                            tinfo["motion_history"].append(f["motion"])
+                            if len(tinfo["motion_history"]) > 3:
+                                tinfo["motion_history"].pop(0)
+                            smooth_motion = sum(tinfo["motion_history"]) / len(tinfo["motion_history"])
+                        else:
+                            smooth_motion = f["motion"]
                         bonus = 0.05 if f["id"] == active_speaker_id else 0
                         f["score"] = sp.motion_weight * smooth_motion + sp.size_weight * min(1.0, f.get("face_h", 1.0) / 0.5) + bonus
 
@@ -811,12 +816,13 @@ def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: i
                 result.append((s.raw_cx, s.raw_cy, s.face_ratio, s.shot_type, s.is_cut))
             continue
 
-        # One Kalman tracker per scene, reset on first frame
+        # One Kalman tracker per scene, reset on first non-wide frame
         kalman = FaceKalmanTracker()
         first = True
         for s in scene:
             if s.shot_type == "wide_cut":
                 result.append((s.raw_cx, s.raw_cy, s.face_ratio, s.shot_type, s.is_cut))
+                first = True  # Reset Kalman after wide_cut to prevent state leak
                 continue
             if first:
                 kalman.update([s.raw_cx, s.raw_cy, int(s.face_ratio * src_w), int(s.face_ratio * src_h)])
