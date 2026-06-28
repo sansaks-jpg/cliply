@@ -201,6 +201,9 @@ export default function Home() {
   const [language, setLanguage] = useState(() => _lsGet("language", "auto"));
   const [subtitleStyle, setSubtitleStyle] = useState(() => _lsGet("subtitleStyle", "viral-bold"));
   const [faceDetector, setFaceDetector] = useState(() => _lsGet("faceDetector", "yunet"));
+  const [subtitleColorPrimary, setSubtitleColorPrimary] = useState(() => _lsGet("subtitleColorPrimary", ""));
+  const [subtitleColorHighlight, setSubtitleColorHighlight] = useState(() => _lsGet("subtitleColorHighlight", ""));
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const [encoder, setEncoder] = useState(() => _lsGet("encoder", "auto"));
   const [sensitivity, setSensitivity] = useState(() => {
     if (typeof window === "undefined") return 50;
@@ -224,6 +227,8 @@ export default function Home() {
   useEffect(() => { _lsSet("faceDetector", faceDetector); }, [faceDetector]);
   useEffect(() => { _lsSet("encoder", encoder); }, [encoder]);
   useEffect(() => { if (typeof window !== "undefined") localStorage.setItem("cliply_detection_sensitivity", String(sensitivity)); }, [sensitivity]);
+  useEffect(() => { _lsSet("subtitleColorPrimary", subtitleColorPrimary); }, [subtitleColorPrimary]);
+  useEffect(() => { _lsSet("subtitleColorHighlight", subtitleColorHighlight); }, [subtitleColorHighlight]);
 
   useEffect(() => {
     const tauriActive = isTauri();
@@ -412,6 +417,8 @@ export default function Home() {
         face_detector: faceDetector,
         encoder,
         sensitivity,
+        subtitle_color_primary: subtitleColorPrimary || undefined,
+        subtitle_color_highlight: subtitleColorHighlight || undefined,
       };
 
       const { task_id } = await createTask(url.trim(), opts);
@@ -715,6 +722,86 @@ export default function Home() {
                           </button>
                         );
                       })}
+                    </div>
+
+                    {/* Warna Kustom (Collapsible) */}
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowColorPicker(!showColorPicker)}
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-neutral-800/60 hover:bg-neutral-800 text-xs font-semibold text-neutral-300 transition-colors cursor-pointer"
+                      >
+                        <span>Warna Kustom</span>
+                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showColorPicker ? "rotate-180" : ""}`} />
+                      </button>
+                      {showColorPicker && (
+                        <div className="mt-2 space-y-3 px-1">
+                          {/* Warna Teks */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-neutral-400">Warna Teks</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-neutral-500 w-16 text-right">
+                                {subtitleColorPrimary || "default"}
+                              </span>
+                              <div className="relative">
+                                <input
+                                  type="color"
+                                  value={subtitleColorPrimary || "#FFFFFF"}
+                                  onChange={(e) => setSubtitleColorPrimary(e.target.value)}
+                                  className="w-7 h-7 rounded-md border border-neutral-700 cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
+                                />
+                                {subtitleColorPrimary && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSubtitleColorPrimary("")}
+                                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-neutral-700 hover:bg-red-500 text-neutral-300 hover:text-white text-[8px] flex items-center justify-center transition-colors cursor-pointer"
+                                    title="Hapus warna kustom"
+                                  >
+                                    x
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {/* Warna Highlight */}
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs text-neutral-400">Warna Highlight</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-neutral-500 w-16 text-right">
+                                {subtitleColorHighlight || "default"}
+                              </span>
+                              <div className="relative">
+                                <input
+                                  type="color"
+                                  value={subtitleColorHighlight || "#FFFF00"}
+                                  onChange={(e) => setSubtitleColorHighlight(e.target.value)}
+                                  className="w-7 h-7 rounded-md border border-neutral-700 cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
+                                />
+                                {subtitleColorHighlight && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSubtitleColorHighlight("")}
+                                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-neutral-700 hover:bg-red-500 text-neutral-300 hover:text-white text-[8px] flex items-center justify-center transition-colors cursor-pointer"
+                                    title="Hapus warna kustom"
+                                  >
+                                    x
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          {/* Reset button */}
+                          {(subtitleColorPrimary || subtitleColorHighlight) && (
+                            <button
+                              type="button"
+                              onClick={() => { setSubtitleColorPrimary(""); setSubtitleColorHighlight(""); }}
+                              className="w-full text-[10px] font-semibold text-neutral-500 hover:text-red-400 py-1 transition-colors cursor-pointer"
+                            >
+                              Reset Warna
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

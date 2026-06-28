@@ -103,6 +103,8 @@ STORAGE_DIR = Path(_get("STORAGE_DIR", "./storage"))
 if not STORAGE_DIR.is_absolute():
     STORAGE_DIR = (_REPO_ROOT / STORAGE_DIR).resolve()
 
+log.info("STORAGE_DIR resolved to: %s (env=%s)", STORAGE_DIR, _get("STORAGE_DIR") or "(not set)")
+
 FONTS_DIR = Path(_get("FONTS_DIR", "./fonts"))
 if not FONTS_DIR.is_absolute():
     FONTS_DIR = (_REPO_ROOT / FONTS_DIR).resolve()

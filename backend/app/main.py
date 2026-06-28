@@ -183,6 +183,28 @@ async def debug_build() -> dict:
     }
 
 
+@app.get("/debug/storage")
+async def debug_storage() -> dict:
+    """Diagnostic endpoint showing resolved storage directory.
+
+    Helps verify that the STORAGE_DIR env var set by Tauri is correctly
+    picked up by the Python backend (dev mode uses env var only, no
+    --storage-dir arg).
+    """
+    import os
+    from pathlib import Path
+
+    raw = os.getenv("STORAGE_DIR", "")
+    resolved = Path(config.STORAGE_DIR)
+    return {
+        "env_var": raw or "(not set, using default)",
+        "resolved": str(resolved),
+        "is_absolute": resolved.is_absolute(),
+        "exists": resolved.exists(),
+        "task_count": sum(1 for p in resolved.iterdir() if p.is_dir()) if resolved.exists() else 0,
+    }
+
+
 @app.get("/debug/cors")
 async def debug_cors() -> dict:
     """Diagnostic endpoint showing allowed CORS origins."""
