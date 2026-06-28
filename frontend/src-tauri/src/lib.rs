@@ -382,6 +382,7 @@ fn start_backend_process(
     // Only inject env vars when the Tauri setting is non-empty.
     // Empty values would override the backend .env file (load_dotenv uses
     // override=False), silently wiping keys the user configured in .env.
+    log_line(&mut log_file, &format!("Storage dir (env STORAGE_DIR): {:?}", storage_dir));
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .current_dir(&backend_dir)
