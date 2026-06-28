@@ -16,11 +16,12 @@ import {
   Smartphone,
   TrendingUp,
   DownloadCloud,
+  StopCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { API_URL, getTask, type Task, type TaskClip } from "@/lib/api";
+import { API_URL, getTask, cancelTask, type Task, type TaskClip } from "@/lib/api";
 import { VerticalPlayer } from "@/components/vertical-player";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -136,6 +137,8 @@ function TaskPageContent() {
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(true);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  const [cancelling, setCancelling] = useState(false);
 
   // Active clip selection inside completion screen
   const [activeClipIdx, setActiveClipIdx] = useState<number>(0);
@@ -430,15 +433,38 @@ function TaskPageContent() {
               {task.status}
             </Badge>
             {(task.status === "queued" || task.status === "processing") && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowLogs(!showLogs)}
-                className="rounded-xl text-xs gap-1.5 border-border hover:bg-secondary/60 h-8 font-bold transition-all cursor-pointer"
-              >
-                <Terminal className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
-                <span className="hidden sm:inline">{showLogs ? "Sembunyikan" : "Log"}</span>
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowLogs(!showLogs)}
+                  className="rounded-xl text-xs gap-1.5 border-border hover:bg-secondary/60 h-8 font-bold transition-all cursor-pointer"
+                >
+                  <Terminal className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
+                  <span className="hidden sm:inline">{showLogs ? "Sembunyikan" : "Log"}</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={cancelling}
+                  onClick={async () => {
+                    if (!confirm("Batalkan proses ini?")) return;
+                    setCancelling(true);
+                    try {
+                      await cancelTask(task.task_id);
+                      await refresh();
+                    } catch (err) {
+                      console.error("Gagal membatalkan:", err);
+                    } finally {
+                      setCancelling(false);
+                    }
+                  }}
+                  className="rounded-xl text-xs gap-1.5 border-red-500/30 text-red-500 hover:bg-red-500/10 hover:text-red-400 h-8 font-bold transition-all cursor-pointer"
+                >
+                  <StopCircle className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{cancelling ? "Membatalkan..." : "Batalkan"}</span>
+                </Button>
+              </>
             )}
             <ThemeToggle />
           </div>

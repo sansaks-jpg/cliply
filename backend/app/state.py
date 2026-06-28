@@ -430,6 +430,14 @@ class TaskStore:
     def is_cancelled(self, task_id: str) -> bool:
         return task_id in self._cancelled
 
+    async def cancel(self, task_id: str) -> None:
+        """Mark a task as cancelled and notify SSE subscribers."""
+        self._cancelled.add(task_id)
+        await self.update(task_id, status="cancelled", progress=100.0, stage="cancelled", message="Task cancelled by user")
+        await self.publish(task_id, "progress", {"pct": 100.0, "stage": "cancelled", "message": "Task cancelled by user"})
+        # Terminal event so SSE subscribers break out of their listen loop
+        await self.publish(task_id, "done", {"clips": 0})
+
     async def delete(self, task_id: str) -> bool:
         """Delete a task from state and storage.
 

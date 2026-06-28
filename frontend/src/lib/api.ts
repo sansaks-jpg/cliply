@@ -143,6 +143,12 @@ export async function getTask(taskId: string): Promise<Task> {
   return res.json();
 }
 
+export async function cancelTask(taskId: string): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${API_URL}/tasks/${taskId}/cancel`, { method: "POST" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function deleteTask(taskId: string): Promise<void> {
   const res = await fetch(`${API_URL}/tasks/${taskId}`, {
     method: "DELETE",

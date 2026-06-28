@@ -41,11 +41,19 @@ async def run_pipeline(
         source_path = await asyncio.to_thread(download_video, url, task_id)
         await store.set_progress(task_id, 15, "DOWNLOAD", "Unduhan selesai")
 
+        if store.is_cancelled(task_id):
+            _logger.warning("Task %s cancelled after DOWNLOAD", task_id)
+            return
+
         await store.set_progress(task_id, 15, "TRANSCRIBE", "Transkripsi video…")
         transcript = await asyncio.to_thread(transcribe_video, source_path, task_id, language, url)
         if not transcript.get("segments"):
             raise RuntimeError("No detectable speech.")
         await store.set_progress(task_id, 35, "TRANSCRIBE", "Transkripsi selesai")
+
+        if store.is_cancelled(task_id):
+            _logger.warning("Task %s cancelled after TRANSCRIBE", task_id)
+            return
 
         # ── ANALYZE stage: 3 sub-steps dengan progress callback ke SSE ───────
         await store.set_progress(task_id, 36, "ANALYZE", "Mendeteksi tipe & kepadatan konten…")
@@ -94,6 +102,10 @@ async def run_pipeline(
             
         await store.set_progress(task_id, 50, "ANALYZE", f"Ditemukan {len(top)} highlight viral")
 
+        if store.is_cancelled(task_id):
+            _logger.warning("Task %s cancelled after ANALYZE", task_id)
+            return
+
         # ── SUBTITLES stage ──────────────────────────────────────────────────
         style_key = subtitle_style or SUBTITLE_STYLE_DEFAULT
         task_dir = str(STORAGE_DIR / task_id)
@@ -119,6 +131,10 @@ async def run_pipeline(
             s_color_highlight,
         )
         await store.set_progress(task_id, 60, "SUBTITLES", "Subtitle siap")
+
+        if store.is_cancelled(task_id):
+            _logger.warning("Task %s cancelled after SUBTITLES", task_id)
+            return
 
         # ── SMART_CROP + RENDER stage ────────────────────────────────────────
         await store.set_progress(task_id, 62, "SMART_CROP", f"Analisis face-crop untuk {len(top)} klip…")
