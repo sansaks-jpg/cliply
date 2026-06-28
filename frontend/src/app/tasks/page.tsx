@@ -362,7 +362,12 @@ function TaskPageContent() {
   // Cross-origin download via fetch+blob (browser ignores `download` attr for cross-origin)
   const handleDownload = async () => {
     if (!activeClipHref) return;
-    const filename = `clip-${activeClip?.title?.toLowerCase().replace(/[^a-z0-9]/g, "-") || "short"}.mp4`;
+    const rawTitle = activeClip?.title?.trim() || "Klip Tanpa Judul";
+    const cleanTitle = rawTitle
+      .replace(/[<>:"/\\|?*]/g, "")   // strip illegal filename chars
+      .replace(/\s+/g, " ")            // collapse whitespace
+      .slice(0, 80);                   // limit length
+    const filename = `Cliply - ${cleanTitle} - Clip ${activeClipIdx + 1}.mp4`;
     try {
       const res = await fetch(activeClipHref);
       const blob = await res.blob();
