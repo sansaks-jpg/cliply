@@ -7,12 +7,6 @@ output/
 *.mp4
 .DS_Store
 
-# ML model binaries
-models/*.onnx
-models/*.caffemodel
-models/*.tflite
-models/*.prototxt
-
 # Legacy
 shorts_generator/
 test_*.py
