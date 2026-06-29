@@ -177,33 +177,19 @@ def _clean_hallucinations(
 
     cleaned.sort(key=lambda s: s["start"])
 
-    # 4. Deteksi segmen dengan durasi per kata tidak wajar
-    MAX_SEC_PER_WORD = 1.0
-    NORMAL_SEC_PER_WORD = 0.5
-    re_estimated = 0
-    for seg in cleaned:
-        words = seg.get("text", "").split()
-        n_words = len(words)
-        if n_words == 0:
-            continue
-        duration = seg["end"] - seg["start"]
-        if duration / n_words > MAX_SEC_PER_WORD:
-            old_end = seg["end"]
-            new_end = seg["start"] + n_words * NORMAL_SEC_PER_WORD
-            if video_duration > 0:
-                new_end = min(new_end, video_duration)
-            seg["end"] = new_end
-            re_estimated += 1
-            msg = (
-                f"[hallucination_cleaner] re-estimated seg t={seg['start']:.1f}s → "
-                f"{new_end:.1f}s (was {old_end:.1f}s, {n_words} kata, "
-                f"{duration / n_words:.1f}s/kata → {NORMAL_SEC_PER_WORD:.1f}s/kata)"
-            )
-            logger.info(msg)
-    if re_estimated:
-        msg = f"[hallucination_cleaner] re-estimated {re_estimated} segmen (timestamp terlalu panjang)"
-        logger.info(msg)
-        _update_transcribe_progress(task_id, 33.0, msg)
+    # 4. Batasi agar waktu akhir segmen tidak tumpang tindih dengan segmen berikutnya secara tidak wajar.
+    # Tindakan ini mencegah tumpang tindih subtitle tanpa mengubah durasi secara sepihak berbasis asumsi kata statis.
+    n_cleaned = len(cleaned)
+    adjusted_overlaps = 0
+    for idx in range(n_cleaned - 1):
+        curr_seg = cleaned[idx]
+        next_seg = cleaned[idx + 1]
+        if curr_seg["end"] > next_seg["start"]:
+            if curr_seg["start"] < next_seg["start"]:
+                curr_seg["end"] = next_seg["start"]
+                adjusted_overlaps += 1
+    if adjusted_overlaps:
+        logger.info(f"[hallucination_cleaner] Adjusted {adjusted_overlaps} overlapping segments to maintain temporal boundary.")
 
     if len(cleaned) < len(segments):
         msg = f"[hallucination_cleaner] {len(segments)} → {len(cleaned)} segmen (buang {len(segments) - len(cleaned)})"
@@ -268,7 +254,8 @@ def transcribe_video(
             capture_output=True, text=True, timeout=15, creationflags=CREATION_FLAGS,
         )
         video_duration = float(json.loads(probe.stdout).get("format", {}).get("duration", 0.0))
-    except Exception:
+    except Exception as e:
+        logger.error("[transcribe] ffprobe duration validation check failed: %s. Cache verification may skip duration validation.", e)
         video_duration = 0.0
 
     if json_cache_path.exists():

@@ -171,7 +171,8 @@ async def run_pipeline(
                 with open(manifest_path, "w", encoding="utf-8") as f:
                     json.dump(manifest, f, indent=2, ensure_ascii=False)
             except (OSError, TypeError, ValueError) as e:
-                _logger.warning("Failed to write highlights.json manifest: %s", e)
+                _logger.error("Failed to write highlights.json manifest: %s", e)
+                raise RuntimeError(f"Gagal menulis file manifest highlights.json: {e}") from e
 
         await asyncio.to_thread(_write_manifest)
 

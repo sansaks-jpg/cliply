@@ -294,7 +294,12 @@ class TaskStore:
                 try:
                     q.put_nowait((event, data))
                 except asyncio.QueueFull:
-                    pass
+                    try:
+                        # Queue is full: discard oldest event to make room for the latest progress event
+                        q.get_nowait()
+                        q.put_nowait((event, data))
+                    except Exception:
+                        pass
 
     async def recover_from_storage(self) -> int:
         """Scan STORAGE_DIR dan load semua task yang belum ada di state.
@@ -334,11 +339,31 @@ class TaskStore:
                     manifest = json.loads(manifest_str)
                     url = manifest.get("url", "")
                     clips = manifest.get("clips", [])
-                    # Re-create TaskRecord sebagai completed
+                    
+                    # Verifikasi keberadaan file fisik .mp4 untuk masing-masing klip
+                    valid_clips = []
+                    for clip in clips:
+                        clip_url = clip.get("clip_url")
+                        if not clip_url:
+                            continue
+                        # Ambil nama file dari clip_url, misal "/clips/abc123xyz/short_01.mp4" -> "short_01.mp4"
+                        filename = clip_url.split("/")[-1]
+                        clip_file_path = task_dir / filename
+                        if clip_file_path.exists():
+                            valid_clips.append(clip)
+                            
+                    if not valid_clips:
+                        log.warning(
+                            "Zombie completed task %s: highlights.json exists but all physical .mp4 files are missing from disk. Skipping recovery.",
+                            task_id
+                        )
+                        continue
+
+                    # Re-create TaskRecord sebagai completed dengan klip yang valid
                     record = TaskRecord(
                         task_id=task_id,
                         url=url,
-                        num_clips=len(clips) or 5,
+                        num_clips=len(valid_clips),
                         aspect_ratio="9:16",
                         language=None,
                         subtitle_style="viral-bold",
@@ -346,20 +371,20 @@ class TaskStore:
                         progress=100.0,
                         stage="done",
                         message="Recovered from storage",
-                        clips=clips,
+                        clips=valid_clips,
                         created_at=highlights_path.stat().st_mtime,
                         updated_at=highlights_path.stat().st_mtime,
                     )
                     if await self._ensure_backend():
                         await self._redis.hmset(_TASK.format(task_id), record.to_redis_hash())
-                        for clip in clips:
+                        for clip in valid_clips:
                             await self._redis.rpush(_CLIPS.format(task_id), json.dumps(clip))
                     else:
                         async with self._mem_lock:
                             self._mem_tasks[task_id] = record
                             self._mem_subs[task_id] = []
                     recovered += 1
-                    log.info("Recovered completed task %s from storage", task_id)
+                    log.info("Recovered completed task %s with %d valid clips from storage", task_id, len(valid_clips))
                     continue
                 except Exception as e:
                     log.warning("Failed to recover task %s from highlights.json: %s", task_id, e)

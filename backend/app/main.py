@@ -5,6 +5,7 @@ Run locally:
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -86,6 +87,27 @@ app.add_middleware(
 
 
 @app.middleware("http")
+async def restrict_to_localhost(request: Request, call_next):
+    # Restricted to localhost client IP only for security (anti port-forwarding / SSRF)
+    if not request.client or request.client.host == "testclient":
+        # Internal test client requests (no client IP or testclient host) are allowed
+        return await call_next(request)
+
+    client_host = request.client.host
+    import ipaddress
+    try:
+        client_ip = ipaddress.ip_address(client_host)
+        if not (client_ip.is_loopback or client_host in ("localhost", "127.0.0.1", "::1")):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=403, content={"error": "Forbidden: Access restricted to localhost"})
+    except ValueError:
+        if client_host not in ("localhost", "127.0.0.1", "::1"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=403, content={"error": "Forbidden: Access restricted to localhost"})
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -128,8 +150,16 @@ async def list_encoders() -> dict:
 @app.get("/video-info")
 async def video_info(url: str) -> dict:
     """Fetch YouTube video metadata (title, author, thumbnail) via oEmbed."""
+    import re
     import requests
     from fastapi.concurrency import run_in_threadpool
+
+    # SSRF Protection: Validate that the url matches a legitimate YouTube format
+    youtube_pattern = re.compile(
+        r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)[a-zA-Z0-9_-]{11}(&.*)?$'
+    )
+    if not youtube_pattern.match(url):
+        return {"title": "", "author": "", "thumbnail": "", "error": "Invalid YouTube URL"}
 
     def _fetch_oembed():
         try:
@@ -206,8 +236,6 @@ async def debug_providers() -> dict:
         "youtube_sdk": youtube_sdk,
         "groq_key_present": bool(GROQ_API_KEY),
         "gemini_key_present": bool(GEMINI_API_KEY),
-        "groq_key_length": len(GROQ_API_KEY),
-        "gemini_key_length": len(GEMINI_API_KEY),
         "groq_import_error": groq_import_error,
         "gemini_import_error": gemini_import_error,
         "youtube_import_error": youtube_import_error,

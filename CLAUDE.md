@@ -254,6 +254,7 @@ Single workflow: `.github/workflows/build.yml`
 7. **Static Route Adaptation:** Next.js pakai static export. Jangan buat dynamic route `/tasks/[id]` — pakai `/tasks/page.tsx` + `useSearchParams` untuk ambil `?id=...`.
 8. **Commit Rules:**
    - Jangan auto-commit/push. Cek dulu apakah ada perubahan besar, atau tunggu instruksi eksplisit dari user.
+   - Jangan pake `--author` atau trailer `Co-Authored-By` atau `Claude-Code` di commit — author harus **user**, bukan Claude.
    - Pakai prefix convention: `feat:`, `fix:`, `refactor:`, `chore:`, `ci:`, `docs:`.
 
 ## Handling Bot PRs (Jules)
