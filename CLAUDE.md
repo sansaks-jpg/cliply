@@ -44,8 +44,8 @@ Aplikasi mendukung 2 pilihan template video yang diatur via parameter `template`
 
 2. **Gaming Mobile Legends (`gaming`)**:
    - Membagi video menjadi atas (webcam streamer) dan bawah (gameplay).
-   - **Kompensasi Jitter (Webcam)**: Menggunakan algoritma *density clustering* koordinat wajah dari sampel frame untuk mendeteksi posisi webcam streamer secara statis dan presisi, mengabaikan deteksi palsu (*false positives*) dari hero portrait/elemen game di area gameplay.
-   - **Pemotongan Layar Terpisah**: Webcam dipotong dari koordinat terkluster (ukuran square 45% tinggi video asli, di-resize ke `crop_w` x `crop_h // 2`) dan gameplay dipotong dari area tengah (rasio 9:8, di-resize ke `crop_w` x `crop_h // 2`), lalu digabungkan secara vertikal dengan `np.vstack`.
+   - **Kompensasi Jitter (Webcam)**: Menggunakan algoritma *density clustering* koordinat wajah dari sampel frame di seluruh video (0.5 FPS) untuk mendeteksi posisi webcam secara statis, presisi, dan toleran terhadap kemunculan wajah yang telat.
+   - **Pemotongan Layar Terpisah & Margin Aman**: Menyematkan margin hitam genap di atas (8%) dan bawah (12%) untuk area aman dari UI TikTok. Sisa area aktif dibagi 35% tinggi untuk webcam (di-zoom rapat dengan pengali 2.5 pada wajah) dan 65% tinggi untuk gameplay, yang digabung vertikal menggunakan `np.vstack` tanpa distorsi gambar.
    - **Bypass Tahap 1 & Klasifikasi Tingkat Unit**: Tahap deteksi tipe konten global (Stage 1) dilompati dan langsung disetel ke `"gaming commentary"` untuk performa cepat. Segmentasi narasi (Stage 2) memetakan unit transkrip streamer secara independen ke dalam 8 kategori viral ML Indonesia (`SAVAGE_CLUTCH`, `TIPS_BUILD`, `TROLL_FAIL`, `RANT_OPINI`, `DRAMA_SOSIAL`, `BOCIL_ENCOUNTER`, `VIEWER_INTERACTION`, `PRO_SCENE`) untuk menangani sifat dinamis dari live streaming yang memuat berbagai macam tipe konten secara bersamaan.
 
 ## Tech Stack
@@ -84,7 +84,7 @@ backend/
 │   │   ├── highlight_validation.py # Unit and highlight validation logic
 │   │   ├── llm.py         # Pluggable LLM client (OpenAI/Anthropic/Gemini)
 │   │   ├── render.py      # Smart-crop renderer — two-pass interpolation, face tracking
-│   │   ├── face_detection.py      # Multi-model face detector (YuNet/MediaPipe/YOLOv8/SSD)
+│   │   ├── face_detection.py      # Multi-model face detector (YuNet/YOLOv8)
 │   │   ├── camera_segments.py     # Scene cut detection & shot type classification
 │   │   ├── smoothing.py   # Kalman-filter smoothing & sample data structures
 │   │   ├── subtitles.py   # ASS subtitle generation — chunk, overlap resolve, header

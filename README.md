@@ -87,14 +87,12 @@ curl -N http://localhost:8003/tasks/{task_id}/events
 
 ## Models
 
-### Face Detection (4 options, default: YuNet)
+### Face Detection (2 options, default: YOLOv8-Face)
 
 | Model | File | Notes |
 |-------|------|-------|
+| **YOLOv8-Face** | `yolov8n-face.onnx` | ONNX, good accuracy with NMS. Default. |
 | **YuNet** | `face_detection_yunet_2023mar.onnx` | Fastest & most accurate for side profiles. ONNX, lightweight. |
-| **SSD ResNet-10** | `deploy.prototxt` + `res10_300x300_ssd_iter_140000.caffemodel` | Caffe-based, robust frontal detection. |
-| **MediaPipe BlazeFace** | `blaze_face_short_range.tflite` | Google MediaPipe, poor at profile faces — auto-falls back to master shot classification. |
-| **YOLOv8-Face** | `yolov8n-face.onnx` | ONNX, good accuracy with NMS. |
 
 All model files are bundled in `backend/models/`.
 
