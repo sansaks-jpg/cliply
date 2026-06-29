@@ -29,6 +29,7 @@ class TaskRecord:
     num_clips: int
     aspect_ratio: str
     language: Optional[str]
+    template: str = "podcast"
     subtitle_style: Optional[str] = None
     face_detector: Optional[str] = "yunet"
     subtitle_font: Optional[str] = None
@@ -52,6 +53,7 @@ class TaskRecord:
             "num_clips": self.num_clips,
             "aspect_ratio": self.aspect_ratio,
             "language": self.language or "",
+            "template": self.template,
             "subtitle_style": self.subtitle_style or "",
             "face_detector": self.face_detector or "yunet",
             "subtitle_font": self.subtitle_font or "",
@@ -132,6 +134,7 @@ class TaskStore:
         num_clips: int,
         aspect_ratio: str,
         language: Optional[str],
+        template: str = "podcast",
         subtitle_style: Optional[str] = None,
         face_detector: Optional[str] = "yunet",
         subtitle_font: Optional[str] = None,
@@ -147,6 +150,7 @@ class TaskStore:
             num_clips=num_clips,
             aspect_ratio=aspect_ratio,
             language=language,
+            template=template,
             subtitle_style=subtitle_style,
             face_detector=face_detector,
             subtitle_font=subtitle_font,

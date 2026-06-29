@@ -45,6 +45,10 @@ class CreateTaskRequest(BaseModel):
         default="yolov8-face",
         description="Face detector model to use.",
     )
+    template: Optional[Literal["podcast", "gaming"]] = Field(
+        default="podcast",
+        description="Video generation template.",
+    )
     subtitle_font: Optional[str] = Field(default=None, description="Custom font override.")
     subtitle_color_primary: Optional[str] = Field(default=None, description="Custom primary text color override (#RRGGBB).")
     subtitle_color_highlight: Optional[str] = Field(default=None, description="Custom highlight color override (#RRGGBB).")
@@ -79,6 +83,7 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
         num_clips=num_clips,
         aspect_ratio=aspect_ratio,
         language=req.language,
+        template=req.template or "podcast",
         subtitle_style=req.subtitle_style,
         face_detector=req.face_detector,
         subtitle_font=req.subtitle_font,

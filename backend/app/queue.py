@@ -21,8 +21,9 @@ async def enqueue_task(task_id: str) -> None:
     subtitle_style = record.subtitle_style
     face_detector = getattr(record, "face_detector", "yunet")
     encoder = getattr(record, "encoder", "auto")
+    template = getattr(record, "template", "podcast")
 
-    asyncio.create_task(_run_pipeline_wrapper(task_id, url, num_clips, aspect_ratio, language, subtitle_style, face_detector, encoder))
+    asyncio.create_task(_run_pipeline_wrapper(task_id, url, num_clips, aspect_ratio, language, subtitle_style, face_detector, encoder, template))
 
 
 async def _run_pipeline_wrapper(
@@ -34,13 +35,14 @@ async def _run_pipeline_wrapper(
     subtitle_style: Optional[str],
     face_detector: str,
     encoder: str,
+    template: str,
 ) -> None:
     from .engine.pipeline import run_pipeline, PipelineError
     if store.is_cancelled(task_id):
         log.warning("Task %s cancelled before starting — skipping pipeline", task_id)
         return
     try:
-        await run_pipeline(task_id, url, num_clips, aspect_ratio, language, subtitle_style, face_detector, encoder)
+        await run_pipeline(task_id, url, num_clips, aspect_ratio, language, subtitle_style, face_detector, encoder, template)
     except PipelineError as e:
         log.exception("pipeline crashed for task %s", task_id)
         await store.update(task_id, status="error", error=str(e))
