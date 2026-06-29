@@ -121,309 +121,156 @@ def _analyze_video(
     Applies strict behavior per segment type (master vs individual closeups) to eliminate noise.
     """
     if sp is None:
-        sp = apply_sensitivity(50)
+        sp = apply_sensitivity(50, face_detector)
+
     cap = cv2.VideoCapture(in_path)
+    if not cap.isOpened():
+        return []
+
     try:
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        sample_interval = max(1, int(fps / 5.0))  # 5 FPS detection
 
-        samples: List[SampleFrame] = []
         frame_idx = 0
-
-        # State tracking
-        tracked_faces = {}  # tid -> {"cx": cx, "cy": cy, "face_h": face_h, "missed_frames": 0, "bbox": bbox}
-
-        active_speaker_id = None
-        speaker_hold_counter = 0
-        shot_hold_counter = 0
-
-        last_shot_type = "closeup"
-        last_valid_cx = src_w // 2
-        last_valid_cy = src_h // 2
-        last_valid_ratio = 0.22  # default medium-ish ratio
-
-        last_sample_frame_idx = -999
-        is_first_frame_of_cut = True
-        frame_prev_sample = None
-        face_lost_counter = 0
-
-        # Amortized O(1) camera segment pointers
-        active_seg_idx = 0
-        last_sample_seg_idx = 0
-        n_segments = len(camera_segments)
+        sampled_frames = []
 
         while True:
             ret, frame = _read_bgr_frame(cap)
             if not ret or frame is None:
                 break
 
-            t = frame_idx / fps
-            t_source = t + clip_start_offset
-
-            # 1. Tentukan segmen kamera aktif menggunakan pointer amortized O(1)
-            while active_seg_idx < n_segments - 1 and camera_segments[active_seg_idx + 1]["start"] <= t_source:
-                active_seg_idx += 1
-
-            active_seg = camera_segments[active_seg_idx] if n_segments > 0 else None
-
-            is_master_segment = True
-            seg_type = "master"
-            if active_seg is not None:
-                seg_type = active_seg["type"]
-                is_master_segment = (seg_type == "master")
-
-            # 2. Pemicu snap reset (is_cut): Terjadi saat berpindah indeks segmen kamera
-            is_cut = False
-            if len(samples) > 0:
-                if last_sample_seg_idx != active_seg_idx:
-                    is_cut = True
-
-            # Tentukan interval sampling dinamis: 5 FPS untuk individu agar responsif, 2 FPS untuk master
-            current_sample_fps = 2.0 if is_master_segment else 5.0
-            sample_interval = max(1, int(fps / current_sample_fps))
-
-            # 3. Ambil sampel jika berada di batas segmen (agar snap instan pas),
-            # ATAU jika sudah melewati interval sampling reguler
-            should_sample = is_cut or (frame_idx - last_sample_frame_idx >= sample_interval)
-
-            if should_sample:
-                last_sample_frame_idx = frame_idx
-                last_sample_seg_idx = active_seg_idx
-
-                if is_cut:
-                    # Reset pelacakan wajah pada transisi kamera baru
-                    tracked_faces.clear()
-                    is_first_frame_of_cut = True
-                    active_speaker_id = None
-                    speaker_hold_counter = 0
-                    shot_hold_counter = sp.min_shot_hold_samples
-
-                    # Default fallback spasial awal yang disesuaikan berdasarkan segmentasi
-                    if active_seg is not None and "avg_cx" in active_seg:
-                        last_valid_cx = int(active_seg["avg_cx"])
-                    else:
-                        if seg_type == "left":
-                            last_valid_cx = int(src_w * 0.25)
-                        elif seg_type == "right":
-                            last_valid_cx = int(src_w * 0.75)
-                        else:
-                            last_valid_cx = src_w // 2
-                    last_valid_cy = src_h // 2
-                    last_valid_ratio = 0.22
-                    last_shot_type = "closeup" if not is_master_segment else "wide_cut"
-
-                is_group = False
-
-                # FACE DETECTION (master & individual)
-                if is_master_segment:
-                    faces = _detect_faces(detector, face_detector, frame, max(0.20, sp.confidence_threshold - 0.10))
-                else:
-                    faces = _detect_faces(detector, face_detector, frame, sp.confidence_threshold)
-
-                # Camera Lock Anchor
-                locked_cx = int(active_seg.get("avg_cx", src_w // 2)) if active_seg else src_w // 2
-
-                # Filter spasial: abaikan wajah dari sisi yang salah
-                filtered_faces = []
-                for face in faces:
-                    cx, cy, conf, face_h, bbox = face
-                    if seg_type == "left":
-                        if cx < src_w * 0.6:
-                            filtered_faces.append(face)
-                    elif seg_type == "right":
-                        if cx > src_w * 0.4:
-                            filtered_faces.append(face)
-                    else:
-                        filtered_faces.append(face)
-
-                num_faces_detected = len(filtered_faces)
-                current_faces = []
-
-                if num_faces_detected > 0:
-                    # Greedy One-to-One Matching
-                    candidates = []
-                    for f_idx, (cx, cy, conf, face_h, bbox) in enumerate(filtered_faces):
-                        face_height_px = face_h * src_h
-                        local_threshold = max(50.0, face_height_px * 1.5)
-
-                        for tid, tinfo in tracked_faces.items():
-                            dist = np.hypot(cx - tinfo["cx"], cy - tinfo["cy"])
-                            if dist < local_threshold:
-                                candidates.append((dist, f_idx, tid))
-
-                    candidates.sort(key=lambda x: x[0])
-
-                    matched_faces_map = {}
-                    assigned_tids = set()
-
-                    for dist, f_idx, tid in candidates:
-                        if f_idx not in matched_faces_map and tid not in assigned_tids:
-                            matched_faces_map[f_idx] = tid
-                            assigned_tids.add(tid)
-
-                    for f_idx, face in enumerate(filtered_faces):
-                        cx, cy, conf, face_h, bbox = face
-                        bbox_prev = None
-
-                        if f_idx in matched_faces_map:
-                            tid = matched_faces_map[f_idx]
-                            bbox_prev = tracked_faces[tid].get("bbox")
-                            tracked_faces[tid].update({
-                                "cx": cx, "cy": cy, "face_h": face_h,
-                                "missed_frames": 0, "bbox": bbox
-                            })
-                        else:
-                            assigned_ids = set(tracked_faces.keys())
-                            tid = 0
-                            while tid in assigned_ids:
-                                tid += 1
-                            tracked_faces[tid] = {
-                                "cx": cx, "cy": cy, "face_h": face_h,
-                                "missed_frames": 0, "bbox": bbox
-                            }
-
-                        motion_val = _compute_mouth_motion(frame, frame_prev_sample, bbox, bbox_prev)
-                        size_score = min(1.0, face_h / 0.5)
-                        total_score = sp.motion_weight * motion_val + sp.size_weight * size_score
-
-                        current_faces.append({
-                            "id": tid, "cx": cx, "cy": cy, "face_h": face_h,
-                            "bbox": bbox, "motion": motion_val, "score": total_score
-                        })
-
-                # Kelola masa tenggang missed tracker
-                detected_ids = {f["id"] for f in current_faces}
-                for tid in list(tracked_faces.keys()):
-                    if tid not in detected_ids:
-                        tracked_faces[tid]["missed_frames"] += 1
-                        if tracked_faces[tid]["missed_frames"] > sp.max_missed_samples:
-                            del tracked_faces[tid]
-                            if active_speaker_id == tid:
-                                active_speaker_id = None
-                                speaker_hold_counter = 0
-
-                if num_faces_detected > 0:
-                    face_lost_counter = 0
-
-                    if num_faces_detected >= 2:
-                        # 2+ orang di frame → tampilkan horizontal + blur
-                        is_group = True
-
-                    effective_switch_margin = sp.switch_margin
-                    if num_faces_detected > 2:
-                        effective_switch_margin *= 1.5
-
-                    for f in current_faces:
-                        tinfo = tracked_faces.get(f["id"])
-                        if tinfo is not None:
-                            if "motion_history" not in tinfo:
-                                tinfo["motion_history"] = []
-                            tinfo["motion_history"].append(f["motion"])
-                            if len(tinfo["motion_history"]) > 3:
-                                tinfo["motion_history"].pop(0)
-                            smooth_motion = sum(tinfo["motion_history"]) / len(tinfo["motion_history"])
-                        else:
-                            smooth_motion = f["motion"]
-                        bonus = 0.05 if f["id"] == active_speaker_id else 0
-                        f["score"] = sp.motion_weight * smooth_motion + sp.size_weight * min(1.0, f.get("face_h", 1.0) / 0.5) + bonus
-
-                    best_face = max(current_faces, key=lambda f: f["score"])
-                    curr_active_face = next((f for f in current_faces if f["id"] == active_speaker_id), None)
-
-                    if active_speaker_id is None or curr_active_face is None:
-                        active_speaker_id = best_face["id"]
-                        speaker_hold_counter = 1
-                        main_face = best_face
-                    else:
-                        if best_face["id"] == active_speaker_id:
-                            speaker_hold_counter += 1
-                            main_face = best_face
-                        else:
-                            score_diff = best_face["score"] - curr_active_face["score"]
-                            if speaker_hold_counter >= sp.min_hold_samples and score_diff >= effective_switch_margin:
-                                active_speaker_id = best_face["id"]
-                                speaker_hold_counter = 1
-                                main_face = best_face
-                            else:
-                                speaker_hold_counter += 1
-                                main_face = curr_active_face
-
-                    # Deadzone Tracking horizontal & Snap instan
-                    if is_group:
-                        # 2+ orang: tampilkan horizontal + blur background, bukan crop
-                        target_cx = src_w // 2
-                        target_cy = src_h // 2
-                        face_ratio = 0.0  # force wide_cut classification
-                    else:
-                        live_cx = main_face["cx"]
-
-                        if is_first_frame_of_cut:
-                            target_cx = live_cx
-                            is_first_frame_of_cut = False
-                        else:
-                            deadzone_margin = int(crop_w * 0.10)
-                            diff_x = live_cx - last_valid_cx
-
-                            if abs(diff_x) < deadzone_margin:
-                                target_cx = last_valid_cx
-                            else:
-                                target_cx = live_cx
-
-                            target_cx = int(0.75 * target_cx + 0.25 * locked_cx)
-
-                        target_cy = main_face["cy"]
-                        face_ratio = main_face["face_h"]
-
-                    # Klasifikasi tipe shot dengan hysteresis
-                    shot_type_raw = _classify_shot(face_ratio)
-                    if shot_type_raw == "wide_cut":
-                        shot_type_raw = "closeup"
-
-                    if shot_type_raw == last_shot_type:
-                        shot_hold_counter += 1
-                        shot_type_to_use = last_shot_type
-                    else:
-                        if shot_hold_counter >= sp.min_shot_hold_samples:
-                            last_shot_type = shot_type_raw
-                            shot_hold_counter = 1
-                            shot_type_to_use = shot_type_raw
-                        else:
-                            shot_hold_counter += 1
-                            shot_type_to_use = last_shot_type
-
-                    last_valid_cx = target_cx
-                    last_valid_cy = target_cy
-                    last_valid_ratio = face_ratio
-                    last_shot_type = shot_type_to_use
-                else:
-                    # Wajah hilang sementara -> TAHAN POSISI TERAKHIR
-                    face_lost_counter += 1
-                    if face_lost_counter > 6:
-                        target_cx = int(0.90 * last_valid_cx + 0.10 * locked_cx)
-                        target_cy = int(0.90 * last_valid_cy + 0.10 * (src_h // 2))
-                    else:
-                        target_cx = last_valid_cx
-                        target_cy = last_valid_cy
-
-                    face_ratio = last_valid_ratio
-                    shot_type_to_use = last_shot_type
-
-                samples.append(SampleFrame(
-                    time=t,
-                    frame_idx=frame_idx,
-                    raw_cx=target_cx,
-                    raw_cy=target_cy,
-                    face_ratio=face_ratio,
-                    shot_type=shot_type_to_use,
-                    is_cut=is_cut,
-                    num_faces=num_faces_detected,
-                    is_group_reaction=is_group,
-                ))
-
-                frame_prev_sample = frame.copy() if frame is not None else None
-
+            if frame_idx % sample_interval == 0:
+                t = frame_idx / fps
+                faces = _detect_faces(detector, face_detector, frame, sp.confidence_threshold)
+                sampled_frames.append({
+                    "frame_idx": frame_idx,
+                    "time": t,
+                    "faces": faces
+                })
             frame_idx += 1
     finally:
         cap.release()
+
+    if not sampled_frames:
+        return []
+
+    # Map segments to absolute timeline of the subclip
+    if not camera_segments:
+        total_duration = frame_idx / fps
+        camera_segments = [{"start": 0.0, "end": total_duration, "type": "master"}]
+
+    # Classify each segment based on face detection density (to identify group shots)
+    for seg in camera_segments:
+        seg_start = seg.get("start", 0.0)
+        seg_end = seg.get("end", 999999.0)
+
+        seg_frames = [f for f in sampled_frames if seg_start <= f["time"] + clip_start_offset <= seg_end]
+        if not seg_frames:
+            seg["is_group"] = (seg.get("type") == "master")
+            continue
+
+        # Count frames with 2+ faces
+        frames_with_multiple = sum(1 for f in seg_frames if len(f["faces"]) >= 2)
+        pct_multiple = frames_with_multiple / len(seg_frames)
+
+        # If at least 15% of frames have 2+ faces (and at least 1 frame), it's a group shot
+        if (pct_multiple >= 0.15 and frames_with_multiple >= 1) or seg.get("type") == "master":
+            seg["is_group"] = True
+        else:
+            seg["is_group"] = False
+
+    samples = []
+
+    # Process each camera segment for tracking and smoothing
+    for seg_idx, seg in enumerate(camera_segments):
+        seg_start = seg.get("start", 0.0)
+        seg_end = seg.get("end", 999999.0)
+
+        seg_frames = [f for f in sampled_frames if seg_start <= f["time"] + clip_start_offset <= seg_end]
+        if not seg_frames:
+            continue
+
+        is_group = seg["is_group"]
+        is_first_frame_of_seg = True
+        curr_cam_cx = src_w // 2
+
+        # Cache for face tracking continuity inside this segment
+        last_face_cx = None
+        last_face_cy = None
+        last_face_ratio = 0.22
+
+        for f in seg_frames:
+            t = f["time"]
+            f_idx = f["frame_idx"]
+            faces = f["faces"]
+
+            if is_group:
+                # Group/master shot: horizontal + blur (wide_cut)
+                target_cx = src_w // 2
+                target_cy = src_h // 2
+                face_ratio = 0.0
+                shot_type = "wide_cut"
+            else:
+                # Single person shot: track face smoothly
+                if len(faces) > 0:
+                    if last_face_cx is not None:
+                        # Select face closest to last tracked face to prevent switching targets
+                        best_face = min(faces, key=lambda face: np.hypot(face[0] - last_face_cx, face[1] - last_face_cy))
+                    else:
+                        best_face = max(faces, key=lambda face: face[3]) # by face_h
+
+                    face_cx, face_cy, conf, face_ratio, bbox = best_face
+                    last_face_cx = face_cx
+                    last_face_cy = face_cy
+                    last_face_ratio = face_ratio
+                else:
+                    if last_face_cx is not None:
+                        face_cx = last_face_cx
+                        face_cy = last_face_cy
+                        face_ratio = last_face_ratio
+                    else:
+                        face_cx = int(seg.get("avg_cx", src_w // 2))
+                        face_cy = src_h // 2
+                        face_ratio = 0.22
+
+                # Apply Deadzone + EMA smoothing (No Kalman drift)
+                if is_first_frame_of_seg:
+                    curr_cam_cx = face_cx
+                    is_first_frame_of_seg = False
+                    target_cx = face_cx
+                else:
+                    deadzone = int(crop_w * 0.08) # 8% deadzone
+                    diff_x = face_cx - curr_cam_cx
+
+                    if abs(diff_x) < deadzone:
+                        target_cx = curr_cam_cx # Stay still
+                    else:
+                        target_cx = face_cx # Move target
+
+                    # Smooth follow pan using EMA (alpha = 0.10)
+                    curr_cam_cx = int(0.10 * target_cx + 0.90 * curr_cam_cx)
+
+                # Keep crop box within video boundaries
+                curr_cam_cx = max(crop_w // 2, min(src_w - crop_w // 2, curr_cam_cx))
+                target_cx = curr_cam_cx
+                target_cy = src_h // 2  # Keep vertical center stable
+                shot_type = _classify_shot(face_ratio)
+
+                # Force crop instead of letterbox for single person shots
+                if shot_type == "wide_cut":
+                    shot_type = "closeup"
+
+            samples.append(SampleFrame(
+                time=t,
+                frame_idx=f_idx,
+                raw_cx=target_cx,
+                raw_cy=target_cy,
+                face_ratio=face_ratio,
+                shot_type=shot_type,
+                is_cut=(f_idx == seg_frames[0]["frame_idx"] and seg_idx > 0),
+                num_faces=len(faces),
+                is_group_reaction=is_group,
+            ))
 
     return samples
 
@@ -815,5 +662,10 @@ def render_clips(
         finally:
             if os.path.exists(cut_path):
                 os.remove(cut_path)
+            if clip_ass_path and os.path.exists(clip_ass_path):
+                try:
+                    os.remove(clip_ass_path)
+                except Exception:
+                    pass
     _update_render_progress(task_id, len(highlights), len(highlights), "Semua klip selesai dirender")
     return results

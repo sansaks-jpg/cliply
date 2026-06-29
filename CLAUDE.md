@@ -263,4 +263,4 @@ Saat menerima PR dari bot contributor (e.g., `google-labs-jules[bot]`):
 4. **PID verification:** Tauri polls `/debug/build` to confirm the responding backend is the one it spawned (prevents stale process acceptance).
 5. **Static export:** Next.js `output: "export"` means no server-side features (API routes, ISR, middleware). All data fetching is client-side.
 6. **pnpm:** Package manager is pnpm (v10). Don't use npm or yarn.
-7. **Version:** Currently `0.1.3`. Version appears in: `frontend/package.json`, `frontend/src-tauri/Cargo.toml`, `frontend/src-tauri/tauri.conf.json`, `backend/app/main.py`.
+7. **Version:** Currently `0.1.7`. Version appears in: `frontend/package.json`, `frontend/src-tauri/Cargo.toml`, `frontend/src-tauri/tauri.conf.json`, `backend/app/main.py`.
