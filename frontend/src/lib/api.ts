@@ -26,6 +26,7 @@ export interface Task {
   language: string | null;
   subtitle_style: string | null;
   face_detector: string | null;
+  template: string | null;
   subtitle_font: string | null;
   subtitle_color_primary: string | null;
   subtitle_color_highlight: string | null;
@@ -50,6 +51,7 @@ export interface CreateTaskOptions {
   language?: string;
   subtitle_style?: string;
   face_detector?: string;
+  template?: string;
   subtitle_font?: string;
   subtitle_color_primary?: string;
   subtitle_color_highlight?: string;

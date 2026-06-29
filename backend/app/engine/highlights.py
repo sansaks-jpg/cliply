@@ -20,6 +20,7 @@ from .highlight_prompts import (
     CONTENT_TYPE_PROMPT,
     NARRATIVE_SEGMENTATION_PROMPT,
     HIGHLIGHT_SYSTEM_PROMPT,
+    HIGHLIGHT_SYSTEM_PROMPT_GAMING,
     CHUNK_SIZE_SECONDS,
     LONG_VIDEO_THRESHOLD,
     CHUNK_OVERLAP_SECONDS,
@@ -177,12 +178,14 @@ def generate_highlights(
     content_info: Dict,
     num_clips: int,
     llm_fn: LLMFn,
+    template: str = "podcast",
 ) -> List[Dict]:
     """Generate highlights using narrative map. Returns validated highlights with segment IDs."""
     transcript_text = build_transcript_text(transcript)
     narrative_json = json.dumps({"units": narrative_units}, indent=2)
 
-    prompt = HIGHLIGHT_SYSTEM_PROMPT.format(
+    sys_prompt = HIGHLIGHT_SYSTEM_PROMPT_GAMING if template == "gaming" else HIGHLIGHT_SYSTEM_PROMPT
+    prompt = sys_prompt.format(
         narrative_map=narrative_json,
         content_type=content_info.get("content_type", "other"),
         density=content_info.get("density", "medium"),
@@ -253,6 +256,7 @@ async def _process_chunk_with_retry_async(
     num_clips: int,
     llm_fn: LLMFn,
     start_val: float,
+    template: str = "podcast",
 ) -> List[Dict]:
     """Execute generate_highlights for a chunk with rate limit detection and exponential backoff + random jitter."""
     max_rate_limit_retries = 3
@@ -263,7 +267,7 @@ async def _process_chunk_with_retry_async(
         try:
             return await asyncio.to_thread(
                 generate_highlights,
-                chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn
+                chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, template
             )
         except Exception as e:
             if _is_rate_limit_error(e) and attempt < max_rate_limit_retries:
@@ -287,6 +291,7 @@ async def _generate_chunked_async(
     content_info: Dict,
     num_clips: int,
     llm_fn: LLMFn,
+    template: str = "podcast",
 ) -> Dict:
     """Process long videos by chunking narrative units with a hybrid sequential-parallel strategy using asyncio."""
     segments = transcript.get("segments", [])
@@ -348,7 +353,7 @@ async def _generate_chunked_async(
         logger.info(f"[HIGHLIGHTS] Warm caching: Processing first chunk (start={start_val}s) sequentially...")
         try:
             first_highlights = await _process_chunk_with_retry_async(
-                chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val
+                chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val, template
             )
             for h in first_highlights:
                 rel_start = h["start_segment_id"]
@@ -380,7 +385,7 @@ async def _generate_chunked_async(
             async with sem:
                 try:
                     chunk_highlights = await _process_chunk_with_retry_async(
-                        chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val
+                        chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val, template
                     )
                     mapped_highlights = []
                     for h in chunk_highlights:
@@ -429,6 +434,7 @@ async def get_highlights_async(
     num_clips: int = 3,
     llm_fn: LLMFn | None = None,
     progress_callback: Optional[Callable[[float, str, str], None]] = None,
+    template: str = "podcast",
 ) -> Dict:
     """Temukan highlight viral dalam transkrip secara asynchronous."""
     if llm_fn is None:
@@ -445,9 +451,13 @@ async def get_highlights_async(
         return {"highlights": [], "narrative_units": [], "failed_chunks": [], "total_chunks": 0, "coverage_pct": 0}
 
     # Sub-step 1: Detect Content Type
-    _cb(35, "ANALYZE", "Mendeteksi format konten…")
-    content_info = await asyncio.to_thread(detect_content_type, transcript, llm_fn=llm_fn)
-    logger.info("[ANALYZE] Content Info: %s", content_info)
+    if template == "gaming":
+        content_info = {"content_type": "gaming commentary", "density": "high", "density_shifts": False}
+        logger.info("[ANALYZE] Gaming template: skipping content type detection")
+    else:
+        _cb(35, "ANALYZE", "Mendeteksi format konten…")
+        content_info = await asyncio.to_thread(detect_content_type, transcript, llm_fn=llm_fn)
+        logger.info("[ANALYZE] Content Info: %s", content_info)
 
     # Sub-step 2: Narrative segmentation
     _cb(40, "ANALYZE", "Memetakan struktur narasi video…")
@@ -461,14 +471,14 @@ async def get_highlights_async(
     coverage_pct = 100
 
     if duration >= LONG_VIDEO_THRESHOLD:
-        chunked_res = await _generate_chunked_async(transcript, narrative_units, content_info, num_clips, llm_fn)
+        chunked_res = await _generate_chunked_async(transcript, narrative_units, content_info, num_clips, llm_fn, template)
         highlights = chunked_res.get("highlights", [])
         failed_chunks = chunked_res.get("failed_chunks", [])
         total_chunks = chunked_res.get("total_chunks", 1)
         coverage_pct = chunked_res.get("coverage_pct", 100)
     else:
         highlights = await asyncio.to_thread(
-            generate_highlights, transcript, narrative_units, content_info, num_clips, llm_fn
+            generate_highlights, transcript, narrative_units, content_info, num_clips, llm_fn, template
         )
 
     _cb(49, "ANALYZE", f"Validasi {len(highlights)} highlight selesai")
