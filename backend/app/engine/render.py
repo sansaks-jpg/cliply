@@ -131,6 +131,16 @@ def _analyze_video(
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         sample_interval = max(1, int(fps / 5.0))  # 5 FPS detection
 
+        # Collect all segment start frames to ensure they are sampled exactly.
+        # This prevents lag/jitter at camera cuts because the first frame of a segment
+        # will be evaluated at the exact frame where the camera transition occurs.
+        cut_frame_indices = set()
+        if camera_segments:
+            for seg in camera_segments:
+                start_t = seg.get("start", 0.0)
+                if start_t > 0:
+                    cut_frame_indices.add(int(round(start_t * fps)))
+
         frame_idx = 0
         sampled_frames = []
 
@@ -139,7 +149,7 @@ def _analyze_video(
             if not ret or frame is None:
                 break
 
-            if frame_idx % sample_interval == 0:
+            if frame_idx % sample_interval == 0 or frame_idx in cut_frame_indices:
                 t = frame_idx / fps
                 faces = _detect_faces(detector, face_detector, frame, sp.confidence_threshold)
                 sampled_frames.append({
