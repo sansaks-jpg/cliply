@@ -202,7 +202,10 @@ export default function Home() {
   // Configurations (persisted in localStorage)
   const [numClips, setNumClips] = useState(() => _lsGet("numClips", "auto"));
   const [subtitleStyle, setSubtitleStyle] = useState(() => _lsGet("subtitleStyle", "viral-bold"));
-  const [faceDetector, setFaceDetector] = useState(() => _lsGet("faceDetector", "yunet"));
+  const [faceDetector, setFaceDetector] = useState(() => {
+    const val = _lsGet("faceDetector", "yolov8-face");
+    return (val === "yolov8-face" || val === "yunet") ? val : "yolov8-face";
+  });
   const [subtitleColorPrimary, setSubtitleColorPrimary] = useState(() => _lsGet("subtitleColorPrimary", ""));
   const [subtitleColorHighlight, setSubtitleColorHighlight] = useState(() => _lsGet("subtitleColorHighlight", ""));
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -211,7 +214,6 @@ export default function Home() {
   const [videoPreview, setVideoPreview] = useState<{title: string; author: string; thumbnail: string} | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [activeTasks, setActiveTasks] = useState<Array<{task_id: string; url: string; progress: number; status: string}>>([]);
-  const [availableEncoders, setAvailableEncoders] = useState<string[]>(["auto", "cpu"]);
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [backendError, setBackendError] = useState<string | null>(null);
@@ -284,7 +286,6 @@ export default function Home() {
       setBackendStatus(status);
       if (status === "ready") {
         getAvailableEncoders().then((res) => {
-          setAvailableEncoders(res.available);
           setEncoder(res.current);
         }).catch((e) => { console.warn("getAvailableEncoders (poll) failed", e); });
       }
@@ -301,7 +302,6 @@ export default function Home() {
         setBackendStatus("ready");
         setBackendError(null);
         getAvailableEncoders().then((res) => {
-          setAvailableEncoders(res.available);
           setEncoder(res.current);
         }).catch((e) => { console.warn("getAvailableEncoders (event) failed", e); });
       }).then((fn) => { unlisten = fn; });
@@ -752,30 +752,8 @@ export default function Home() {
                         <SelectValue placeholder="Detektor Wajah" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="yunet">YuNet (Akurat)</SelectItem>
-                        <SelectItem value="mediapipe">MediaPipe BlazeFace (Cepat)</SelectItem>
                         <SelectItem value="yolov8-face">YOLOv8-Face (Terbaik)</SelectItem>
-                        <SelectItem value="ssd">SSD ResNet (Ringan)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Encoder Selection */}
-                  <div className="space-y-2">
-                    <Label htmlFor="encoder" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-                      <Sliders className="w-3.5 h-3.5" />
-                      Video Encoder
-                    </Label>
-                    <Select value={encoder} onValueChange={setEncoder}>
-                      <SelectTrigger id="encoder" className="bg-background/40 border-border rounded-xl h-10 text-sm font-semibold shadow-none">
-                        <SelectValue placeholder="Encoder" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {availableEncoders.map((enc) => (
-                          <SelectItem key={enc} value={enc}>
-                            {enc === "auto" ? "Auto (Deteksi Otomatis)" : enc === "cpu" ? "CPU (x264)" : enc.toUpperCase()}
-                          </SelectItem>
-                        ))}
+                        <SelectItem value="yunet">YuNet (Akurat)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
