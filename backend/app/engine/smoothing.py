@@ -66,48 +66,7 @@ def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: i
     """Apply Kalman-filter smoothing within scene boundaries for jitter-free tracking."""
     if not samples:
         return []
-
-    # Group samples into scenes separated by cuts
-    scenes = []
-    current_scene = []
-    for s in samples:
-        if s.is_cut and current_scene:
-            scenes.append(current_scene)
-            current_scene = [s]
-        else:
-            current_scene.append(s)
-    if current_scene:
-        scenes.append(current_scene)
-
     result = []
-    for scene in scenes:
-        if not scene:
-            continue
-        # wide_cut (master) segments: no smoothing, pass through
-        if all(s.shot_type == "wide_cut" for s in scene):
-            for s in scene:
-                result.append((s.raw_cx, s.raw_cy, s.face_ratio, s.shot_type, s.is_cut))
-            continue
-
-        # One Kalman tracker per scene, reset on first non-wide frame
-        kalman = FaceKalmanTracker()
-        first = True
-        for s in scene:
-            if s.shot_type == "wide_cut":
-                result.append((s.raw_cx, s.raw_cy, s.face_ratio, s.shot_type, s.is_cut))
-                first = True  # Reset Kalman after wide_cut to prevent state leak
-                continue
-            if first:
-                kalman.update([s.raw_cx, s.raw_cy, int(s.face_ratio * src_w), int(s.face_ratio * src_h)])
-                smooth_cx, smooth_cy = s.raw_cx, s.raw_cy
-                first = False
-            else:
-                # Predict then correct
-                kalman.predict()
-                corrected = kalman.update([s.raw_cx, s.raw_cy, int(s.face_ratio * src_w), int(s.face_ratio * src_h)])
-                smooth_cx = int(corrected[0][0])
-                smooth_cy = int(corrected[1][0])
-
-            result.append((smooth_cx, smooth_cy, s.face_ratio, s.shot_type, s.is_cut))
-
+    for s in samples:
+        result.append((s.raw_cx, s.raw_cy, s.face_ratio, s.shot_type, s.is_cut))
     return result
