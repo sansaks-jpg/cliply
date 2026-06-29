@@ -216,15 +216,22 @@ function TaskPageContent() {
     };
   }, [refresh]);
 
+  const [usePolling, setUsePolling] = useState(false);
+
   // SSE for live progress
   useEffect(() => {
     if (!taskId) return;
     if (task && task.status !== "queued" && task.status !== "processing") {
+      setUsePolling(false);
       return;
     }
 
     const es = new EventSource(`${API_URL}/tasks/${taskId}/progress`);
     esRef.current = es;
+
+    es.onopen = () => {
+      setUsePolling(false); // SSE connected, disable polling
+    };
 
     es.addEventListener("progress", (e) => {
       try {
@@ -272,6 +279,7 @@ function TaskPageContent() {
     es.addEventListener("done", () => {
       addLog("done", "Semua proses selesai! Mengambil klip hasil...");
       void refresh();
+      setUsePolling(false);
       es.close();
     });
 
@@ -290,6 +298,8 @@ function TaskPageContent() {
         }
       }
       addLog("error", errorMsg);
+      // Enable polling fallback as SSE encountered an error
+      setUsePolling(true);
       es.close();
     });
 
@@ -297,18 +307,20 @@ function TaskPageContent() {
       es.close();
       esRef.current = null;
     };
-  }, [taskId, task?.status, refresh]);
+  }, [taskId, refresh]);
 
   // Fallback polling
   useEffect(() => {
     if (!task || (task.status !== "queued" && task.status !== "processing")) {
       return;
     }
+    if (!usePolling) return; // Skip polling if SSE is active
+
     const id = setInterval(() => {
       void refresh();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [task?.status, refresh]);
+  }, [task?.status, usePolling, refresh]);
 
   // Initialize first log message
   useEffect(() => {
@@ -572,7 +584,7 @@ function TaskPageContent() {
                 const isActive = idx === activeClipIdx;
                 return (
                   <div
-                    key={idx}
+                    key={clip.clip_url || `${clip.start_time}-${clip.end_time}`}
                     onClick={() => setActiveClipIdx(idx)}
                     className={`p-3 rounded-xl border transition-all duration-200 cursor-pointer ${
                       isActive
@@ -671,18 +683,18 @@ function TaskPageContent() {
                           else if (st === "ERROR") stageColor = "text-red-400 font-bold";
 
                           return (
-                            <div key={idx} className="border-b border-zinc-900 pb-1 text-left">
-                              <span className="text-zinc-600 mr-2 select-none">[{time}]</span>
-                              <span className={`${stageColor} mr-2`}>[{stage}]</span>
-                              <span className="text-zinc-300 break-words font-normal">{msg}</span>
-                            </div>
-                          );
+                             <div key={`${idx}-${logStr.slice(0, 15)}`} className="border-b border-zinc-900 pb-1 text-left">
+                               <span className="text-zinc-600 mr-2 select-none">[{time}]</span>
+                               <span className={`${stageColor} mr-2`}>[{stage}]</span>
+                               <span className="text-zinc-300 break-words font-normal">{msg}</span>
+                             </div>
+                           );
                         }
                         return (
-                          <div key={idx} className="text-zinc-400 break-words text-left">
-                            {logStr}
-                          </div>
-                        );
+                           <div key={`${idx}-${logStr.slice(0, 15)}`} className="text-zinc-400 break-words text-left">
+                             {logStr}
+                           </div>
+                         );
                       })
                     )}
                     <div ref={logEndRef} />
@@ -708,7 +720,7 @@ function TaskPageContent() {
                         : `${API_URL}${clip.clip_url.startsWith("/") ? "" : "/"}${clip.clip_url}`
                       : "";
                     return (
-                      <div key={i} className="rounded-xl glass-panel overflow-hidden flex flex-col hover:glow-accent transition-all duration-300">
+                      <div key={clip.clip_url || `${clip.start_time}-${clip.end_time}`} className="rounded-xl glass-panel overflow-hidden flex flex-col hover:glow-accent transition-all duration-300">
                         <div className="aspect-[9/16] w-full bg-black relative">
                           {clipUrl ? (
                             <VerticalPlayer src={clipUrl} />

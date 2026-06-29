@@ -20,7 +20,7 @@ GEMINI_MODEL = "gemini-2.5-flash"
 
 
 def _parse_lax_json(json_str: str, task_id: Optional[str] = None) -> dict:
-    """Parse JSON string, attempting to repair it if it is truncated or has extra text."""
+    """Parse JSON string, attempting to clean and extract valid JSON without unsafe truncation."""
     json_str = json_str.strip()
 
     # 1. Clean markdown code blocks if present
@@ -35,40 +35,24 @@ def _parse_lax_json(json_str: str, task_id: Optional[str] = None) -> dict:
     # 2. Try parsing directly
     try:
         return json.loads(json_str)
-    except json.JSONDecodeError as e:
-        msg = f"[transcribe] JSON decode failed directly: {e}. Attempting to repair truncated JSON..."
-        logger.warning("%s", msg)
-        _update_gemini_progress(task_id, 24.0, msg)
+    except json.JSONDecodeError:
+        pass
 
-    # 3. Try to repair truncated JSON by finding last valid segment
-    idx = len(json_str)
-    while True:
-        idx = json_str.rfind("}", 0, idx)
-        if idx == -1:
-            break
-
-        candidate = json_str[: idx + 1]
-        try:
-            return json.loads(candidate + "]}")
-        except json.JSONDecodeError:
-            pass
-
-        try:
-            return json.loads(candidate + "}")
-        except json.JSONDecodeError:
-            pass
-
-        try:
-            return json.loads(candidate + "]")
-        except json.JSONDecodeError:
-            pass
-
+    # 3. Try to extract JSON structure between first '{' and last '}'
+    start_idx = json_str.find("{")
+    end_idx = json_str.rfind("}")
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        candidate = json_str[start_idx : end_idx + 1]
         try:
             return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            msg = f"[transcribe] Failed to parse extracted JSON block: {e}"
+            logger.warning("%s", msg)
+            _update_gemini_progress(task_id, 24.0, msg)
 
-    raise ValueError("Failed to repair truncated JSON response")
+    # Do NOT attempt to repair truncated/incomplete JSON packages by appending closing characters,
+    # as this discards dialogue segments quietly and corrupts the downstream pipeline.
+    raise ValueError("Gemini response is not a valid complete JSON object")
 
 
 def _update_gemini_progress(task_id: Optional[str], pct: float, msg: str):
@@ -237,6 +221,6 @@ Respond with JSON only:
 
     except Exception as e:
         import traceback
-        logger.warning("[transcribe] Gemini failed: %s", e)
+        logger.error("[transcribe] Gemini transcription API failed: %s", e)
         logger.debug(traceback.format_exc())
-        return None
+        raise RuntimeError(f"Gemini API failed: {e}") from e

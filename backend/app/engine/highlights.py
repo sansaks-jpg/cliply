@@ -110,7 +110,7 @@ def _segment_map(transcript: Dict) -> Dict[int, Dict]:
 
 def detect_content_type(transcript: Dict, llm_fn: LLMFn) -> Dict[str, str]:
     samples = build_transcript_samples(transcript)
-    prompt = f"{CONTENT_TYPE_PROMPT}\n\n{samples}"
+    prompt = f"{CONTENT_TYPE_PROMPT}\n\n<transcript_samples>\n{samples}\n</transcript_samples>"
     try:
         raw = llm_fn(prompt)
         return _parse_json_loose(raw)
@@ -127,7 +127,7 @@ def segment_narrative(transcript: Dict, content_info: Dict, llm_fn: LLMFn) -> Li
     prompt = NARRATIVE_SEGMENTATION_PROMPT.format(
         content_type=content_info.get("content_type", "other"),
         density=content_info.get("density", "medium"),
-        transcript=transcript_text,
+        transcript=f"<transcript>\n{transcript_text}\n</transcript>",
     )
 
     last_errors = []
@@ -156,13 +156,13 @@ def segment_narrative(transcript: Dict, content_info: Dict, llm_fn: LLMFn) -> Li
         logger.warning(f"[SEGMENTATION] Attempt {attempt} failed: {err_msg}")
 
         if attempt < MAX_HIGHLIGHT_ATTEMPTS:
-            feedback_str = "\n".join(last_errors)
+            feedback_str = last_errors[-1]
             current_prompt = (
                 f"{prompt}\n\n"
-                f"[PREVIOUS ATTEMPTS FEEDBACK]\n"
-                f"Your previous output(s) failed validation with the following errors:\n"
+                f"[PREVIOUS ATTEMPT FEEDBACK]\n"
+                f"Your previous output failed validation with the following error:\n"
                 f"{feedback_str}\n\n"
-                f"Please correct these mistakes. Return ONLY valid JSON with a top-level 'units' array conforming to the specifications. Ensure all segment IDs are correct and cover the full transcript."
+                f"Please correct this mistake. Return ONLY valid JSON with a top-level 'units' array conforming to the specifications. Ensure all segment IDs are correct and cover the full transcript."
             )
 
     logger.error(f"Narrative segmentation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts, using fallback")
@@ -189,7 +189,7 @@ def generate_highlights(
         narrative_map=narrative_json,
         content_type=content_info.get("content_type", "other"),
         density=content_info.get("density", "medium"),
-        transcript=transcript_text,
+        transcript=f"<transcript>\n{transcript_text}\n</transcript>",
     )
 
     last_errors = []
@@ -220,13 +220,13 @@ def generate_highlights(
         last_errors.append(f"Attempt {attempt} failed: {err_msg}")
 
         if attempt < MAX_HIGHLIGHT_ATTEMPTS:
-            feedback_str = "\n".join(last_errors)
+            feedback_str = last_errors[-1]
             current_prompt = (
                 f"{prompt}\n\n"
-                f"[PREVIOUS ATTEMPTS FEEDBACK]\n"
-                f"Your previous output(s) failed validation with the following errors:\n"
+                f"[PREVIOUS ATTEMPT FEEDBACK]\n"
+                f"Your previous output failed validation with the following error:\n"
                 f"{feedback_str}\n\n"
-                f"Please correct these mistakes. Ensure all highlights align with the provided narrative units (either fully within a single unit, or exact merges of contiguous units), hook sentences match the transcript verbatim, and overlap doesn't exceed 20% cumulative. Respond ONLY with valid JSON."
+                f"Please correct this mistake. Ensure all highlights align with the provided narrative units (either fully within a single unit, or exact merges of contiguous units), hook sentences match the transcript verbatim, and overlap doesn't exceed 20% cumulative. Respond ONLY with valid JSON."
             )
 
     logger.error(f"Highlight generation failed after {MAX_HIGHLIGHT_ATTEMPTS} attempts, returning empty")
@@ -256,6 +256,7 @@ async def _process_chunk_with_retry_async(
     num_clips: int,
     llm_fn: LLMFn,
     start_val: float,
+    progress_callback: Optional[Callable[[float, str, str], None]] = None,
     template: str = "podcast",
 ) -> List[Dict]:
     """Execute generate_highlights for a chunk with rate limit detection and exponential backoff + random jitter."""
@@ -275,10 +276,16 @@ async def _process_chunk_with_retry_async(
                 jitter = random.uniform(-0.2, 0.2) * base_delay + random.uniform(0.5, 1.5)
                 delay = min(base_delay + jitter, 30.0)
 
+                msg = (
+                    f"Mendeteksi pembatasan kuota (Rate Limit) LLM pada segmen {int(start_val // 60)}m {int(start_val % 60)}s. "
+                    f"Menunggu {delay:.1f}s sebelum mencoba kembali (Percobaan {attempt}/{max_rate_limit_retries})..."
+                )
                 logger.warning(
                     f"[CHUNK PROCESSOR] Rate limit hit on chunk starting at {start_val}s. "
                     f"Retrying in {delay:.1f}s... (Attempt {attempt}/{max_rate_limit_retries}) Error: {e}"
                 )
+                if progress_callback:
+                    progress_callback(45.0, "ANALYZE", msg)
                 await asyncio.sleep(delay)
             else:
                 raise e
@@ -291,6 +298,7 @@ async def _generate_chunked_async(
     content_info: Dict,
     num_clips: int,
     llm_fn: LLMFn,
+    progress_callback: Optional[Callable[[float, str, str], None]] = None,
     template: str = "podcast",
 ) -> Dict:
     """Process long videos by chunking narrative units with a hybrid sequential-parallel strategy using asyncio."""
@@ -353,7 +361,7 @@ async def _generate_chunked_async(
         logger.info(f"[HIGHLIGHTS] Warm caching: Processing first chunk (start={start_val}s) sequentially...")
         try:
             first_highlights = await _process_chunk_with_retry_async(
-                chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val, template
+                chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val, progress_callback, template
             )
             for h in first_highlights:
                 rel_start = h["start_segment_id"]
@@ -385,7 +393,7 @@ async def _generate_chunked_async(
             async with sem:
                 try:
                     chunk_highlights = await _process_chunk_with_retry_async(
-                        chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val, template
+                        chunk_transcript, chunk_units_mapped, content_info, num_clips, llm_fn, start_val, progress_callback, template
                     )
                     mapped_highlights = []
                     for h in chunk_highlights:
@@ -471,7 +479,7 @@ async def get_highlights_async(
     coverage_pct = 100
 
     if duration >= LONG_VIDEO_THRESHOLD:
-        chunked_res = await _generate_chunked_async(transcript, narrative_units, content_info, num_clips, llm_fn, template)
+        chunked_res = await _generate_chunked_async(transcript, narrative_units, content_info, num_clips, llm_fn, progress_callback, template)
         highlights = chunked_res.get("highlights", [])
         failed_chunks = chunked_res.get("failed_chunks", [])
         total_chunks = chunked_res.get("total_chunks", 1)

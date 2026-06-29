@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -222,6 +222,10 @@ export default function Home() {
 
   const [isTauriApp, setIsTauriApp] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const settingsRef = useRef<AppSettings | null>(null);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const [showSetup, setShowSetup] = useState(false);
 
   // Persist settings to localStorage on change
@@ -256,7 +260,9 @@ export default function Home() {
       try {
         const res = await fetch(API_URL + '/tasks');
         if (res.ok) { const data = await res.json(); setActiveTasks((data.tasks||[]).filter((t: {status:string}) => t.status === 'processing' || t.status === 'queued')); }
-      } catch {}
+      } catch (e) {
+        console.warn("Failed to poll active tasks:", e);
+      }
     };
     fn(); const id = setInterval(fn, 10000); return () => clearInterval(id);
   }, []);
@@ -298,7 +304,9 @@ export default function Home() {
   // Listen for Tauri backend events
   useEffect(() => {
     if (!isTauriApp) return;
-    let unlisten: (() => void) | undefined;
+    let unlistenReady: (() => void) | undefined;
+    let unlistenError: (() => void) | undefined;
+    let unlistenCrashed: (() => void) | undefined;
 
     import("@tauri-apps/api/event").then(({ listen }) => {
       listen<string>("backend-ready", () => {
@@ -307,12 +315,12 @@ export default function Home() {
         getAvailableEncoders().then((res) => {
           setEncoder(res.current);
         }).catch((e) => { console.warn("getAvailableEncoders (event) failed", e); });
-      }).then((fn) => { unlisten = fn; });
+      }).then((fn) => { unlistenReady = fn; });
 
       listen<string>("backend-error", (event) => {
         setBackendStatus("unavailable");
         setBackendError(event.payload);
-      });
+      }).then((fn) => { unlistenError = fn; });
 
       listen<number>("backend-crashed", () => {
         setBackendStatus("unavailable");
@@ -325,7 +333,7 @@ export default function Home() {
               const { restartBackend } = await import("@/lib/tauri");
               setBackendStatus("checking");
               try {
-                await restartBackend(settings?.storage_dir ?? "");
+                await restartBackend(settingsRef.current?.storage_dir ?? "");
               } catch (e) {
                 console.error("restartBackend failed", e);
                 toast.error("Gagal merestart backend");
@@ -333,10 +341,14 @@ export default function Home() {
             },
           },
         });
-      });
+      }).then((fn) => { unlistenCrashed = fn; });
     });
 
-    return () => { unlisten?.(); };
+    return () => {
+      unlistenReady?.();
+      unlistenError?.();
+      unlistenCrashed?.();
+    };
   }, [isTauriApp]);
 
   const [recentTasks, setRecentTasks] = useState<RecentTask[]>([]);
@@ -374,7 +386,14 @@ export default function Home() {
           status: t.status,
         }));
         const current = localStorage.getItem("cliply_recent_tasks");
-        const localTasks: RecentTask[] = current ? JSON.parse(current) : [];
+        let localTasks: RecentTask[] = [];
+        if (current) {
+          try {
+            localTasks = JSON.parse(current);
+          } catch (e) {
+            console.warn("Failed to parse local tasks", e);
+          }
+        }
         const localIds = new Set(localTasks.map((t) => t.id));
         
         const merged = [...localTasks];
@@ -738,6 +757,14 @@ export default function Home() {
                       {/* Podcast Card */}
                       <div
                         onClick={() => setTemplate("podcast")}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setTemplate("podcast");
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
                         className={`p-4 rounded-xl border-2 transition-all duration-300 cursor-pointer flex flex-col justify-between ${
                           template === "podcast"
                             ? "border-[var(--accent-violet)] bg-[var(--accent-violet)]/5 shadow-md shadow-[var(--accent-violet)]/5"
@@ -774,6 +801,14 @@ export default function Home() {
                       {/* Gaming ML Card */}
                       <div
                         onClick={() => setTemplate("gaming")}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setTemplate("gaming");
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
                         className={`p-4 rounded-xl border-2 transition-all duration-300 cursor-pointer flex flex-col justify-between ${
                           template === "gaming"
                             ? "border-[var(--accent-violet)] bg-[var(--accent-violet)]/5 shadow-md shadow-[var(--accent-violet)]/5"
