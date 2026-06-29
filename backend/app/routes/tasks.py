@@ -41,8 +41,8 @@ class CreateTaskRequest(BaseModel):
         default="viral-bold",
         description="Subtitle animation style.",
     )
-    face_detector: Optional[Literal["yunet", "mediapipe", "yolov8-face", "ssd"]] = Field(
-        default="yunet",
+    face_detector: Optional[Literal["yolov8-face", "yunet"]] = Field(
+        default="yolov8-face",
         description="Face detector model to use.",
     )
     subtitle_font: Optional[str] = Field(default=None, description="Custom font override.")
