@@ -89,6 +89,22 @@ fn assign_to_job_object(pid: u32) {
 #[cfg(not(windows))]
 fn assign_to_job_object(_pid: u32) {}
 
+fn kill_pid(pid: u32) {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("taskkill");
+        cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.output();
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = Command::new("kill");
+        cmd.args(["-9", &pid.to_string()]);
+        let _ = cmd.output();
+    }
+}
+
 pub struct BackendState {
     pub child: Mutex<Option<Child>>,
     pub monitor_cancel: Arc<AtomicBool>,
@@ -419,6 +435,25 @@ fn start_backend_process(
             log_line(&mut log_file, "Killing previous backend process...");
             let _ = child.kill();
             let _ = child.wait();
+        }
+    }
+
+    // 3b. Kill any stale backend process running on port 8003
+    {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(1)))
+            .build()
+            .into();
+        if let Ok(mut resp) = agent.get("http://127.0.0.1:8003/debug/build").call() {
+            if resp.status() == 200 {
+                if let Ok(body) = resp.body_mut().read_json::<serde_json::Value>() {
+                    if let Some(stale_pid) = body.get("pid").and_then(|v| v.as_u64()) {
+                        log_line(&mut log_file, &format!("Found stale backend on port 8003 with PID {}. Killing it...", stale_pid));
+                        kill_pid(stale_pid as u32);
+                        thread::sleep(Duration::from_millis(800)); // Give it a moment to release the port
+                    }
+                }
+            }
         }
     }
 
