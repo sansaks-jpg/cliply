@@ -72,7 +72,7 @@ logging.getLogger("uvicorn.error").addFilter(_SuppressConnectionResetError())
 app = FastAPI(
     title="Clip-AI Backend",
     description="YouTube → viral 9:16 shorts. FastAPI wrapper over the backend engine.",
-    version="0.1.7",
+    version="0.1.8",
     lifespan=lifespan,
 )
 
