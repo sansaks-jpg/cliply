@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, Suspense } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -137,6 +137,21 @@ function TaskPageContent() {
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(true);
   const logEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Parse log entries once (not on every render)
+  const parsedLogs = useMemo(() => logs.map((logStr) => {
+    const match = logStr.match(/^\[(.*?)\]\s*\[(.*?)\]\s*(.*)$/);
+    if (!match) return null;
+    const [, time, stage, msg] = match;
+    const st = stage.toUpperCase();
+    let stageColor = "text-zinc-500";
+    if (st === "DOWNLOAD" || st === "TRANSCRIBE") stageColor = "text-zinc-400 font-semibold";
+    else if (st === "ANALYZE") stageColor = "text-zinc-300 font-semibold";
+    else if (st === "SUBTITLES" || st === "RENDER") stageColor = "text-[var(--accent-violet)] font-semibold";
+    else if (st === "DONE") stageColor = "text-white font-bold";
+    else if (st === "ERROR") stageColor = "text-red-400 font-bold";
+    return { time, stage, msg, stageColor };
+  }), [logs]);
 
   const [cancelling, setCancelling] = useState(false);
 
@@ -668,31 +683,19 @@ function TaskPageContent() {
                         Menghubungkan ke log stream...
                       </div>
                     ) : (
-                      logs.map((logStr, idx) => {
-                        const match = logStr.match(/^\[(.*?)\]\s*\[(.*?)\]\s*(.*)$/);
-                        if (match) {
-                          const [, time, stage, msg] = match;
-                          let stageColor = "text-zinc-500";
-                          const st = stage.toUpperCase();
-                          if (st === "DOWNLOAD") stageColor = "text-zinc-400 font-semibold";
-                          else if (st === "TRANSCRIBE") stageColor = "text-zinc-400 font-semibold";
-                          else if (st === "ANALYZE") stageColor = "text-zinc-300 font-semibold";
-                          else if (st === "SUBTITLES") stageColor = "text-[var(--accent-violet)] font-semibold";
-                          else if (st === "RENDER") stageColor = "text-[var(--accent-violet)] font-semibold";
-                          else if (st === "DONE") stageColor = "text-white font-bold";
-                          else if (st === "ERROR") stageColor = "text-red-400 font-bold";
-
+                      parsedLogs.map((parsed, idx) => {
+                        if (parsed) {
                           return (
-                             <div key={`${idx}-${logStr.slice(0, 15)}`} className="border-b border-zinc-900 pb-1 text-left">
-                               <span className="text-zinc-600 mr-2 select-none">[{time}]</span>
-                               <span className={`${stageColor} mr-2`}>[{stage}]</span>
-                               <span className="text-zinc-300 break-words font-normal">{msg}</span>
+                             <div key={`${idx}-${parsed.time}`} className="border-b border-zinc-900 pb-1 text-left">
+                               <span className="text-zinc-600 mr-2 select-none">[{parsed.time}]</span>
+                               <span className={`${parsed.stageColor} mr-2`}>[{parsed.stage}]</span>
+                               <span className="text-zinc-300 break-words font-normal">{parsed.msg}</span>
                              </div>
                            );
                         }
                         return (
-                           <div key={`${idx}-${logStr.slice(0, 15)}`} className="text-zinc-400 break-words text-left">
-                             {logStr}
+                           <div key={`${idx}-${logs[idx].slice(0, 15)}`} className="text-zinc-400 break-words text-left">
+                             {logs[idx]}
                            </div>
                          );
                       })

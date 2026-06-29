@@ -394,12 +394,14 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
                 best_center_x, best_center_y = valid_faces[0].raw_cx, valid_faces[0].raw_cy
                 max_cluster_size = 0
 
-                for candidate in valid_faces:
+                # Vectorized density clustering — O(N) vs O(N²) nested loop
+                face_cx = np.array([s.raw_cx for s in valid_faces])
+                face_cy = np.array([s.raw_cy for s in valid_faces])
+                for i, candidate in enumerate(valid_faces):
                     cx, cy = candidate.raw_cx, candidate.raw_cy
-                    cluster_size = sum(
-                        1 for s in valid_faces
-                        if abs(s.raw_cx - cx) <= radius and abs(s.raw_cy - cy) <= radius
-                    )
+                    cluster_size = int(np.sum(
+                        (np.abs(face_cx - cx) <= radius) & (np.abs(face_cy - cy) <= radius)
+                    ))
                     if cluster_size > max_cluster_size:
                         max_cluster_size = cluster_size
                         best_center_x, best_center_y = cx, cy
@@ -430,6 +432,10 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
 
             # Amortized O(1) bracket pointer
             sample_pointer = 0
+
+            # Pre-allocate gaming padding arrays (constant dimensions, avoids per-frame alloc)
+            _gaming_top_pad = np.zeros((int(crop_h * 0.08) // 2 * 2, crop_w, 3), dtype=np.uint8) if template == "gaming" else None
+            _gaming_bottom_pad = np.zeros((int(crop_h * 0.12) // 2 * 2, crop_w, 3), dtype=np.uint8) if template == "gaming" else None
 
             while True:
                 ret, frame = _read_bgr_frame(cap)
@@ -525,10 +531,8 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
                     else:
                         gameplay_resized = cv2.resize(gameplay_cropped, (crop_w, gameplay_h_out), interpolation=cv2.INTER_LANCZOS4)
 
-                    # 5. Gabungkan dengan margin hitam atas/bawah
-                    top_padding = np.zeros((top_margin, crop_w, 3), dtype=np.uint8)
-                    bottom_padding = np.zeros((bottom_margin, crop_w, 3), dtype=np.uint8)
-                    cropped = np.vstack([top_padding, webcam_resized, gameplay_resized, bottom_padding])
+                    # 5. Gabungkan dengan margin hitam atas/bawah (pre-allocated sebelum loop)
+                    cropped = np.vstack([_gaming_top_pad, webcam_resized, gameplay_resized, _gaming_bottom_pad])
                 elif shot_type == "wide_cut":
                     cropped = _letterbox(frame, crop_w, crop_h)
                 else:
