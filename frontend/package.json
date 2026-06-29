@@ -1,6 +1,6 @@
 {
   "name": "cliply-frontend",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "private": true,
   "packageManager": "pnpm@10.27.0",
   "pnpm": {
