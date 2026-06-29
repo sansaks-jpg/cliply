@@ -184,6 +184,147 @@ const makeTextShadow = (ow: number, oc: string) => {
   return shadows.join(",");
 };
 
+interface SubtitleStyleDef {
+  bold: boolean;
+  caseTransform: "uppercase" | "lowercase" | "none";
+  outlineWidth: number;
+  outlineColor: string;
+  words: string[];
+  animation: string;
+}
+
+interface PreviewStylesDef {
+  fontFamily: string;
+  primaryColor: string;
+  highlightColor: string;
+  boxColor: string;
+  boxBgColor: string;
+  outlineColor?: string;
+}
+
+// ⚡ Bolt Optimization: Extracted `LiveSubtitlePreview` to its own component.
+// By isolating the `wordProgressIndex` state and the 550ms `setInterval` here,
+// we prevent the massive `Home` parent component from unnecessarily re-rendering
+// almost twice a second, drastically reducing frontend CPU usage and improving rendering performance.
+function LiveSubtitlePreview({ activeStyle, preview, textShadow }: {
+  activeStyle: SubtitleStyleDef;
+  preview: PreviewStylesDef;
+  textShadow: string;
+}) {
+  const [wordProgressIndex, setWordProgressIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setWordProgressIndex((prev) => (prev + 1) % 12);
+    }, 550);
+    return () => clearInterval(timer);
+  }, []);
+
+  const totalWords = activeStyle.words.length;
+  const activeWordIdx = wordProgressIndex % totalWords;
+  const fsize = "11px";
+
+  const baseWordStyle = {
+    fontFamily: preview.fontFamily,
+    fontWeight: activeStyle.bold ? "900" : "400",
+    fontSize: fsize,
+    letterSpacing: activeStyle.caseTransform === "uppercase" ? "0.05em" : "normal",
+    textTransform: activeStyle.caseTransform,
+    textShadow,
+    lineHeight: "1.3",
+  } as React.CSSProperties;
+
+  return (
+    <div className="w-full flex items-end justify-center text-center">
+      {activeStyle.animation === "box" ? (
+        <div className="flex flex-wrap justify-center gap-1">
+          {activeStyle.words.map((w: string, i: number) => {
+            const isActive = i === activeWordIdx;
+            return (
+              <span
+                key={i}
+                style={{
+                  ...baseWordStyle,
+                  color: isActive ? preview.highlightColor : preview.primaryColor,
+                  padding: "1px 4px",
+                  borderRadius: "3px",
+                  boxShadow: isActive ? `inset 0 0 0 1px ${preview.boxColor}` : "none",
+                  backgroundColor: isActive ? preview.boxBgColor : "transparent",
+                }}
+              >{w}</span>
+            );
+          })}
+        </div>
+      ) : activeStyle.animation === "wordpop" ? (
+        <span
+          key={activeWordIdx}
+          className="transition-transform duration-200"
+          style={{
+            ...baseWordStyle,
+            color: preview.highlightColor,
+            display: "inline-block",
+            transform: "scale(1.2)",
+          }}
+        >{activeStyle.words[activeWordIdx]}</span>
+      ) : activeStyle.animation === "popup" ? (
+        <div className="flex flex-wrap justify-center gap-1">
+          {activeStyle.words.map((w: string, i: number) => {
+            const isActive = i === activeWordIdx;
+            return (
+              <span
+                key={i}
+                className="transition-all duration-200"
+                style={{
+                  ...baseWordStyle,
+                  display: "inline-block",
+                  color: isActive ? preview.highlightColor : preview.primaryColor,
+                  transform: isActive ? "scale(1.2) translateY(-1.5px)" : "scale(1)",
+                  opacity: isActive ? 1 : 0.65,
+                }}
+              >{w}</span>
+            );
+          })}
+        </div>
+      ) : activeStyle.animation === "fadein" ? (
+        <div className="flex flex-wrap justify-center gap-1">
+          {activeStyle.words.map((w: string, i: number) => {
+            const isVisible = i <= activeWordIdx;
+            return (
+              <span
+                key={i}
+                className="transition-opacity duration-300"
+                style={{
+                  ...baseWordStyle,
+                  color: preview.primaryColor,
+                  opacity: isVisible ? 1 : 0.15,
+                }}
+              >{w}</span>
+            );
+          })}
+        </div>
+      ) : (
+        // Karaoke Fill
+        <div className="flex flex-wrap justify-center gap-1">
+          {activeStyle.words.map((w: string, i: number) => {
+            const isActive = i <= activeWordIdx;
+            return (
+              <span
+                key={i}
+                className="transition-all duration-150"
+                style={{
+                  ...baseWordStyle,
+                  color: isActive ? preview.highlightColor : preview.primaryColor,
+                  opacity: isActive ? 1 : 0.5,
+                }}
+              >{w}</span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Home() {
   const router = useRouter();
   const [url, setUrl] = useState("");
@@ -390,16 +531,6 @@ export default function Home() {
       }
     };
     syncBackendTasks();
-  }, []);
-
-  // Subtitle animation progress tick
-  const [wordProgressIndex, setWordProgressIndex] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setWordProgressIndex((prev) => (prev + 1) % 12);
-    }, 550);
-    return () => clearInterval(timer);
   }, []);
 
   // Memoize heavy style calculations that depend on subtitleStyle and custom colors
@@ -926,112 +1057,11 @@ export default function Home() {
 
                       {/* Rendering Subtitle Text */}
                       <div className="w-full h-full z-10 flex items-end justify-center text-center pb-12 px-3">
-                        {(() => {
-                          const { activeStyle, preview, textShadow } = memoizedStyles;
-                          const totalWords = activeStyle.words.length;
-                          const activeWordIdx = wordProgressIndex % totalWords;
-                          const fsize = "11px";
-
-                          const baseWordStyle = {
-                            fontFamily: preview.fontFamily,
-                            fontWeight: activeStyle.bold ? "900" : "400",
-                            fontSize: fsize,
-                            letterSpacing: activeStyle.caseTransform === "uppercase" ? "0.05em" : "normal",
-                            textTransform: activeStyle.caseTransform,
-                            textShadow,
-                            lineHeight: "1.3",
-                          } as React.CSSProperties;
-
-                          return (
-                            <div className="w-full flex items-end justify-center text-center">
-                              {activeStyle.animation === "box" ? (
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {activeStyle.words.map((w, i) => {
-                                    const isActive = i === activeWordIdx;
-                                    return (
-                                      <span
-                                        key={i}
-                                        style={{
-                                          ...baseWordStyle,
-                                          color: isActive ? preview.highlightColor : preview.primaryColor,
-                                          padding: "1px 4px",
-                                          borderRadius: "3px",
-                                          boxShadow: isActive ? `inset 0 0 0 1px ${preview.boxColor}` : "none",
-                                          backgroundColor: isActive ? preview.boxBgColor : "transparent",
-                                        }}
-                                      >{w}</span>
-                                    );
-                                  })}
-                                </div>
-                              ) : activeStyle.animation === "wordpop" ? (
-                                <span
-                                  key={activeWordIdx}
-                                  className="transition-transform duration-200"
-                                  style={{
-                                    ...baseWordStyle,
-                                    color: preview.highlightColor,
-                                    display: "inline-block",
-                                    transform: "scale(1.2)",
-                                  }}
-                                >{activeStyle.words[activeWordIdx]}</span>
-                              ) : activeStyle.animation === "popup" ? (
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {activeStyle.words.map((w, i) => {
-                                    const isActive = i === activeWordIdx;
-                                    return (
-                                      <span
-                                        key={i}
-                                        className="transition-all duration-200"
-                                        style={{
-                                          ...baseWordStyle,
-                                          display: "inline-block",
-                                          color: isActive ? preview.highlightColor : preview.primaryColor,
-                                          transform: isActive ? "scale(1.2) translateY(-1.5px)" : "scale(1)",
-                                          opacity: isActive ? 1 : 0.65,
-                                        }}
-                                      >{w}</span>
-                                    );
-                                  })}
-                                </div>
-                              ) : activeStyle.animation === "fadein" ? (
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {activeStyle.words.map((w, i) => {
-                                    const isVisible = i <= activeWordIdx;
-                                    return (
-                                      <span
-                                        key={i}
-                                        className="transition-opacity duration-300"
-                                        style={{
-                                          ...baseWordStyle,
-                                          color: preview.primaryColor,
-                                          opacity: isVisible ? 1 : 0.15,
-                                        }}
-                                      >{w}</span>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                // Karaoke Fill
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {activeStyle.words.map((w, i) => {
-                                    const isActive = i <= activeWordIdx;
-                                    return (
-                                      <span
-                                        key={i}
-                                        className="transition-all duration-150"
-                                        style={{
-                                          ...baseWordStyle,
-                                          color: isActive ? preview.highlightColor : preview.primaryColor,
-                                          opacity: isActive ? 1 : 0.5,
-                                        }}
-                                      >{w}</span>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        <LiveSubtitlePreview
+                          activeStyle={memoizedStyles.activeStyle}
+                          preview={memoizedStyles.preview}
+                          textShadow={memoizedStyles.textShadow}
+                        />
                       </div>
 
                     </div>
