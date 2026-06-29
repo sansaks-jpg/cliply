@@ -793,9 +793,18 @@ export default function Home() {
                             Membagi layar secara vertikal: bagian atas diisi oleh crop webcam wajah streamer, bagian bawah diisi arena gameplay ML.
                           </p>
                         </div>
-                        <span className="text-[10px] text-muted-foreground/60 italic mt-3 self-start">
-                          Contoh video belum tersedia
-                        </span>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewVideo("/examples/gaming.mp4");
+                          }}
+                          className="text-[var(--accent-violet)] text-xs font-semibold self-start p-0 mt-3 h-auto hover:underline"
+                        >
+                          Tonton Contoh
+                        </Button>
                       </div>
                     </div>
                   </div>
