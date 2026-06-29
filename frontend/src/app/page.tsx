@@ -898,6 +898,7 @@ export default function Home() {
                                   type="color"
                                   value={subtitleColorPrimary || "#FFFFFF"}
                                   onChange={(e) => setSubtitleColorPrimary(e.target.value)}
+                                  aria-label="Pilih warna teks"
                                   className="w-7 h-7 rounded-md border border-neutral-700 cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
                                 />
                                 {subtitleColorPrimary && (
@@ -906,6 +907,7 @@ export default function Home() {
                                     onClick={() => setSubtitleColorPrimary("")}
                                     className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-neutral-700 hover:bg-red-500 text-neutral-300 hover:text-white text-[8px] flex items-center justify-center transition-colors cursor-pointer"
                                     title="Hapus warna kustom"
+                                    aria-label="Hapus warna teks kustom"
                                   >
                                     x
                                   </button>
@@ -925,6 +927,7 @@ export default function Home() {
                                   type="color"
                                   value={subtitleColorHighlight || "#FFFF00"}
                                   onChange={(e) => setSubtitleColorHighlight(e.target.value)}
+                                  aria-label="Pilih warna highlight"
                                   className="w-7 h-7 rounded-md border border-neutral-700 cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
                                 />
                                 {subtitleColorHighlight && (
@@ -933,6 +936,7 @@ export default function Home() {
                                     onClick={() => setSubtitleColorHighlight("")}
                                     className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-neutral-700 hover:bg-red-500 text-neutral-300 hover:text-white text-[8px] flex items-center justify-center transition-colors cursor-pointer"
                                     title="Hapus warna kustom"
+                                    aria-label="Hapus warna highlight kustom"
                                   >
                                     x
                                   </button>
@@ -1184,6 +1188,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => setPreviewVideo(null)}
+                aria-label="Tutup preview video"
                 className="w-7 h-7 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground flex items-center justify-center transition-colors cursor-pointer"
               >
                 ✕
