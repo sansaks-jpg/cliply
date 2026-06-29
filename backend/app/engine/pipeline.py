@@ -35,6 +35,7 @@ async def run_pipeline(
     subtitle_style: Optional[str] = None,
     face_detector: str = "yunet",
     encoder: str = "auto",
+    template: str = "podcast",
 ) -> None:
     try:
         await store.set_progress(task_id, 0, "DOWNLOAD", "Memulai unduhan…")
@@ -76,7 +77,7 @@ async def run_pipeline(
         is_auto = (num_clips == 0)
         target_limit = 10 if is_auto else num_clips
 
-        highlights_result = await get_highlights_async(transcript, target_limit, llm_fn, _emit)
+        highlights_result = await get_highlights_async(transcript, target_limit, llm_fn, _emit, template)
         all_highlights: List[Dict] = highlights_result.get("highlights", [])
         if not all_highlights:
             raise RuntimeError("No viral highlights found.")
@@ -157,6 +158,7 @@ async def run_pipeline(
             subtitle_color_highlight=s_color_highlight,
             encoder=s_encoder,
             sensitivity=s_sensitivity,
+            template=template,
         )
 
         clip_count = sum(1 for c in clips if c.get("clip_url"))
