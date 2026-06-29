@@ -210,6 +210,8 @@ export default function Home() {
   const [subtitleColorHighlight, setSubtitleColorHighlight] = useState(() => _lsGet("subtitleColorHighlight", ""));
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [encoder, setEncoder] = useState(() => _lsGet("encoder", "auto"));
+  const [template, setTemplate] = useState(() => _lsGet("template", "podcast"));
+  const [previewVideo, setPreviewVideo] = useState<string | null>(null);
   const [sensitivity] = useState(50);  // [DEPRECATED] — auto-tuned per model
   const [videoPreview, setVideoPreview] = useState<{title: string; author: string; thumbnail: string} | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -227,6 +229,7 @@ export default function Home() {
   useEffect(() => { _lsSet("subtitleStyle", subtitleStyle); }, [subtitleStyle]);
   useEffect(() => { _lsSet("faceDetector", faceDetector); }, [faceDetector]);
   useEffect(() => { _lsSet("encoder", encoder); }, [encoder]);
+  useEffect(() => { _lsSet("template", template); }, [template]);
   useEffect(() => { _lsSet("subtitleColorPrimary", subtitleColorPrimary); }, [subtitleColorPrimary]);
   useEffect(() => { _lsSet("subtitleColorHighlight", subtitleColorHighlight); }, [subtitleColorHighlight]);
 
@@ -449,6 +452,7 @@ export default function Home() {
         language: undefined, // Selalu autodeteksi bahasa
         subtitle_style: subtitleStyle,
         face_detector: faceDetector,
+        template,
         encoder,
         sensitivity,
         subtitle_color_primary: subtitleColorPrimary || undefined,
@@ -724,6 +728,78 @@ export default function Home() {
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Parameter Studio</span>
                   </div>
 
+                  {/* Template Selection */}
+                  <div className="space-y-3">
+                    <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
+                      Pilih Template Video
+                    </Label>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {/* Podcast Card */}
+                      <div
+                        onClick={() => setTemplate("podcast")}
+                        className={`p-4 rounded-xl border-2 transition-all duration-300 cursor-pointer flex flex-col justify-between ${
+                          template === "podcast"
+                            ? "border-[var(--accent-violet)] bg-[var(--accent-violet)]/5 shadow-md shadow-[var(--accent-violet)]/5"
+                            : "border-border hover:border-border/80 hover:bg-muted/30"
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-sm">Podcast / Long-to-Short</span>
+                            {template === "podcast" && (
+                              <div className="w-4 h-4 rounded-full bg-[var(--accent-violet)] text-white flex items-center justify-center">
+                                <Check className="w-2.5 h-2.5" />
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            Mendeteksi wajah pembicara utama secara dinamis ke rasio 9:16 vertikal. Ideal untuk wawancara, monolog, dan podcast.
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPreviewVideo("/examples/podcast.mp4");
+                          }}
+                          className="text-[var(--accent-violet)] text-xs font-semibold self-start p-0 mt-3 h-auto hover:underline"
+                        >
+                          Tonton Contoh
+                        </Button>
+                      </div>
+
+                      {/* Gaming ML Card */}
+                      <div
+                        onClick={() => setTemplate("gaming")}
+                        className={`p-4 rounded-xl border-2 transition-all duration-300 cursor-pointer flex flex-col justify-between ${
+                          template === "gaming"
+                            ? "border-[var(--accent-violet)] bg-[var(--accent-violet)]/5 shadow-md shadow-[var(--accent-violet)]/5"
+                            : "border-border hover:border-border/80 hover:bg-muted/30"
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-bold text-sm">Gaming Mobile Legends</span>
+                            {template === "gaming" && (
+                              <div className="w-4 h-4 rounded-full bg-[var(--accent-violet)] text-white flex items-center justify-center">
+                                <Check className="w-2.5 h-2.5" />
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground leading-relaxed">
+                            Membagi layar secara vertikal: bagian atas diisi oleh crop webcam wajah streamer, bagian bawah diisi arena gameplay ML.
+                          </p>
+                        </div>
+                        <span className="text-[10px] text-muted-foreground/60 italic mt-3 self-start">
+                          Contoh video belum tersedia
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="num-clips" className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
                       <Film className="w-3.5 h-3.5" />
@@ -735,6 +811,7 @@ export default function Home() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="auto">Auto (Rekomendasi AI)</SelectItem>
+                        <SelectItem value="1">1 Klip Video</SelectItem>
                         <SelectItem value="3">3 Klip Video</SelectItem>
                         <SelectItem value="5">5 Klip Video</SelectItem>
                         <SelectItem value="10">10 Klip Video</SelectItem>
@@ -1086,6 +1163,40 @@ export default function Home() {
           onPickDir={handlePickDir}
           onComplete={handleSetupComplete}
         />
+      )}
+
+      {/* Example Video Modal Overlay */}
+      {previewVideo && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 transition-opacity duration-300">
+          <div className="bg-background border border-border max-w-sm w-full rounded-2xl overflow-hidden shadow-2xl relative flex flex-col">
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+              <h3 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Contoh Hasil Video</h3>
+              <button
+                type="button"
+                onClick={() => setPreviewVideo(null)}
+                className="w-7 h-7 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground flex items-center justify-center transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            {/* Video Player */}
+            <div className="aspect-[9/16] bg-black flex items-center justify-center overflow-hidden">
+              <video
+                src={previewVideo}
+                controls
+                autoPlay
+                className="w-full h-full object-contain"
+              />
+            </div>
+            {/* Footer */}
+            <div className="px-5 py-4 border-t border-border flex justify-end">
+              <Button type="button" onClick={() => setPreviewVideo(null)} className="rounded-xl h-10 px-5 text-sm font-semibold shadow-none">
+                Tutup
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

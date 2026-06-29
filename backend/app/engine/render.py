@@ -116,6 +116,7 @@ def _analyze_video(
     clip_start_offset: float = 0.0,
     face_detector: str = "yunet",
     sp: Optional[SensitivityParams] = None,
+    template: str = "podcast",
 ) -> List[SampleFrame]:
     """Pass 1: Analyze video using ground-truth camera segments to guide crop decisions.
     Applies strict behavior per segment type (master vs individual closeups) to eliminate noise.
@@ -144,6 +145,17 @@ def _analyze_video(
         frame_idx = 0
         sampled_frames = []
 
+        # Tiled Corner Inference params for gaming template
+        locked_corner = None
+        corner_defs = [
+            ("top_right", 0.65, 1.0, 0.0, 0.45),
+            ("top_left", 0.0, 0.35, 0.0, 0.45),
+            ("bottom_right", 0.65, 1.0, 0.55, 1.0),
+            ("bottom_left", 0.0, 0.35, 0.55, 1.0)
+        ]
+        corner_hits = {"top_right": 0, "top_left": 0, "bottom_right": 0, "bottom_left": 0}
+        gaming_samples_scanned = 0
+
         while True:
             ret, frame = _read_bgr_frame(cap)
             if not ret or frame is None:
@@ -151,7 +163,67 @@ def _analyze_video(
 
             if frame_idx % sample_interval == 0 or frame_idx in cut_frame_indices:
                 t = frame_idx / fps
-                faces = _detect_faces(detector, face_detector, frame, sp.confidence_threshold)
+                
+                if template == "gaming":
+                    faces = []
+                    # Scan 4 corners initially to detect the webcam region
+                    if locked_corner is None and gaming_samples_scanned < 20:
+                        for corner_name, x_s_pct, x_e_pct, y_s_pct, y_e_pct in corner_defs:
+                            x1 = int(src_w * x_s_pct)
+                            x2 = int(src_w * x_e_pct)
+                            y1 = int(src_h * y_s_pct)
+                            y2 = int(src_h * y_e_pct)
+                            corner_crop = frame[y1:y2, x1:x2]
+                            if corner_crop.size > 0:
+                                corner_faces = _detect_faces(detector, face_detector, corner_crop, sp.confidence_threshold)
+                                if corner_faces:
+                                    corner_hits[corner_name] += len(corner_faces)
+                                    for face in corner_faces:
+                                        cx_local, cy_local, conf, _, bbox_local = face
+                                        cx_global = cx_local + x1
+                                        cy_global = cy_local + y1
+                                        bx1_l, by1_l, bx2_l, by2_l = bbox_local
+                                        bbox_global = (bx1_l + x1, by1_l + y1, bx2_l + x1, by2_l + y1)
+                                        face_h_ratio_global = (by2_l - by1_l) / src_h
+                                        faces.append((cx_global, cy_global, conf, face_h_ratio_global, bbox_global))
+                        gaming_samples_scanned += 1
+                        
+                        # Decide and lock on the best corner (at least 2 face detections to confirm)
+                        if gaming_samples_scanned >= 15 or any(hits >= 3 for hits in corner_hits.values()):
+                            best_corner = max(corner_hits, key=corner_hits.get)
+                            if corner_hits[best_corner] >= 2:
+                                locked_corner = best_corner
+                                log.info(f"[GAMING DETECT] Locked webcam corner to: {locked_corner} with {corner_hits[best_corner]} hits")
+                            elif gaming_samples_scanned >= 20:
+                                locked_corner = "top_right"
+                                log.info(f"[GAMING DETECT] Fallback locked webcam corner to top_right")
+                    
+                    if locked_corner is None and gaming_samples_scanned >= 20:
+                        locked_corner = "top_right"
+
+                    if locked_corner is not None:
+                        # Extract faces exclusively from the locked webcam corner
+                        for corner_name, x_s_pct, x_e_pct, y_s_pct, y_e_pct in corner_defs:
+                            if corner_name == locked_corner:
+                                x1 = int(src_w * x_s_pct)
+                                x2 = int(src_w * x_e_pct)
+                                y1 = int(src_h * y_s_pct)
+                                y2 = int(src_h * y_e_pct)
+                                corner_crop = frame[y1:y2, x1:x2]
+                                if corner_crop.size > 0:
+                                    corner_faces = _detect_faces(detector, face_detector, corner_crop, sp.confidence_threshold)
+                                    for face in corner_faces:
+                                        cx_local, cy_local, conf, _, bbox_local = face
+                                        cx_global = cx_local + x1
+                                        cy_global = cy_local + y1
+                                        bx1_l, by1_l, bx2_l, by2_l = bbox_local
+                                        bbox_global = (bx1_l + x1, by1_l + y1, bx2_l + x1, by2_l + y1)
+                                        face_h_ratio_global = (by2_l - by1_l) / src_h
+                                        faces.append((cx_global, cy_global, conf, face_h_ratio_global, bbox_global))
+                                break
+                else:
+                    faces = _detect_faces(detector, face_detector, frame, sp.confidence_threshold)
+
                 sampled_frames.append({
                     "frame_idx": frame_idx,
                     "time": t,
@@ -184,7 +256,9 @@ def _analyze_video(
         pct_multiple = frames_with_multiple / len(seg_frames)
 
         # If at least 15% of frames have 2+ faces (and at least 1 frame), it's a group shot
-        if (pct_multiple >= 0.15 and frames_with_multiple >= 1) or seg.get("type") == "master":
+        if template == "gaming":
+            seg["is_group"] = False
+        elif (pct_multiple >= 0.15 and frames_with_multiple >= 1) or seg.get("type") == "master":
             seg["is_group"] = True
         else:
             seg["is_group"] = False
@@ -241,34 +315,39 @@ def _analyze_video(
                     else:
                         face_cx = int(seg.get("avg_cx", src_w // 2))
                         face_cy = src_h // 2
-                        face_ratio = 0.22
+                        face_ratio = 0.0 if template == "gaming" else 0.22
 
                 # Apply Deadzone + EMA smoothing (No Kalman drift)
-                if is_first_frame_of_seg:
-                    curr_cam_cx = face_cx
-                    is_first_frame_of_seg = False
+                if template == "gaming":
                     target_cx = face_cx
-                else:
-                    deadzone = int(crop_w * 0.08) # 8% deadzone
-                    diff_x = face_cx - curr_cam_cx
-
-                    if abs(diff_x) < deadzone:
-                        target_cx = curr_cam_cx # Stay still
-                    else:
-                        target_cx = face_cx # Move target
-
-                    # Smooth follow pan using EMA (alpha = 0.10)
-                    curr_cam_cx = int(0.10 * target_cx + 0.90 * curr_cam_cx)
-
-                # Keep crop box within video boundaries
-                curr_cam_cx = max(crop_w // 2, min(src_w - crop_w // 2, curr_cam_cx))
-                target_cx = curr_cam_cx
-                target_cy = src_h // 2  # Keep vertical center stable
-                shot_type = _classify_shot(face_ratio)
-
-                # Force crop instead of letterbox for single person shots
-                if shot_type == "wide_cut":
+                    target_cy = face_cy
                     shot_type = "closeup"
+                else:
+                    if is_first_frame_of_seg:
+                        curr_cam_cx = face_cx
+                        is_first_frame_of_seg = False
+                        target_cx = face_cx
+                    else:
+                        deadzone = int(crop_w * 0.08) # 8% deadzone
+                        diff_x = face_cx - curr_cam_cx
+
+                        if abs(diff_x) < deadzone:
+                            target_cx = curr_cam_cx # Stay still
+                        else:
+                            target_cx = face_cx # Move target
+
+                        # Smooth follow pan using EMA (alpha = 0.10)
+                        curr_cam_cx = int(0.10 * target_cx + 0.90 * curr_cam_cx)
+
+                    # Keep crop box within video boundaries
+                    curr_cam_cx = max(crop_w // 2, min(src_w - crop_w // 2, curr_cam_cx))
+                    target_cx = curr_cam_cx
+                    target_cy = src_h // 2  # Keep vertical center stable
+                    shot_type = _classify_shot(face_ratio)
+
+                    # Force crop instead of letterbox for single person shots
+                    if shot_type == "wide_cut":
+                        shot_type = "closeup"
 
             samples.append(SampleFrame(
                 time=t,
@@ -289,7 +368,7 @@ def _analyze_video(
 
 def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
                    smoothed: List[Tuple[int, int, float, str, bool]],
-                   crop_w: int, crop_h: int) -> str:
+                   crop_w: int, crop_h: int, template: str = "podcast") -> str:
     """Pass 2: Render video with interpolated crop positions."""
     silent_path = out_path + ".silent.mp4"
 
@@ -309,6 +388,41 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
         src_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         src_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+
+        # Precompute stable webcam position for gaming template using density clustering
+        webcam_cx, webcam_cy = src_w // 2, src_h // 2
+        if template == "gaming" and samples:
+            valid_faces = [s for s in samples if s.face_ratio > 0.0]
+            if valid_faces:
+                # Find the coordinate cluster with the highest density (most detections within radius R)
+                # to isolate the fixed webcam area from dynamic gameplay faces
+                radius = int(src_w * 0.15)
+                best_center_x, best_center_y = valid_faces[0].raw_cx, valid_faces[0].raw_cy
+                max_cluster_size = 0
+
+                for candidate in valid_faces:
+                    cx, cy = candidate.raw_cx, candidate.raw_cy
+                    cluster_size = sum(
+                        1 for s in valid_faces
+                        if abs(s.raw_cx - cx) <= radius and abs(s.raw_cy - cy) <= radius
+                    )
+                    if cluster_size > max_cluster_size:
+                        max_cluster_size = cluster_size
+                        best_center_x, best_center_y = cx, cy
+
+                # Average coordinates only for faces within the chosen webcam cluster
+                cluster_faces = [
+                    s for s in valid_faces
+                    if abs(s.raw_cx - best_center_x) <= radius and abs(s.raw_cy - best_center_y) <= radius
+                ]
+                if cluster_faces:
+                    webcam_cx = int(sum(s.raw_cx for s in cluster_faces) / len(cluster_faces))
+                    webcam_cy = int(sum(s.raw_cy for s in cluster_faces) / len(cluster_faces))
+                else:
+                    webcam_cx, webcam_cy = best_center_x, best_center_y
+            else:
+                webcam_cx = int(src_w * 0.85)
+                webcam_cy = int(src_h * 0.20)
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(silent_path, cv2.CAP_FFMPEG, fourcc, fps, (crop_w, crop_h))
@@ -360,7 +474,47 @@ def _render_frames(in_path: str, out_path: str, samples: List[SampleFrame],
                     shot_type = prev_smooth[3] if alpha < 0.5 else next_smooth[3]
 
                 # Render
-                if shot_type == "wide_cut":
+                if template == "gaming":
+                    # Layout: Webcam di atas (40% tinggi), Gameplay di bawah (60% tinggi)
+                    webcam_h_out = int(crop_h * 0.40)
+                    gameplay_h_out = crop_h - webcam_h_out
+
+                    # 1. Proses Crop & Resize Webcam
+                    target_ar_webcam = crop_w / webcam_h_out
+                    webcam_crop_h = int(src_h * 0.45)
+                    webcam_crop_w = int(webcam_crop_h * target_ar_webcam)
+                    if webcam_crop_w > src_w:
+                        webcam_crop_w = src_w
+                        webcam_crop_h = int(webcam_crop_w / target_ar_webcam)
+
+                    wx0 = max(0, min(src_w - webcam_crop_w, webcam_cx - webcam_crop_w // 2))
+                    wy0 = max(0, min(src_h - webcam_crop_h, webcam_cy - webcam_crop_h // 2))
+                    webcam_cropped = frame[wy0:wy0 + webcam_crop_h, wx0:wx0 + webcam_crop_w]
+
+                    if webcam_cropped is None or webcam_cropped.size == 0:
+                        webcam_resized = cv2.resize(frame, (crop_w, webcam_h_out), interpolation=cv2.INTER_LANCZOS4)
+                    else:
+                        webcam_resized = cv2.resize(webcam_cropped, (crop_w, webcam_h_out), interpolation=cv2.INTER_LANCZOS4)
+
+                    # 2. Proses Crop & Resize Gameplay
+                    target_ar_gameplay = crop_w / gameplay_h_out
+                    gameplay_crop_h = src_h
+                    gameplay_crop_w = int(gameplay_crop_h * target_ar_gameplay)
+                    if gameplay_crop_w > src_w:
+                        gameplay_crop_w = src_w
+                        gameplay_crop_h = int(gameplay_crop_w / target_ar_gameplay)
+
+                    gx0 = (src_w - gameplay_crop_w) // 2
+                    gy0 = (src_h - gameplay_crop_h) // 2
+                    gameplay_cropped = frame[gy0:gy0 + gameplay_crop_h, gx0:gx0 + gameplay_crop_w]
+
+                    if gameplay_cropped is None or gameplay_cropped.size == 0:
+                        gameplay_resized = cv2.resize(frame, (crop_w, gameplay_h_out), interpolation=cv2.INTER_LANCZOS4)
+                    else:
+                        gameplay_resized = cv2.resize(gameplay_cropped, (crop_w, gameplay_h_out), interpolation=cv2.INTER_LANCZOS4)
+
+                    cropped = np.vstack([webcam_resized, gameplay_resized])
+                elif shot_type == "wide_cut":
                     cropped = _letterbox(frame, crop_w, crop_h)
                 else:
                     w_z = crop_w
@@ -493,6 +647,7 @@ def _reframe_vertical(
     face_detector: str = "yunet",
     encoder_args: str = "libx264 -preset fast -crf 20",
     sp: Optional[SensitivityParams] = None,
+    template: str = "podcast",
 ) -> str:
     """Two-pass smart crop using ground-truth camera segments and non-causal smoothing."""
     if is_master:
@@ -521,14 +676,14 @@ def _reframe_vertical(
 
             camera_segments = _generate_camera_segments(in_path, detector, face_detector)
 
-            samples = _analyze_video(in_path, detector, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset=0.0, face_detector=face_detector, sp=sp)
+            samples = _analyze_video(in_path, detector, crop_w, crop_h, src_w, src_h, camera_segments, clip_start_offset=0.0, face_detector=face_detector, sp=sp, template=template)
 
             if not samples:
                 log.warning("Samples kosong setelah _analyze_video. Fallback ke master letterbox.")
                 silent_path = _render_master_letterbox(in_path, out_path, aspect_ratio)
             else:
                 smoothed = _apply_smoothing_non_causal(samples, src_w, src_h)
-                silent_path = _render_frames(in_path, out_path, samples, smoothed, crop_w, crop_h)
+                silent_path = _render_frames(in_path, out_path, samples, smoothed, crop_w, crop_h, template=template)
         finally:
             if hasattr(detector, "close"):
                 try:
@@ -581,6 +736,7 @@ def render_clips(
     subtitle_color_highlight: Optional[str] = None,
     encoder: str = "auto",
     sensitivity: int = 50,
+    template: str = "podcast",
 ) -> List[Dict]:
     sanitize_env()
     sp = apply_sensitivity(sensitivity, face_detector)
@@ -665,6 +821,7 @@ def render_clips(
                 face_detector=face_detector,
                 encoder_args=encoder_args,
                 sp=sp,
+                template=template,
             )
             results.append({**h, "clip_url": f"/clips/{task_id}/short_{i:02d}.mp4"})
         except Exception as e:

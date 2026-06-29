@@ -33,6 +33,21 @@ Saat user submit YouTube URL ke `/tasks`, backend menjalankan pipeline async 7 s
 | 6. SUBTITLE STYLE | (dalam stage 5) | `subtitles.py` | Caption di 75% bawah frame, max 2 baris, font TikTok Sans / Inter Black |
 | 7. FINALIZE | 90–100% | `pipeline.py` | Tulis `highlights.json` manifest (metadata + download URLs per klip mp4) |
 
+## Template System & Layout
+
+Aplikasi mendukung 2 pilihan template video yang diatur via parameter `template` pada payload API:
+
+1. **Podcast / Wawancara (`podcast` - default)**:
+   - Menggunakan alur tracking & crop wajah tunggal ke rasio 9:16 vertikal.
+   - Posisi crop bergeser secara dinamis mengikuti pembicara aktif menggunakan smoothing EMA.
+   - Deteksi format konten otomatis (Stage 1) dan segmentasi narasi (Stage 2) dijalankan untuk menyusun unit pembicaraan yang koheren.
+
+2. **Gaming Mobile Legends (`gaming`)**:
+   - Membagi video menjadi atas (webcam streamer) dan bawah (gameplay).
+   - **Kompensasi Jitter (Webcam)**: Menggunakan algoritma *density clustering* koordinat wajah dari sampel frame untuk mendeteksi posisi webcam streamer secara statis dan presisi, mengabaikan deteksi palsu (*false positives*) dari hero portrait/elemen game di area gameplay.
+   - **Pemotongan Layar Terpisah**: Webcam dipotong dari koordinat terkluster (ukuran square 45% tinggi video asli, di-resize ke `crop_w` x `crop_h // 2`) dan gameplay dipotong dari area tengah (rasio 9:8, di-resize ke `crop_w` x `crop_h // 2`), lalu digabungkan secara vertikal dengan `np.vstack`.
+   - **Bypass Tahap 1 & Klasifikasi Tingkat Unit**: Tahap deteksi tipe konten global (Stage 1) dilompati dan langsung disetel ke `"gaming commentary"` untuk performa cepat. Segmentasi narasi (Stage 2) memetakan unit transkrip streamer secara independen ke dalam 8 kategori viral ML Indonesia (`SAVAGE_CLUTCH`, `TIPS_BUILD`, `TROLL_FAIL`, `RANT_OPINI`, `DRAMA_SOSIAL`, `BOCIL_ENCOUNTER`, `VIEWER_INTERACTION`, `PRO_SCENE`) untuk menangani sifat dinamis dari live streaming yang memuat berbagai macam tipe konten secara bersamaan.
+
 ## Tech Stack
 
 | Layer | Stack |
