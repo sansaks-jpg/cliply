@@ -847,7 +847,9 @@ def render_clips(
             )
             results.append({**h, "clip_url": f"/clips/{task_id}/short_{i:02d}.mp4"})
         except Exception as e:
-            results.append({**h, "clip_url": None, "error": str(e)})
+            # Raise exception immediately to bubble up render failure and prevent fake 'completed' status
+            logger.error(f"Render failed for clip {i}: {e}")
+            raise RuntimeError(f"Klip {i} ({h.get('title', 'clip')}) gagal dirender: {e}") from e
         finally:
             if os.path.exists(cut_path):
                 os.remove(cut_path)
