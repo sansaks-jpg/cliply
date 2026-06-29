@@ -72,19 +72,24 @@ fn assign_to_job_object(pid: u32) {
     unsafe {
         let job = CreateJobObjectW(ptr::null(), ptr::null());
         if job == 0 {
+            log::warn!("CreateJobObjectW returned null handle for PID {}", pid);
             return;
         }
         let mut info: JobObjectExtendedLimitInformation = std::mem::zeroed();
         info.basic_limit_information.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let _ = SetInformationJobObject(
+        if SetInformationJobObject(
             job,
             JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
             &info as *const _ as *const u8,
             std::mem::size_of::<JobObjectExtendedLimitInformation>() as u32,
-        );
+        ) == 0 {
+            log::warn!("SetInformationJobObject failed for PID {}", pid);
+        }
         let proc_handle = OpenProcess(PROCESS_ASSIGN_ACCESS, 0, pid);
         if proc_handle != 0 {
-            let _ = AssignProcessToJobObject(job, proc_handle);
+            if AssignProcessToJobObject(job, proc_handle) == 0 {
+                log::warn!("AssignProcessToJobObject failed for PID {}", pid);
+            }
             let _ = CloseHandle(proc_handle);
         }
         // Don't close job handle — it stays alive for the process lifetime
@@ -136,9 +141,17 @@ fn kill_child(mut child: Child) {
 impl Drop for BackendState {
     fn drop(&mut self) {
         self.monitor_cancel.store(true, Ordering::SeqCst);
-        if let Ok(mut guard) = self.child.lock() {
-            if let Some(child) = guard.take() {
-                kill_child(child);
+        match self.child.lock() {
+            Ok(mut guard) => {
+                if let Some(child) = guard.take() {
+                    kill_child(child);
+                }
+            }
+            Err(e) => {
+                log::warn!("BackendState drop: child mutex poisoned, recovering");
+                if let Some(child) = e.into_inner().take() {
+                    kill_child(child);
+                }
             }
         }
     }
@@ -269,7 +282,10 @@ fn get_settings_lock() -> &'static Mutex<()> {
 }
 
 fn load_settings(app: &tauri::AppHandle) -> AppSettings {
-    let _lock = get_settings_lock().lock().unwrap();
+    let _lock = get_settings_lock().lock().unwrap_or_else(|e| {
+        log::warn!("Settings mutex poisoned during load, recovering");
+        e.into_inner()
+    });
     let default_storage = app
         .path()
         .app_data_dir()
@@ -328,7 +344,10 @@ fn load_settings(app: &tauri::AppHandle) -> AppSettings {
 }
 
 fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), String> {
-    let _lock = get_settings_lock().lock().unwrap();
+    let _lock = get_settings_lock().lock().unwrap_or_else(|e| {
+        log::warn!("Settings mutex poisoned during save, recovering");
+        e.into_inner()
+    });
     let config_path = get_config_path(app)?;
     let content = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     fs::write(config_path, content).map_err(|e| e.to_string())?;
@@ -392,7 +411,14 @@ fn spawn_backend_monitor(app: &tauri::AppHandle) {
                     Ok(g) => g,
                     Err(_) => return,
                 };
-                guard.as_mut().and_then(|c| c.try_wait().ok().flatten())
+                match guard.as_mut().map(|c| c.try_wait()) {
+                    Some(Ok(Some(status))) => Some(status),
+                    Some(Err(e)) => {
+                        log::warn!("try_wait error in monitor: {}", e);
+                        None
+                    }
+                    _ => None,
+                }
             };
             if let Some(status) = exit_status {
                 if !cancel.load(Ordering::SeqCst) {
@@ -595,7 +621,14 @@ fn start_backend_process(
         // a) Check if process died (via state mutex — non-blocking)
         let exit_status = {
             let mut guard = state.child.lock().map_err(|e| e.to_string())?;
-            guard.as_mut().and_then(|c| c.try_wait().ok().flatten())
+            match guard.as_mut().map(|c| c.try_wait()) {
+                Some(Ok(Some(status))) => Some(status),
+                Some(Err(e)) => {
+                    log::warn!("try_wait error during health check: {}", e);
+                    None
+                }
+                _ => None,
+            }
         };
         if let Some(status) = exit_status {
             let err = format!(
@@ -614,16 +647,18 @@ fn start_backend_process(
                 match agent.get(build_url).call() {
                     Ok(mut build_resp) if build_resp.status() == 200 => {
                         if let Ok(body) = build_resp.body_mut().read_json::<serde_json::Value>() {
-                            let reported_pid = body.get("pid").and_then(|v| v.as_u64()).unwrap_or(0);
-                            if reported_pid != spawned_pid as u64 {
+                            let reported_pid = body.get("pid").and_then(|v| v.as_u64());
+                            if let Some(pid) = reported_pid {
+                            if pid != spawned_pid as u64 {
                                 let msg = format!(
                                     "Health check PID mismatch: expected {}, got {}. Stale backend on port 8003.",
-                                    spawned_pid, reported_pid
+                                    spawned_pid, pid
                                 );
                                 log_line(&mut log_file, &msg);
                                 last_error = msg;
                                 thread::sleep(BACKEND_POLL_INTERVAL);
                                 continue;
+                            }
                             }
                             log_line(&mut log_file, &format!(
                                 "Backend is ready (PID {} verified via /debug/build)", spawned_pid
@@ -789,7 +824,16 @@ pub fn run() {
             relaunch_app
         ])
         .build(tauri::generate_context!())
-        .expect("error saat membangun aplikasi tauri")
+        .unwrap_or_else(|e| {
+            log::error!("Gagal membangun aplikasi Tauri: {}", e);
+            // Tampilkan dialog error sebelum exit (windows_subsystem = "windows" menyembunyikan stderr)
+            rfd::MessageDialog::new()
+                .set_title("Cliply Error")
+                .set_description(&format!("Cliply gagal dimulai:\n{}\n\nCek log untuk detail.", e))
+                .set_level(rfd::MessageLevel::Error)
+                .show();
+            std::process::exit(1);
+        })
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;

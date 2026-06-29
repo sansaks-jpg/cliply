@@ -1,6 +1,6 @@
 [package]
 name = "cliply"
-version = "0.1.8"
+version = "0.2.0"
 description = "AI-powered video clipping desktop app"
 authors = ["you"]
 license = ""

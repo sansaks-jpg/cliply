@@ -1,41 +1,6 @@
-"""Kalman-filter smoothing and sample data structures for face tracking.
-
-Provides jitter-free crop position smoothing within scene boundaries.
-"""
+"""Sample data structures and interpolation utilities for face tracking."""
 from dataclasses import dataclass
 from typing import List, Tuple
-
-import cv2
-import numpy as np
-
-
-class FaceKalmanTracker:
-    """8-state constant-velocity Kalman filter for smooth face tracking."""
-    def __init__(self):
-        self.kf = cv2.KalmanFilter(8, 4, 0, cv2.CV_32F)
-        dt = 1.0
-        self.kf.transitionMatrix = np.array([
-            [1,0,0,0,dt,0,0,0],
-            [0,1,0,0,0,dt,0,0],
-            [0,0,1,0,0,0,dt,0],
-            [0,0,0,1,0,0,0,dt],
-            [0,0,0,0,1,0,0,0],
-            [0,0,0,0,0,1,0,0],
-            [0,0,0,0,0,0,1,0],
-            [0,0,0,0,0,0,0,1],
-        ], dtype=np.float32)
-        self.kf.measurementMatrix = np.eye(4, 8, dtype=np.float32)
-        cv2.setIdentity(self.kf.processNoiseCov, 1e-4)
-        cv2.setIdentity(self.kf.measurementNoiseCov, 1e-1)
-        cv2.setIdentity(self.kf.errorCovPost, 1.0)
-
-    def predict(self):
-        return self.kf.predict()
-
-    def update(self, bbox):
-        """bbox = [cx, cy, w, h]"""
-        meas = np.array([bbox[0], bbox[1], bbox[2], bbox[3]], dtype=np.float32).reshape(4, 1)
-        return self.kf.correct(meas)
 
 
 @dataclass
@@ -63,7 +28,7 @@ def _lerp(a: float, b: float, t: float) -> float:
 
 
 def _apply_smoothing_non_causal(samples: List[SampleFrame], src_w: int, src_h: int) -> List[Tuple[int, int, float, str, bool]]:
-    """Apply Kalman-filter smoothing within scene boundaries for jitter-free tracking."""
+    """Return raw sample values for two-pass interpolation in render stage."""
     if not samples:
         return []
     result = []
