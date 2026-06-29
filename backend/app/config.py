@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 # override=False prevents .env from overwriting env vars already set by
 # the runtime (Docker, CI, systemd, Tauri), which are considered authoritative.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_REPO_ROOT / ".env", override=True)
+load_dotenv(_REPO_ROOT / ".env", override=False)
 
 
 def _get(key: str, default: str = "") -> str:

@@ -155,9 +155,9 @@ def _try_groq_whisper(
 
     except Exception as e:
         import traceback
-        logger.warning("[transcribe] Groq failed: %s", e)
+        logger.error("[transcribe] Groq transcription API failed: %s", e)
         logger.debug(traceback.format_exc())
-        return None
+        raise RuntimeError(f"Groq API failed: {e}") from e
 
 
 def _update_groq_progress(task_id: Optional[str], pct: float, msg: str):

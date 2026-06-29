@@ -49,7 +49,9 @@ fn assign_to_job_object(pid: u32) {
 
     const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x2000;
     const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: i32 = 9;
-    const PROCESS_ALL_ACCESS: u32 = 0x001F0FFF;
+    // PROCESS_SET_QUOTA (0x0100) and PROCESS_TERMINATE (0x0001) are the minimum permissions
+    // required to assign a process handle to a Windows Job Object. Using this instead of PROCESS_ALL_ACCESS.
+    const PROCESS_ASSIGN_ACCESS: u32 = 0x0101;
 
     extern "system" {
         fn CreateJobObjectW(lpJobAttributes: *const u8, lpName: *const u16) -> usize;
@@ -64,6 +66,9 @@ fn assign_to_job_object(pid: u32) {
         fn CloseHandle(hObject: usize) -> i32;
     }
 
+    // SAFETY: FFI call block to native Windows API.
+    // The handles created (job, proc_handle) are verified for non-zero values,
+    // proc_handle is closed correctly, and JobObjectExtendedLimitInformation is properly zero-initialized.
     unsafe {
         let job = CreateJobObjectW(ptr::null(), ptr::null());
         if job == 0 {
@@ -77,7 +82,7 @@ fn assign_to_job_object(pid: u32) {
             &info as *const _ as *const u8,
             std::mem::size_of::<JobObjectExtendedLimitInformation>() as u32,
         );
-        let proc_handle = OpenProcess(PROCESS_ALL_ACCESS, 0, pid);
+        let proc_handle = OpenProcess(PROCESS_ASSIGN_ACCESS, 0, pid);
         if proc_handle != 0 {
             let _ = AssignProcessToJobObject(job, proc_handle);
             let _ = CloseHandle(proc_handle);
@@ -118,6 +123,8 @@ fn kill_child(mut child: Child) {
         cmd.args(["/F", "/T", "/PID", &pid.to_string()]);
         cmd.creation_flags(CREATE_NO_WINDOW);
         let _ = cmd.output();
+        // Wait on the child to ensure we close its handle and prevent resource leaks
+        let _ = child.wait();
     }
     #[cfg(not(windows))]
     {
@@ -253,7 +260,16 @@ fn get_log_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(log_dir.join("backend.log"))
 }
 
+use std::sync::OnceLock;
+
+static SETTINGS_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn get_settings_lock() -> &'static Mutex<()> {
+    SETTINGS_LOCK.get_or_init(|| Mutex::new(()))
+}
+
 fn load_settings(app: &tauri::AppHandle) -> AppSettings {
+    let _lock = get_settings_lock().lock().unwrap();
     let default_storage = app
         .path()
         .app_data_dir()
@@ -312,6 +328,7 @@ fn load_settings(app: &tauri::AppHandle) -> AppSettings {
 }
 
 fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), String> {
+    let _lock = get_settings_lock().lock().unwrap();
     let config_path = get_config_path(app)?;
     let content = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     fs::write(config_path, content).map_err(|e| e.to_string())?;

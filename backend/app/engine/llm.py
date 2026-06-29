@@ -148,11 +148,52 @@ def call_gemini_llm(prompt: str) -> str:
 
 
 def get_llm_fn() -> LLMFn:
-    provider = (LLM_PROVIDER or "openai").strip().lower()
-    if provider == "openai":
-        return call_openai_llm
-    if provider == "anthropic":
-        return call_anthropic_llm
-    if provider == "gemini":
-        return call_gemini_llm
-    raise ValueError(f"Unknown LLM_PROVIDER={provider!r}. Use 'openai', 'anthropic', or 'gemini'.")
+    import os
+    from ..config import GEMINI_API_KEY
+
+    primary_provider = (LLM_PROVIDER or "openai").strip().lower()
+    
+    # Tentukan urutan fallback provider secara logis
+    providers_chain = [primary_provider]
+    for p in ["openai", "gemini", "anthropic"]:
+        if p not in providers_chain:
+            providers_chain.append(p)
+
+    def call_llm_with_fallback(prompt: str) -> str:
+        last_error = None
+        
+        for provider in providers_chain:
+            # Verifikasi ketersediaan API key sebelum mencoba memanggil provider tersebut
+            if provider == "openai" and not OPENAI_API_KEY:
+                logger.debug("Skipping OpenAI fallback: OPENAI_API_KEY is not set.")
+                continue
+            if provider == "gemini" and not (GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")):
+                logger.debug("Skipping Gemini fallback: GEMINI_API_KEY is not set.")
+                continue
+            if provider == "anthropic" and not ANTHROPIC_API_KEY:
+                logger.debug("Skipping Anthropic fallback: ANTHROPIC_API_KEY is not set.")
+                continue
+
+            try:
+                if provider != primary_provider:
+                    logger.warning(
+                        f"Circuit Breaker Triggered: Primary provider '{primary_provider}' failed. "
+                        f"Attempting fallback to '{provider}'..."
+                    )
+                
+                if provider == "openai":
+                    return call_openai_llm(prompt)
+                elif provider == "gemini":
+                    return call_gemini_llm(prompt)
+                elif provider == "anthropic":
+                    return call_anthropic_llm(prompt)
+            except Exception as e:
+                logger.error(f"LLM provider '{provider}' failed during execution: {e}")
+                last_error = e
+
+        raise RuntimeError(
+            f"All configured LLM providers failed. Primary: {primary_provider}. "
+            f"Providers chain attempted: {providers_chain}. Last error: {last_error}"
+        ) from last_error
+
+    return call_llm_with_fallback
