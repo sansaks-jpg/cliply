@@ -380,18 +380,19 @@ export default function Home() {
       })
       .catch((err) => console.error("Error loading short podcast video blob:", err));
 
-    fetch("/examples/gaming_horizontal.mp4?v=1")
+    fetch("/examples/gaming_horizontal.mp4?v=1", { cache: "reload" })
       .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok && res.status !== 304) throw new Error(`HTTP ${res.status}`);
+        if (res.status === 304 || !res.body) return null;
         return res.blob();
       })
       .then((blob) => {
-        gHorizUrl = URL.createObjectURL(blob);
-        setGamingHorizSrc(gHorizUrl);
+        if (blob) {
+          gHorizUrl = URL.createObjectURL(blob);
+          setGamingHorizSrc(gHorizUrl);
+        }
       })
-      .catch((err) => {
-        console.warn("Gaming horizontal video unavailable:", err.message);
-      });
+      .catch((err) => console.warn("Gaming horizontal video unavailable:", err.message));
 
     fetch("/examples/gaming_short.mp4?v=1")
       .then((res) => res.blob())
