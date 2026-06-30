@@ -17,6 +17,9 @@ import {
   TrendingUp,
   DownloadCloud,
   StopCircle,
+  Video,
+  Cpu,
+  HardDrive,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -48,7 +51,7 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-function ProgressView({ task }: { task: Task }) {
+function ProgressView({ task, logs }: { task: Task; logs: string[] }) {
   const pct = Math.round(task.progress);
 
   const stages = [
@@ -60,22 +63,65 @@ function ProgressView({ task }: { task: Task }) {
     { key: "finalize", label: "Finalisasi", minPct: 90, maxPct: 100 }
   ];
 
+  const STAGE_DESCRIPTIONS: Record<string, string> = {
+    download: "Mengunduh video sumber dari URL dan menyimpannya ke dalam cache local workspace.",
+    transcribe: "AI mentranskripsi percakapan ke dalam format teks bertanda waktu (karaoke style).",
+    highlights: "LLM menganalisis naskah untuk menemukan segmentasi klip dengan retensi/virabilitas terbaik.",
+    smart_crop: "Visi komputer (computer vision) mendeteksi koordinat wajah agar fokus frame selalu di tengah (9:16).",
+    render: "Memotong video sumber, merender subtitle dinamis, dan menggabungkan klip via FFmpeg.",
+    finalize: "Melakukan pembersihan file sementara dan menyelesaikan penyimpanan workspace proyek."
+  };
+
+  // Extract video size (e.g. from "Unduhan selesai (45.2 MB)")
+  const sizeMatch = logs.join("\n").match(/(\d+(?:\.\d+)?)\s*MB/i)
+    || task.message?.match(/(\d+(?:\.\d+)?)\s*MB/i);
+  const videoSize = sizeMatch ? `${sizeMatch[1]} MB` : null;
+
+  // Extract AI model (e.g. from "Analisis highlight via AI (gemini: gemini-2.5-flash)")
+  const modelMatch = logs.join("\n").match(/via AI \(([^)]+)\)/i)
+    || task.message?.match(/via AI \(([^)]+)\)/i);
+  const aiModel = modelMatch ? modelMatch[1] : null;
+
+  // Determine active stage key
+  const activeStage = stages.find(st => pct >= st.minPct && pct < st.maxPct)?.key || "download";
+  const activeDesc = STAGE_DESCRIPTIONS[activeStage] || "Sedang memproses alur kerja...";
+
   return (
     <div className="glass-panel rounded-2xl p-6 space-y-6 animate-in fade-in slide-in-from-bottom-3 duration-500">
 
-      <div className="flex items-center justify-between pb-4 border-b border-border/40">
-        <div className="space-y-1 text-left">
-          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
-            Status Alur Kerja
-          </h3>
-          <p className="text-sm text-foreground/80 font-medium">
-            {task.message || "Menyiapkan antrean pemrosesan..."}
-          </p>
+      <div className="flex flex-col space-y-3 pb-4 border-b border-border/40">
+        <div className="flex items-center justify-between w-full">
+          <div className="space-y-1 text-left">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <Sparkles className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
+              Status Alur Kerja
+            </h3>
+            <p className="text-sm text-foreground/80 font-medium">
+              {task.message || "Menyiapkan antrean pemrosesan..."}
+            </p>
+          </div>
+          <div>
+            <span className="text-2xl font-black text-gradient-violet font-mono">{pct}%</span>
+          </div>
         </div>
-        <div>
-          <span className="text-2xl font-black text-gradient-violet font-mono">{pct}%</span>
-        </div>
+
+        {/* Dynamic Badges for Video Size & AI Engine model */}
+        {(videoSize || aiModel) && (
+          <div className="flex flex-wrap gap-2 pt-1">
+            {videoSize && (
+              <Badge variant="secondary" className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-secondary/80 text-muted-foreground/80 flex items-center gap-1.5 border border-border/40">
+                <HardDrive className="w-3.5 h-3.5 text-[var(--accent-violet)] animate-pulse" />
+                <span>Ukuran Video: {videoSize}</span>
+              </Badge>
+            )}
+            {aiModel && (
+              <Badge variant="secondary" className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-secondary/80 text-muted-foreground/80 flex items-center gap-1.5 border border-border/40">
+                <Cpu className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
+                <span>AI Engine: {aiModel}</span>
+              </Badge>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -114,13 +160,18 @@ function ProgressView({ task }: { task: Task }) {
         })}
       </div>
 
-      <div className="space-y-2 pt-2">
+      <div className="space-y-3 pt-2">
         <div className="h-2.5 bg-secondary/60 rounded-full overflow-hidden">
           <div
             className="h-full bg-gradient-violet transition-all duration-500 ease-out rounded-full glow-accent"
             style={{ width: `${pct}%` }}
           />
         </div>
+
+        {/* Dynamic active stage explanation */}
+        <p className="text-xs text-muted-foreground/80 leading-relaxed italic text-left bg-secondary/35 p-3 rounded-xl border border-border/40 animate-pulse">
+          {activeDesc}
+        </p>
       </div>
     </div>
   );
@@ -652,7 +703,7 @@ function TaskPageContent() {
           <div className="space-y-8 animate-in fade-in duration-500">
             <div className={`grid grid-cols-1 ${showLogs ? "lg:grid-cols-12" : "grid-cols-1"} gap-6 items-start`}>
               <div className={showLogs ? "lg:col-span-7" : "w-full"}>
-                <ProgressView task={task} />
+                <ProgressView task={task} logs={logs} />
               </div>
 
               {showLogs && (
