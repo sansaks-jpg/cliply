@@ -74,7 +74,7 @@ _agent-loop/
 archive/
 
 # Backend ad-hoc test scripts (not part of CI)
-backend/test_*.py
+# backend/test_*.py
 
 # Stale agent/tool config
 .agents/
