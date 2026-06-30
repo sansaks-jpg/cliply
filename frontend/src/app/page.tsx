@@ -845,7 +845,12 @@ export default function Home() {
                 disabled={!isValid || submitting || previewLoading || !videoPreview}
                 className="h-9 px-5 rounded-xl bg-gradient-violet hover:opacity-90 font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-default shadow-md flex items-center gap-1.5 [&_svg]:size-4"
               >
-                {previewLoading ? (
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Membuat Klip...</span>
+                  </>
+                ) : previewLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span>Memuat Info...</span>
