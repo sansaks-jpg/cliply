@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -90,7 +90,7 @@ const STYLE_DEFINITIONS: Record<string, {
     bold: true,
     caseTransform: "uppercase",
     outlineWidth: 2,
-    outlineColor: "#FFF000",
+    outlineColor: "#00F0FF",
     words: ["TEKS", "GRADASI", "NEON", "MENYALA"],
     animation: "karaoke"
   },
@@ -140,7 +140,7 @@ const getDynamicPreviewStyles = (styleKey: string, colorPrimary?: string, colorH
     "word-pop":      "#FFFFFF",
     "clean-minimal": "rgba(255,255,255,0.90)",
     "highlight-box": "#FFFFFF",
-    "neon-gradient": "#FFF000",
+    "neon-gradient": "#00F0FF",
     "minimalist":    "rgba(255,255,255,0.75)",
     "neon-glow":     "#00FFFF",
     "classic-popup": "#FFFFFF",
@@ -149,24 +149,24 @@ const getDynamicPreviewStyles = (styleKey: string, colorPrimary?: string, colorH
 
   const highlightMap: Record<string, string> = {
     "viral-bold":    "#FFFF00",
-    "tiktok":        "#08E539",
+    "tiktok":        "#39E508",
     "word-pop":      "#FFFFFF",
     "clean-minimal": "rgba(255,255,255,0.50)",
-    "highlight-box": "#76E600",
-    "neon-gradient": "#E500FF",
+    "highlight-box": "#00E676",
+    "neon-gradient": "#FF00E5",
     "minimalist":    "rgba(255,255,255,0.30)",
     "neon-glow":     "#FF00FF",
     "classic-popup": "#FFFF00",
   };
   const highlightColor = highlightMap[styleKey] ?? "#FFFF00";
 
-  const boxColor = "#76E600";
-  const boxBgColor = "rgba(118,230,0,0.2)";
-  const outlineColor = styleKey === "neon-gradient" ? "#FFF000" : undefined;
-
-  // Override with custom colors if provided
+  // Override dengan warna kustom jika disediakan
   const finalPrimaryColor = colorPrimary || primaryColor;
   const finalHighlightColor = colorHighlight || highlightColor;
+
+  const boxColor = finalHighlightColor;
+  const boxBgColor = finalHighlightColor.startsWith("#") ? `${finalHighlightColor}33` : "rgba(124,58,237,0.2)";
+  const outlineColor = styleKey === "neon-gradient" ? finalPrimaryColor : undefined;
 
   return { fontFamily, primaryColor: finalPrimaryColor, highlightColor: finalHighlightColor, boxColor, boxBgColor, outlineColor };
 };
@@ -211,12 +211,12 @@ export default function Home() {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [encoder, setEncoder] = useState(() => _lsGet("encoder", "auto"));
   const [template, setTemplate] = useState(() => _lsGet("template", "podcast"));
-  const [previewVideo, setPreviewVideo] = useState<string | null>(null);
   const [sensitivity] = useState(50);  // [DEPRECATED] — auto-tuned per model
   const [videoPreview, setVideoPreview] = useState<{title: string; author: string; thumbnail: string} | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [activeTasks, setActiveTasks] = useState<Array<{task_id: string; url: string; progress: number; status: string}>>([]);
   const [showAdvanced, setShowAdvanced] = useState(true);
+  const [showAllStyles, setShowAllStyles] = useState(false);
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [backendError, setBackendError] = useState<string | null>(null);
 
@@ -424,13 +424,7 @@ export default function Home() {
     return () => clearInterval(timer);
   }, []);
 
-  // Memoize heavy style calculations that depend on subtitleStyle and custom colors
-  const memoizedStyles = useMemo(() => {
-    const activeStyle = STYLE_DEFINITIONS[subtitleStyle] || STYLE_DEFINITIONS["viral-bold"];
-    const preview = getDynamicPreviewStyles(subtitleStyle, subtitleColorPrimary, subtitleColorHighlight);
-    const textShadow = makeTextShadow(activeStyle.outlineWidth, activeStyle.outlineColor);
-    return { activeStyle, preview, textShadow };
-  }, [subtitleStyle, subtitleColorPrimary, subtitleColorHighlight]);
+
 
   const isValid = YOUTUBE_RE.test(url.trim());
 
@@ -453,16 +447,26 @@ export default function Home() {
     }
   };
 
+  // UX: Auto-fetch preview video secara background ketika user menempel URL YouTube yang valid
+  useEffect(() => {
+    const trimmedUrl = url.trim();
+    if (YOUTUBE_RE.test(trimmedUrl)) {
+      const timer = setTimeout(() => {
+        if (!videoPreview && !previewLoading) {
+          void handlePreview();
+        }
+      }, 300);
+      return () => clearTimeout(timer);
+    } else {
+      setVideoPreview(null);
+    }
+  }, [url]);
+
   // Step 2: Submit task to backend
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!videoPreview) {
-      // Tahap 1: preview dulu
-      await handlePreview();
-      return;
-    }
-    // Tahap 2: submit task
-    if (submitting) return;
+    if (!videoPreview || submitting || previewLoading) return;
+
     setSubmitting(true);
     try {
       const opts = {
@@ -665,18 +669,18 @@ export default function Home() {
               />
               <Button
                 type="submit"
-                disabled={!isValid || submitting || previewLoading}
-                className="h-9 px-5 rounded-xl bg-gradient-violet hover:opacity-90 text-white font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-default shadow-md flex items-center gap-1.5 [&_svg]:size-4"
+                disabled={!isValid || submitting || previewLoading || !videoPreview}
+                className="h-9 px-5 rounded-xl bg-gradient-violet hover:opacity-90 font-bold text-sm transition-all disabled:opacity-30 disabled:cursor-default shadow-md flex items-center gap-1.5 [&_svg]:size-4"
               >
                 {previewLoading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Memuat...</span>
+                    <span>Memuat Info...</span>
                   </>
-                ) : videoPreview ? (
+                ) : !videoPreview && isValid ? (
                   <>
-                    <span>Proses Klip</span>
-                    <ArrowRight className="w-4 h-4" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Menunggu Info...</span>
                   </>
                 ) : (
                   <>
@@ -784,18 +788,6 @@ export default function Home() {
                             Mendeteksi wajah pembicara utama secara dinamis ke rasio 9:16 vertikal. Ideal untuk wawancara, monolog, dan podcast.
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          variant="link"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPreviewVideo("/examples/podcast.mp4");
-                          }}
-                          className="text-[var(--accent-violet)] text-xs font-semibold self-start p-0 mt-3 h-auto hover:underline"
-                        >
-                          Tonton Contoh
-                        </Button>
                       </div>
 
                       {/* Gaming ML Card */}
@@ -828,18 +820,6 @@ export default function Home() {
                             Membagi layar secara vertikal: bagian atas diisi oleh crop webcam wajah streamer, bagian bawah diisi arena gameplay ML.
                           </p>
                         </div>
-                        <Button
-                          type="button"
-                          variant="link"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPreviewVideo("/examples/gaming.mp4");
-                          }}
-                          className="text-[var(--accent-violet)] text-xs font-semibold self-start p-0 mt-3 h-auto hover:underline"
-                        >
-                          Tonton Contoh
-                        </Button>
                       </div>
                     </div>
                   </div>
@@ -886,105 +866,199 @@ export default function Home() {
                       <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Gaya Subtitle</span>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      {(["viral-bold", "tiktok", "word-pop", "clean-minimal", "highlight-box", "minimalist", "neon-glow", "classic-popup"] as const).map((styleKey) => {
-                        const isActive = subtitleStyle === styleKey;
-                        return (
-                          <button
-                            key={styleKey}
-                            type="button"
-                            onClick={() => setSubtitleStyle(styleKey)}
-                            aria-pressed={isActive}
-                            aria-label={`Gaya subtitle ${styleKey.replace(/-/g, " ")}`}
-                            className={`text-xs font-bold px-3 py-2.5 rounded-xl border transition-all text-left flex items-center justify-between cursor-pointer ${
-                              isActive
-                                ? "bg-gradient-violet border-transparent text-white shadow-md glow-accent"
-                                : "bg-background/40 border-border text-muted-foreground hover:bg-secondary/60"
-                            }`}
-                          >
-                            <span className="capitalize">{styleKey.replace(/-/g, " ")}</span>
-                            {isActive && <Check className="w-3.5 h-3.5" />}
-                          </button>
-                        );
-                      })}
+                    <div className="grid grid-cols-2 gap-3">
+                      {(() => {
+                        const allStylesKeys = ["viral-bold", "tiktok", "word-pop", "clean-minimal", "highlight-box", "minimalist", "neon-glow", "classic-popup"] as const;
+                        const visibleStyles = showAllStyles ? allStylesKeys : allStylesKeys.slice(0, 4);
+
+                        return visibleStyles.map((styleKey) => {
+                          const isActive = subtitleStyle === styleKey;
+                          const sDef = STYLE_DEFINITIONS[styleKey];
+                          const pStyle = getDynamicPreviewStyles(styleKey, isActive ? subtitleColorPrimary : undefined, isActive ? subtitleColorHighlight : undefined);
+                          const words = styleKey.replace(/-/g, " ").split(" ");
+                          const totalW = words.length;
+
+                          return (
+                            <button
+                              key={styleKey}
+                              type="button"
+                              onClick={() => setSubtitleStyle(styleKey)}
+                              aria-pressed={isActive}
+                              aria-label={`Gaya subtitle ${styleKey.replace(/-/g, " ")}`}
+                              className={`px-4 py-4 min-h-[96px] rounded-xl border transition-all text-left flex flex-col justify-between cursor-pointer group shadow-sm ${
+                                isActive
+                                  ? "bg-gradient-violet border-transparent shadow-md glow-accent"
+                                  : "bg-background/40 border-border text-muted-foreground hover:bg-secondary/60"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between w-full">
+                                <span className="capitalize text-xs font-bold">{styleKey.replace(/-/g, " ")}</span>
+                                {isActive && <Check className="w-3.5 h-3.5" />}
+                              </div>
+
+                              {/* Styled animated preview text using the style name itself */}
+                              <div className="w-full py-1.5 px-2 rounded-lg bg-black/95 flex items-center justify-center min-h-[32px] border border-zinc-800/80 shadow-inner overflow-hidden select-none mt-2">
+                                <div className="flex flex-wrap justify-center gap-1">
+                                  {words.map((w, i) => {
+                                    const isActiveWord = i === (wordProgressIndex % totalW);
+                                    
+                                    // Word Pop (word_pop_scale) hanya menampilkan satu kata aktif saja pada satu waktu
+                                    if (sDef.animation === "wordpop" && !isActiveWord) {
+                                      return null;
+                                    }
+
+                                    const isPastWord = i <= (wordProgressIndex % totalW);
+
+                                    let color = pStyle.primaryColor;
+                                    let scale = "scale(1)";
+                                    let translate = "translateY(0)";
+                                    let opacity = 1;
+                                    let bg = "transparent";
+                                    let shadow = "none";
+                                    let padding = "0px";
+                                    let borderRadius = "0px";
+
+                                    if (sDef.animation === "box") {
+                                      color = isActiveWord ? pStyle.highlightColor : pStyle.primaryColor;
+                                      bg = isActiveWord ? pStyle.boxBgColor : "transparent";
+                                      shadow = isActiveWord ? `inset 0 0 0 1px ${pStyle.boxColor}` : "none";
+                                      padding = "1px 4px";
+                                      borderRadius = "2px";
+                                    } else if (sDef.animation === "wordpop") {
+                                      scale = "scale(1.2)";
+                                      color = pStyle.highlightColor;
+                                      opacity = 1;
+                                    } else if (sDef.animation === "popup") {
+                                      color = isActiveWord ? pStyle.highlightColor : pStyle.primaryColor;
+                                      scale = isActiveWord ? "scale(1.15)" : "scale(1)";
+                                      translate = isActiveWord ? "translateY(-1px)" : "translateY(0)";
+                                      opacity = isActiveWord ? 1 : 0.5;
+                                    } else if (sDef.animation === "fadein") {
+                                      opacity = isPastWord ? 1 : 0.15;
+                                    } else { // karaoke
+                                      color = isPastWord ? pStyle.highlightColor : pStyle.primaryColor;
+                                      opacity = isPastWord ? 1 : 0.55;
+                                    }
+
+                                    return (
+                                      <span
+                                        key={i}
+                                        className="transition-all duration-200 inline-block font-black preview-word"
+                                        style={{
+                                          fontFamily: pStyle.fontFamily,
+                                          color,
+                                          textShadow: makeTextShadow(sDef.outlineWidth, sDef.outlineColor),
+                                          textTransform: sDef.caseTransform,
+                                          fontWeight: sDef.bold ? "900" : "400",
+                                          fontSize: "10px",
+                                          letterSpacing: sDef.caseTransform === "uppercase" ? "0.02em" : "normal",
+                                          lineHeight: "1.1",
+                                          transform: `${scale} ${translate}`,
+                                          opacity,
+                                          backgroundColor: bg,
+                                          boxShadow: shadow,
+                                          padding,
+                                          borderRadius,
+                                        }}
+                                      >
+                                        {w}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        });
+                      })()}
                     </div>
+
+                    {/* Toggle show all styles */}
+                    <button
+                      type="button"
+                      onClick={() => setShowAllStyles(!showAllStyles)}
+                      className="w-full mt-2.5 text-xs font-bold text-[var(--accent-violet)] hover:underline flex items-center justify-center gap-1 py-2 cursor-pointer border border-dashed border-border/60 hover:bg-secondary/40 rounded-xl transition-all"
+                    >
+                      <span>{showAllStyles ? "Sembunyikan Gaya" : "Tampilkan Semua Gaya Subtitle"}</span>
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showAllStyles ? "rotate-180" : ""}`} />
+                    </button>
 
                     {/* Warna Kustom (Collapsible) */}
                     <div className="mt-2">
                       <button
                         type="button"
                         onClick={() => setShowColorPicker(!showColorPicker)}
-                        className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-neutral-800/60 hover:bg-neutral-800 text-xs font-semibold text-neutral-300 transition-colors cursor-pointer"
+                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-secondary/60 hover:bg-secondary border border-border/60 text-xs font-bold text-foreground transition-all cursor-pointer"
                       >
                         <span>Warna Kustom</span>
                         <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${showColorPicker ? "rotate-180" : ""}`} />
                       </button>
                       {showColorPicker && (
                         <div className="mt-2 space-y-3 px-1">
-                          {/* Warna Teks */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-neutral-400">Warna Teks</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-mono text-neutral-500 w-16 text-right">
-                                {subtitleColorPrimary || "default"}
-                              </span>
-                              <div className="relative">
-                                <input
-                                  type="color"
-                                  value={subtitleColorPrimary || "#FFFFFF"}
-                                  onChange={(e) => setSubtitleColorPrimary(e.target.value)}
-                                  className="w-7 h-7 rounded-md border border-neutral-700 cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
-                                />
-                                {subtitleColorPrimary && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSubtitleColorPrimary("")}
-                                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-neutral-700 hover:bg-red-500 text-neutral-300 hover:text-white text-[8px] flex items-center justify-center transition-colors cursor-pointer"
-                                    title="Hapus warna kustom"
-                                  >
-                                    x
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          {/* Warna Highlight */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-neutral-400">Warna Highlight</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-mono text-neutral-500 w-16 text-right">
-                                {subtitleColorHighlight || "default"}
-                              </span>
-                              <div className="relative">
-                                <input
-                                  type="color"
-                                  value={subtitleColorHighlight || "#FFFF00"}
-                                  onChange={(e) => setSubtitleColorHighlight(e.target.value)}
-                                  className="w-7 h-7 rounded-md border border-neutral-700 cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
-                                />
-                                {subtitleColorHighlight && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSubtitleColorHighlight("")}
-                                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-neutral-700 hover:bg-red-500 text-neutral-300 hover:text-white text-[8px] flex items-center justify-center transition-colors cursor-pointer"
-                                    title="Hapus warna kustom"
-                                  >
-                                    x
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          {/* Reset button */}
-                          {(subtitleColorPrimary || subtitleColorHighlight) && (
-                            <button
-                              type="button"
-                              onClick={() => { setSubtitleColorPrimary(""); setSubtitleColorHighlight(""); }}
-                              className="w-full text-[10px] font-semibold text-neutral-500 hover:text-red-400 py-1 transition-colors cursor-pointer"
-                            >
-                              Reset Warna
-                            </button>
-                          )}
+                           {/* Warna Teks */}
+                           <div className="flex items-center justify-between">
+                             <span className="text-xs text-muted-foreground">Warna Teks</span>
+                             <div className="flex items-center gap-2">
+                               <span className="text-[10px] font-mono text-muted-foreground/80 w-16 text-right">
+                                 {subtitleColorPrimary || "default"}
+                               </span>
+                               <div className="relative">
+                                 <input
+                                   type="color"
+                                   value={subtitleColorPrimary || "#FFFFFF"}
+                                   onChange={(e) => setSubtitleColorPrimary(e.target.value)}
+                                   className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
+                                 />
+                                 {subtitleColorPrimary && (
+                                   <button
+                                     type="button"
+                                     onClick={() => setSubtitleColorPrimary("")}
+                                     className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-secondary hover:bg-destructive/20 text-muted-foreground hover:text-destructive text-[8px] flex items-center justify-center transition-colors cursor-pointer border border-border"
+                                     title="Hapus warna kustom"
+                                   >
+                                     ✕
+                                   </button>
+                                 )}
+                               </div>
+                             </div>
+                           </div>
+                           {/* Warna Highlight */}
+                           <div className="flex items-center justify-between">
+                             <span className="text-xs text-muted-foreground">Warna Highlight</span>
+                             <div className="flex items-center gap-2">
+                               <span className="text-[10px] font-mono text-muted-foreground/80 w-16 text-right">
+                                 {subtitleColorHighlight || "default"}
+                               </span>
+                               <div className="relative">
+                                 <input
+                                   type="color"
+                                   value={subtitleColorHighlight || "#FFFF00"}
+                                   onChange={(e) => setSubtitleColorHighlight(e.target.value)}
+                                   className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
+                                 />
+                                 {subtitleColorHighlight && (
+                                   <button
+                                     type="button"
+                                     onClick={() => setSubtitleColorHighlight("")}
+                                     className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-secondary hover:bg-destructive/20 text-muted-foreground hover:text-destructive text-[8px] flex items-center justify-center transition-colors cursor-pointer border border-border"
+                                     title="Hapus warna kustom"
+                                   >
+                                     ✕
+                                   </button>
+                                 )}
+                               </div>
+                             </div>
+                           </div>
+                           {/* Reset button */}
+                           {(subtitleColorPrimary || subtitleColorHighlight) && (
+                             <button
+                               type="button"
+                               onClick={() => { setSubtitleColorPrimary(""); setSubtitleColorHighlight(""); }}
+                               className="w-full text-[10px] font-bold text-muted-foreground hover:text-destructive py-1 transition-colors cursor-pointer"
+                             >
+                               Reset Warna
+                             </button>
+                           )}
                         </div>
                       )}
                     </div>
@@ -994,7 +1068,7 @@ export default function Home() {
                 {/* Right Side: Live 9:16 Phone Preview */}
                 <div className="lg:col-span-5 flex flex-col items-center justify-center space-y-4 py-4 min-h-[360px]">
                   <div className="text-center w-full">
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block mb-2">Live Preview Subtitle</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block mb-2">Live Preview Template Video</span>
                   </div>
 
                   <div className="relative">
@@ -1007,131 +1081,27 @@ export default function Home() {
                         <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
                       </div>
 
-                      {/* Simulated abstract video bg */}
-                      <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 via-[#15101f] to-zinc-950 pointer-events-none" />
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(124,58,237,0.18),transparent_60%)] pointer-events-none" />
+                      {/* Live preview video background based on template */}
+                      <video
+                        key={template}
+                        src={template === "podcast" ? "/examples/podcast.mp4" : "/examples/gaming.mp4"}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0"
+                      />
+
 
                       {/* Top audio bars */}
-                      <div className="absolute top-6 left-3 flex gap-0.5 items-end h-4 pointer-events-none opacity-30">
+                      <div className="absolute top-6 left-3 flex gap-0.5 items-end h-4 pointer-events-none opacity-30 z-10">
                         <div className="w-0.5 bg-white rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
                         <div className="w-0.5 bg-white rounded-full animate-bounce h-3.5" style={{ animationDelay: "0.3s" }} />
                         <div className="w-0.5 bg-white rounded-full animate-bounce h-1.5" style={{ animationDelay: "0.5s" }} />
                         <div className="w-0.5 bg-white rounded-full animate-bounce h-2.5" style={{ animationDelay: "0.2s" }} />
                       </div>
 
-                      <span className="absolute top-6 right-3 text-[7px] font-bold text-white/40 uppercase tracking-wider z-10">
-                        Live
-                      </span>
 
-                      {/* Rendering Subtitle Text */}
-                      <div className="w-full h-full z-10 flex items-end justify-center text-center pb-12 px-3">
-                        {(() => {
-                          const { activeStyle, preview, textShadow } = memoizedStyles;
-                          const totalWords = activeStyle.words.length;
-                          const activeWordIdx = wordProgressIndex % totalWords;
-                          const fsize = "11px";
-
-                          const baseWordStyle = {
-                            fontFamily: preview.fontFamily,
-                            fontWeight: activeStyle.bold ? "900" : "400",
-                            fontSize: fsize,
-                            letterSpacing: activeStyle.caseTransform === "uppercase" ? "0.05em" : "normal",
-                            textTransform: activeStyle.caseTransform,
-                            textShadow,
-                            lineHeight: "1.3",
-                          } as React.CSSProperties;
-
-                          return (
-                            <div className="w-full flex items-end justify-center text-center">
-                              {activeStyle.animation === "box" ? (
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {activeStyle.words.map((w, i) => {
-                                    const isActive = i === activeWordIdx;
-                                    return (
-                                      <span
-                                        key={i}
-                                        style={{
-                                          ...baseWordStyle,
-                                          color: isActive ? preview.highlightColor : preview.primaryColor,
-                                          padding: "1px 4px",
-                                          borderRadius: "3px",
-                                          boxShadow: isActive ? `inset 0 0 0 1px ${preview.boxColor}` : "none",
-                                          backgroundColor: isActive ? preview.boxBgColor : "transparent",
-                                        }}
-                                      >{w}</span>
-                                    );
-                                  })}
-                                </div>
-                              ) : activeStyle.animation === "wordpop" ? (
-                                <span
-                                  key={activeWordIdx}
-                                  className="transition-transform duration-200"
-                                  style={{
-                                    ...baseWordStyle,
-                                    color: preview.highlightColor,
-                                    display: "inline-block",
-                                    transform: "scale(1.2)",
-                                  }}
-                                >{activeStyle.words[activeWordIdx]}</span>
-                              ) : activeStyle.animation === "popup" ? (
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {activeStyle.words.map((w, i) => {
-                                    const isActive = i === activeWordIdx;
-                                    return (
-                                      <span
-                                        key={i}
-                                        className="transition-all duration-200"
-                                        style={{
-                                          ...baseWordStyle,
-                                          display: "inline-block",
-                                          color: isActive ? preview.highlightColor : preview.primaryColor,
-                                          transform: isActive ? "scale(1.2) translateY(-1.5px)" : "scale(1)",
-                                          opacity: isActive ? 1 : 0.65,
-                                        }}
-                                      >{w}</span>
-                                    );
-                                  })}
-                                </div>
-                              ) : activeStyle.animation === "fadein" ? (
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {activeStyle.words.map((w, i) => {
-                                    const isVisible = i <= activeWordIdx;
-                                    return (
-                                      <span
-                                        key={i}
-                                        className="transition-opacity duration-300"
-                                        style={{
-                                          ...baseWordStyle,
-                                          color: preview.primaryColor,
-                                          opacity: isVisible ? 1 : 0.15,
-                                        }}
-                                      >{w}</span>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                // Karaoke Fill
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {activeStyle.words.map((w, i) => {
-                                    const isActive = i <= activeWordIdx;
-                                    return (
-                                      <span
-                                        key={i}
-                                        className="transition-all duration-150"
-                                        style={{
-                                          ...baseWordStyle,
-                                          color: isActive ? preview.highlightColor : preview.primaryColor,
-                                          opacity: isActive ? 1 : 0.5,
-                                        }}
-                                      >{w}</span>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-                      </div>
 
                     </div>
                   </div>
@@ -1157,7 +1127,7 @@ export default function Home() {
                 >
                   <div className="space-y-2 overflow-hidden flex-grow">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-gradient-violet/15 flex items-center justify-center flex-shrink-0 group-hover:bg-gradient-violet group-hover:text-white text-[var(--accent-violet)] transition-all">
+                      <div className="w-9 h-9 rounded-xl bg-gradient-violet/15 flex items-center justify-center flex-shrink-0 group-hover:bg-gradient-violet text-[var(--accent-violet)] transition-all">
                         <Video className="w-4 h-4" />
                       </div>
                       <div className="overflow-hidden">
@@ -1209,39 +1179,7 @@ export default function Home() {
         />
       )}
 
-      {/* Example Video Modal Overlay */}
-      {previewVideo && (
-        <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-4 transition-opacity duration-300">
-          <div className="bg-background border border-border max-w-sm w-full rounded-2xl overflow-hidden shadow-2xl relative flex flex-col">
-            {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-              <h3 className="font-bold text-xs uppercase tracking-wider text-muted-foreground">Contoh Hasil Video</h3>
-              <button
-                type="button"
-                onClick={() => setPreviewVideo(null)}
-                className="w-7 h-7 rounded-full bg-muted hover:bg-destructive/20 hover:text-destructive text-muted-foreground flex items-center justify-center transition-colors cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-            {/* Video Player */}
-            <div className="aspect-[9/16] bg-black flex items-center justify-center overflow-hidden">
-              <video
-                src={previewVideo}
-                controls
-                autoPlay
-                className="w-full h-full object-contain"
-              />
-            </div>
-            {/* Footer */}
-            <div className="px-5 py-4 border-t border-border flex justify-end">
-              <Button type="button" onClick={() => setPreviewVideo(null)} className="rounded-xl h-10 px-5 text-sm font-semibold shadow-none">
-                Tutup
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Example Video Modal Overlay removed since preview is integrated to the side */}
     </div>
   );
 }

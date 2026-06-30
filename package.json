@@ -1,6 +1,6 @@
 {
   "name": "cliply-root",
-  "version": "0.1.7",
+  "version": "0.2.1",
   "private": true,
   "scripts": {
     "dev": "node frontend/scripts/start-backend.js && npm --prefix frontend run dev",
