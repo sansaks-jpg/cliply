@@ -186,8 +186,8 @@ async def run_pipeline(
                     _logger.warning("Failed to delete intermediate file %s: %s", p, e)
 
         await store.update(task_id, status="completed", progress=100.0, stage="DONE", message=f"{clip_count} klip siap")
-        for c in clips:
-            await store.add_clip(task_id, c)
+        if clips:
+            await store.add_clips(task_id, clips)
         await store.publish(task_id, "done", {"clips": clip_count})
 
     except Exception as e:
