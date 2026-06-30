@@ -381,12 +381,17 @@ export default function Home() {
       .catch((err) => console.error("Error loading short podcast video blob:", err));
 
     fetch("/examples/gaming_horizontal.mp4?v=1")
-      .then((res) => res.blob())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
       .then((blob) => {
         gHorizUrl = URL.createObjectURL(blob);
         setGamingHorizSrc(gHorizUrl);
       })
-      .catch((err) => console.error("Error loading horizontal gaming video blob:", err));
+      .catch((err) => {
+        console.warn("Gaming horizontal video unavailable:", err.message);
+      });
 
     fetch("/examples/gaming_short.mp4?v=1")
       .then((res) => res.blob())
