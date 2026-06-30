@@ -1011,74 +1011,74 @@ export default function Home() {
                       </button>
                       {showColorPicker && (
                         <div className="mt-2 space-y-3 px-1">
-                          {/* Warna Teks */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">Warna Teks</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-mono text-muted-foreground/80 w-16 text-right">
-                                {subtitleColorPrimary || "default"}
-                              </span>
-                              <div className="relative">
-                                <input
-                                  type="color"
-                                  value={subtitleColorPrimary || "#FFFFFF"}
-                                  onChange={(e) => setSubtitleColorPrimary(e.target.value)}
-                                  aria-label="Pilih warna teks"
-                                  className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
-                                />
-                                {subtitleColorPrimary && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSubtitleColorPrimary("")}
-                                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-secondary hover:bg-destructive/20 text-muted-foreground hover:text-destructive text-[8px] flex items-center justify-center transition-colors cursor-pointer border border-border"
-                                    title="Hapus warna kustom"
-                                    aria-label="Hapus warna teks kustom"
-                                  >
-                                    ✕
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          {/* Warna Highlight */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">Warna Highlight</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-mono text-muted-foreground/80 w-16 text-right">
-                                {subtitleColorHighlight || "default"}
-                              </span>
-                              <div className="relative">
-                                <input
-                                  type="color"
-                                  value={subtitleColorHighlight || "#FFFF00"}
-                                  onChange={(e) => setSubtitleColorHighlight(e.target.value)}
-                                  aria-label="Pilih warna highlight"
-                                  className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
-                                />
-                                {subtitleColorHighlight && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSubtitleColorHighlight("")}
-                                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-secondary hover:bg-destructive/20 text-muted-foreground hover:text-destructive text-[8px] flex items-center justify-center transition-colors cursor-pointer border border-border"
-                                    title="Hapus warna kustom"
-                                    aria-label="Hapus warna highlight kustom"
-                                  >
-                                    ✕
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          {/* Reset button */}
-                          {(subtitleColorPrimary || subtitleColorHighlight) && (
-                            <button
-                              type="button"
-                              onClick={() => { setSubtitleColorPrimary(""); setSubtitleColorHighlight(""); }}
-                              className="w-full text-[10px] font-bold text-muted-foreground hover:text-destructive py-1 transition-colors cursor-pointer"
-                            >
-                              Reset Warna
-                            </button>
-                          )}
+                           {/* Warna Teks */}
+                           <div className="flex items-center justify-between">
+                             <span className="text-xs text-muted-foreground">Warna Teks</span>
+                             <div className="flex items-center gap-2">
+                               <span className="text-[10px] font-mono text-muted-foreground/80 w-16 text-right">
+                                 {subtitleColorPrimary || "default"}
+                               </span>
+                               <div className="relative">
+                                 <input
+                                   type="color"
+                                   value={subtitleColorPrimary || "#FFFFFF"}
+                                   onChange={(e) => setSubtitleColorPrimary(e.target.value)}
+                                   aria-label="Pilih warna teks"
+                                   className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
+                                 />
+                                 {subtitleColorPrimary && (
+                                   <button
+                                     type="button"
+                                     onClick={() => setSubtitleColorPrimary("")}
+                                     className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-secondary hover:bg-destructive/20 text-muted-foreground hover:text-destructive text-[8px] flex items-center justify-center transition-colors cursor-pointer border border-border"
+                                     title="Hapus warna kustom"
+                                     aria-label="Hapus warna teks kustom"
+                                   >
+                                     ✕
+                                   </button>
+                                 )}
+                               </div>
+                             </div>
+                           </div>
+                           {/* Warna Highlight */}
+                           <div className="flex items-center justify-between">
+                             <span className="text-xs text-muted-foreground">Warna Highlight</span>
+                             <div className="flex items-center gap-2">
+                               <span className="text-[10px] font-mono text-muted-foreground/80 w-16 text-right">
+                                 {subtitleColorHighlight || "default"}
+                               </span>
+                               <div className="relative">
+                                 <input
+                                   type="color"
+                                   value={subtitleColorHighlight || "#FFFF00"}
+                                   onChange={(e) => setSubtitleColorHighlight(e.target.value)}
+                                   aria-label="Pilih warna highlight"
+                                   className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
+                                 />
+                                 {subtitleColorHighlight && (
+                                   <button
+                                     type="button"
+                                     onClick={() => setSubtitleColorHighlight("")}
+                                     className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-secondary hover:bg-destructive/20 text-muted-foreground hover:text-destructive text-[8px] flex items-center justify-center transition-colors cursor-pointer border border-border"
+                                     title="Hapus warna kustom"
+                                     aria-label="Hapus warna highlight kustom"
+                                   >
+                                     ✕
+                                   </button>
+                                 )}
+                               </div>
+                             </div>
+                           </div>
+                           {/* Reset button */}
+                           {(subtitleColorPrimary || subtitleColorHighlight) && (
+                             <button
+                               type="button"
+                               onClick={() => { setSubtitleColorPrimary(""); setSubtitleColorHighlight(""); }}
+                               className="w-full text-[10px] font-bold text-muted-foreground hover:text-destructive py-1 transition-colors cursor-pointer"
+                             >
+                               Reset Warna
+                             </button>
+                           )}
                         </div>
                       )}
                     </div>
@@ -1180,168 +1180,9 @@ export default function Home() {
                   </div>
                 </div>
               ))}
-              {showColorPicker && (
-                <div className="mt-2 space-y-3 px-1">
-                  {/* Warna Teks */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Warna Teks</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono text-muted-foreground/80 w-16 text-right">
-                        {subtitleColorPrimary || "default"}
-                      </span>
-                      <div className="relative">
-                        <input
-                          type="color"
-                          value={subtitleColorPrimary || "#FFFFFF"}
-                          onChange={(e) => setSubtitleColorPrimary(e.target.value)}
-                          aria-label="Pilih warna teks"
-                          className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
-                        />
-                        {subtitleColorPrimary && (
-                          <button
-                            type="button"
-                            onClick={() => setSubtitleColorPrimary("")}
-                            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-secondary hover:bg-destructive/20 text-muted-foreground hover:text-destructive text-[8px] flex items-center justify-center transition-colors cursor-pointer border border-border"
-                            title="Hapus warna kustom"
-                            aria-label="Hapus warna teks kustom"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {/* Warna Highlight */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">Warna Highlight</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono text-muted-foreground/80 w-16 text-right">
-                        {subtitleColorHighlight || "default"}
-                      </span>
-                      <div className="relative">
-                        <input
-                          type="color"
-                          value={subtitleColorHighlight || "#FFFF00"}
-                          onChange={(e) => setSubtitleColorHighlight(e.target.value)}
-                          aria-label="Pilih warna highlight"
-                          className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent [&::-webkit-color-swatch-wrapper]:p-0.5 [&::-webkit-color-swatch]:rounded-sm"
-                        />
-                        {subtitleColorHighlight && (
-                          <button
-                            type="button"
-                            onClick={() => setSubtitleColorHighlight("")}
-                            className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-secondary hover:bg-destructive/20 text-muted-foreground hover:text-destructive text-[8px] flex items-center justify-center transition-colors cursor-pointer border border-border"
-                            title="Hapus warna kustom"
-                            aria-label="Hapus warna highlight kustom"
-                          >
-                            ✕
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  {/* Reset button */}
-                  {(subtitleColorPrimary || subtitleColorHighlight) && (
-                    <button
-                      type="button"
-                      onClick={() => { setSubtitleColorPrimary(""); setSubtitleColorHighlight(""); }}
-                      className="w-full text-[10px] font-bold text-muted-foreground hover:text-destructive py-1 transition-colors cursor-pointer"
-                    >
-                      Reset Warna
-                    </button>
-                  )}
-                </div>
-              )}
             </div>
-          </div>
-        </div>
-
-        {/* Right Side: Live 9:16 Phone Preview */}
-        <div className="lg:col-span-5 flex flex-col items-center justify-center space-y-4 py-4 min-h-[360px]">
-          <div className="text-center w-full">
-            <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block mb-2">Live Preview Template Video</span>
-          </div>
-
-          <div className="w-64 aspect-[9/16] bg-black/95 rounded-[32px] border-[6px] border-zinc-800 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.7)] overflow-hidden relative flex flex-col justify-between group/preview select-none">
-            {/* Top Notch */}
-            <div className="absolute top-0 inset-x-0 h-4 flex justify-center z-20">
-              <div className="w-24 h-3 bg-zinc-800 rounded-b-xl" />
-            </div>
-
-            {/* Preview Content Area */}
-            <div className="w-full h-full relative flex flex-col justify-between p-3.5 pt-6 pb-5">
-              {/* Top Bar (Aspect ratio, encoder badge, template indicator) */}
-              <div className="flex items-center justify-between w-full z-10">
-                <div className="px-2 py-0.5 rounded-md bg-white/10 backdrop-blur-md border border-white/5 text-[9px] font-semibold text-white/90">
-                  {aspectRatio}
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-white/60">
-                    {template === "gaming" ? "Gaming Dual Screen" : "Active Speaker"}
-                  </span>
-                </div>
-              </div>
-
-              {/* Video Layout Simulation */}
-              <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
-                {template === "gaming" ? (
-                  <div className="w-full h-full flex flex-col bg-zinc-950">
-                    {/* Top margins (safe area simulation) */}
-                    <div className="w-full h-[8%] bg-black/80 flex items-center justify-center text-[7px] text-zinc-600 border-b border-zinc-900/30">Safe Area (Header)</div>
-                    {/* Streamer webcam (35% height) */}
-                    <div className="w-full h-[29%] bg-zinc-900 flex items-center justify-center relative overflow-hidden">
-                      <div className="absolute inset-0 bg-gradient-to-tr from-violet-500/10 to-indigo-500/5" />
-                      <div className="w-12 h-12 rounded-full border border-violet-500/30 bg-zinc-800 flex items-center justify-center text-zinc-500 text-[10px]">
-                        👤
-                      </div>
-                      <div className="absolute bottom-1 left-1.5 px-1 py-0.5 rounded bg-black/60 text-[6px] text-zinc-400 font-mono">webcam zoom (2.5x)</div>
-                    </div>
-                    {/* Game screen (65% height) */}
-                    <div className="w-full h-[51%] bg-zinc-950 flex flex-col items-center justify-center relative overflow-hidden border-t border-zinc-900">
-                      <div className="absolute inset-0 bg-gradient-to-b from-blue-500/5 to-transparent" />
-                      <span className="text-[10px] text-zinc-600 font-semibold uppercase tracking-widest animate-pulse">Gameplay</span>
-                      <div className="absolute bottom-1.5 right-1.5 flex gap-1">
-                        <span className="w-2.5 h-2.5 rounded bg-amber-500/20 border border-amber-500/40" />
-                        <span className="w-2.5 h-2.5 rounded bg-emerald-500/20 border border-emerald-500/40" />
-                      </div>
-                    </div>
-                    {/* Bottom margins (safe area simulation) */}
-                    <div className="w-full h-[12%] bg-black/80 flex items-center justify-center text-[7px] text-zinc-600 border-t border-zinc-900/30">Safe Area (Footer)</div>
-                  </div>
-                ) : (
-                  // Default podcast single crop
-                  <div className="w-full h-full bg-zinc-900 flex items-center justify-center relative">
-                    <div className="absolute inset-0 bg-gradient-to-tr from-zinc-950 to-zinc-900/50" />
-                    <div className="w-20 h-20 rounded-full border border-zinc-800 bg-zinc-950 flex items-center justify-center text-3xl shadow-lg relative">
-                      🎙️
-                      <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-[var(--accent-violet)] flex items-center justify-center text-[10px] border border-zinc-900 shadow">Active</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Subtitle / Caption Simulation Area */}
-              <div className="w-full flex flex-col items-center space-y-1.5 z-10 pointer-events-auto">
-                <span className="text-[8px] font-bold text-white/40 tracking-wider">PREVIEW SUBTITLE</span>
-                <AnimatedWordPreview words={activeStyle.words} sDef={activeStyle} pStyle={preview} />
-              </div>
-            </div>
-          </div>
-
-          {/* Template Info Description */}
-          <div className="text-center max-w-[280px]">
-            <p className="text-[10px] text-muted-foreground leading-normal">
-              {template === "gaming"
-                ? "Gaming layout splits screen vertikal: 35% webcam streamer di area atas (zoom rapat 2.5x), 65% gameplay game di area bawah."
-                : "Podcast layout menggunakan face tracking dinamis mengikuti pembicara aktif dalam rasio 9:16 vertikal penuh."}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-)}
+          </section>
+        )}
 
 
       </main>
@@ -1357,6 +1198,8 @@ export default function Home() {
           onComplete={handleSetupComplete}
         />
       )}
+
+      {/* Example Video Modal Overlay removed since preview is integrated to the side */}
     </div>
   );
 }
