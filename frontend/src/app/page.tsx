@@ -171,8 +171,12 @@ const getDynamicPreviewStyles = (styleKey: string, colorPrimary?: string, colorH
   return { fontFamily, primaryColor: finalPrimaryColor, highlightColor: finalHighlightColor, boxColor, boxBgColor, outlineColor };
 };
 
+const _shadowCache = new Map<string, string>();
 const makeTextShadow = (ow: number, oc: string) => {
   if (ow === 0) return "none";
+  const cacheKey = `${ow}-${oc}`;
+  if (_shadowCache.has(cacheKey)) return _shadowCache.get(cacheKey) as string;
+
   const r = Math.min(ow, 4);
   const shadows = [];
   for (let dx = -r; dx <= r; dx += Math.max(1, Math.floor(r/2))) {
@@ -181,7 +185,9 @@ const makeTextShadow = (ow: number, oc: string) => {
       shadows.push(`${dx}px ${dy}px 0 ${oc}`);
     }
   }
-  return shadows.join(",");
+  const result = shadows.join(",");
+  _shadowCache.set(cacheKey, result);
+  return result;
 };
 
 export default function Home() {
