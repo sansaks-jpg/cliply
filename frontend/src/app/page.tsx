@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import {
@@ -183,6 +183,98 @@ const makeTextShadow = (ow: number, oc: string) => {
   }
   return shadows.join(",");
 };
+
+// Memoize AnimatedWordPreview to prevent unnecessary re-renders
+const AnimatedWordPreview = React.memo(({ words, sDef, pStyle }: {
+  words: string[],
+  sDef: { outlineWidth: number, outlineColor: string, animation: string, caseTransform: "uppercase" | "lowercase" | "none", bold: boolean },
+  pStyle: { primaryColor: string, highlightColor: string, boxBgColor: string, boxColor: string, fontFamily: string }
+}) => {
+  const [wordProgressIndex, setWordProgressIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setWordProgressIndex((prev) => (prev + 1) % 12);
+    }, 550);
+    return () => clearInterval(timer);
+  }, []);
+
+  const totalW = words.length;
+
+  return (
+    <div className="w-full py-1.5 px-2 rounded-lg bg-black/95 flex items-center justify-center min-h-[32px] border border-zinc-800/80 shadow-inner overflow-hidden select-none mt-2">
+      <div className="flex flex-wrap justify-center gap-1">
+        {words.map((w, i) => {
+          const isActiveWord = i === (wordProgressIndex % totalW);
+
+          // Word Pop (word_pop_scale) hanya menampilkan satu kata aktif saja pada satu waktu
+          if (sDef.animation === "wordpop" && !isActiveWord) {
+            return null;
+          }
+
+          const isPastWord = i <= (wordProgressIndex % totalW);
+
+          let color = pStyle.primaryColor;
+          let scale = "scale(1)";
+          let translate = "translateY(0)";
+          let opacity = 1;
+          let bg = "transparent";
+          let shadow = "none";
+          let padding = "0px";
+          let borderRadius = "0px";
+
+          if (sDef.animation === "box") {
+            color = isActiveWord ? pStyle.highlightColor : pStyle.primaryColor;
+            bg = isActiveWord ? pStyle.boxBgColor : "transparent";
+            shadow = isActiveWord ? `inset 0 0 0 1px ${pStyle.boxColor}` : "none";
+            padding = "1px 4px";
+            borderRadius = "2px";
+          } else if (sDef.animation === "wordpop") {
+            scale = "scale(1.2)";
+            color = pStyle.highlightColor;
+            opacity = 1;
+          } else if (sDef.animation === "popup") {
+            color = isActiveWord ? pStyle.highlightColor : pStyle.primaryColor;
+            scale = isActiveWord ? "scale(1.15)" : "scale(1)";
+            translate = isActiveWord ? "translateY(-1px)" : "translateY(0)";
+            opacity = isActiveWord ? 1 : 0.5;
+          } else if (sDef.animation === "fadein") {
+            opacity = isPastWord ? 1 : 0.15;
+          } else { // karaoke
+            color = isPastWord ? pStyle.highlightColor : pStyle.primaryColor;
+            opacity = isPastWord ? 1 : 0.55;
+          }
+
+          return (
+            <span
+              key={i}
+              className="transition-all duration-200 inline-block font-black preview-word"
+              style={{
+                fontFamily: pStyle.fontFamily,
+                color,
+                textShadow: makeTextShadow(sDef.outlineWidth, sDef.outlineColor),
+                textTransform: sDef.caseTransform,
+                fontWeight: sDef.bold ? "900" : "400",
+                fontSize: "10px",
+                letterSpacing: sDef.caseTransform === "uppercase" ? "0.02em" : "normal",
+                lineHeight: "1.1",
+                transform: `${scale} ${translate}`,
+                opacity,
+                backgroundColor: bg,
+                boxShadow: shadow,
+                padding,
+                borderRadius,
+              }}
+            >
+              {w}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+});
+AnimatedWordPreview.displayName = "AnimatedWordPreview";
 
 export default function Home() {
   const router = useRouter();
@@ -413,18 +505,6 @@ export default function Home() {
     };
     syncBackendTasks();
   }, []);
-
-  // Subtitle animation progress tick
-  const [wordProgressIndex, setWordProgressIndex] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setWordProgressIndex((prev) => (prev + 1) % 12);
-    }, 550);
-    return () => clearInterval(timer);
-  }, []);
-
-
 
   const isValid = YOUTUBE_RE.test(url.trim());
 
@@ -876,7 +956,6 @@ export default function Home() {
                           const sDef = STYLE_DEFINITIONS[styleKey];
                           const pStyle = getDynamicPreviewStyles(styleKey, isActive ? subtitleColorPrimary : undefined, isActive ? subtitleColorHighlight : undefined);
                           const words = styleKey.replace(/-/g, " ").split(" ");
-                          const totalW = words.length;
 
                           return (
                             <button
@@ -897,76 +976,7 @@ export default function Home() {
                               </div>
 
                               {/* Styled animated preview text using the style name itself */}
-                              <div className="w-full py-1.5 px-2 rounded-lg bg-black/95 flex items-center justify-center min-h-[32px] border border-zinc-800/80 shadow-inner overflow-hidden select-none mt-2">
-                                <div className="flex flex-wrap justify-center gap-1">
-                                  {words.map((w, i) => {
-                                    const isActiveWord = i === (wordProgressIndex % totalW);
-                                    
-                                    // Word Pop (word_pop_scale) hanya menampilkan satu kata aktif saja pada satu waktu
-                                    if (sDef.animation === "wordpop" && !isActiveWord) {
-                                      return null;
-                                    }
-
-                                    const isPastWord = i <= (wordProgressIndex % totalW);
-
-                                    let color = pStyle.primaryColor;
-                                    let scale = "scale(1)";
-                                    let translate = "translateY(0)";
-                                    let opacity = 1;
-                                    let bg = "transparent";
-                                    let shadow = "none";
-                                    let padding = "0px";
-                                    let borderRadius = "0px";
-
-                                    if (sDef.animation === "box") {
-                                      color = isActiveWord ? pStyle.highlightColor : pStyle.primaryColor;
-                                      bg = isActiveWord ? pStyle.boxBgColor : "transparent";
-                                      shadow = isActiveWord ? `inset 0 0 0 1px ${pStyle.boxColor}` : "none";
-                                      padding = "1px 4px";
-                                      borderRadius = "2px";
-                                    } else if (sDef.animation === "wordpop") {
-                                      scale = "scale(1.2)";
-                                      color = pStyle.highlightColor;
-                                      opacity = 1;
-                                    } else if (sDef.animation === "popup") {
-                                      color = isActiveWord ? pStyle.highlightColor : pStyle.primaryColor;
-                                      scale = isActiveWord ? "scale(1.15)" : "scale(1)";
-                                      translate = isActiveWord ? "translateY(-1px)" : "translateY(0)";
-                                      opacity = isActiveWord ? 1 : 0.5;
-                                    } else if (sDef.animation === "fadein") {
-                                      opacity = isPastWord ? 1 : 0.15;
-                                    } else { // karaoke
-                                      color = isPastWord ? pStyle.highlightColor : pStyle.primaryColor;
-                                      opacity = isPastWord ? 1 : 0.55;
-                                    }
-
-                                    return (
-                                      <span
-                                        key={i}
-                                        className="transition-all duration-200 inline-block font-black preview-word"
-                                        style={{
-                                          fontFamily: pStyle.fontFamily,
-                                          color,
-                                          textShadow: makeTextShadow(sDef.outlineWidth, sDef.outlineColor),
-                                          textTransform: sDef.caseTransform,
-                                          fontWeight: sDef.bold ? "900" : "400",
-                                          fontSize: "10px",
-                                          letterSpacing: sDef.caseTransform === "uppercase" ? "0.02em" : "normal",
-                                          lineHeight: "1.1",
-                                          transform: `${scale} ${translate}`,
-                                          opacity,
-                                          backgroundColor: bg,
-                                          boxShadow: shadow,
-                                          padding,
-                                          borderRadius,
-                                        }}
-                                      >
-                                        {w}
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                              <AnimatedWordPreview words={words} sDef={sDef} pStyle={pStyle} />
                             </button>
                           );
                         });
