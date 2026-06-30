@@ -166,13 +166,13 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
 
       <video
         ref={videoRef}
-        src={src}
+        src={src || undefined}
         poster={poster}
         playsInline
         preload="metadata"
         muted={muted}
+        loop
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"
-        onEnded={() => { setPlaying(false); setShowControls(true); }}
         onPlay={() => { setPlaying(true); scheduleHide(); }}
         onPause={() => setPlaying(false)}
         onTimeUpdate={handleTimeUpdate}
