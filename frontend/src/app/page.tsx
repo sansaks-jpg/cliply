@@ -318,6 +318,93 @@ export default function Home() {
   const [backendStatus, setBackendStatus] = useState<BackendStatus>("checking");
   const [backendError, setBackendError] = useState<string | null>(null);
 
+  const videoRefSource = useRef<HTMLVideoElement>(null);
+  const videoRefResult = useRef<HTMLVideoElement>(null);
+
+  // Sync video times for podcast comparison
+  useEffect(() => {
+    const source = videoRefSource.current;
+    const result = videoRefResult.current;
+    if (!source || !result) return;
+
+    const handleTimeUpdate = () => {
+      if (Math.abs(source.currentTime - result.currentTime) > 0.15) {
+        result.currentTime = source.currentTime;
+      }
+    };
+
+    const handlePlay = () => {
+      result.play().catch(() => {});
+    };
+
+    const handlePause = () => {
+      result.pause();
+    };
+
+    source.addEventListener("timeupdate", handleTimeUpdate);
+    source.addEventListener("play", handlePlay);
+    source.addEventListener("pause", handlePause);
+
+    return () => {
+      source.removeEventListener("timeupdate", handleTimeUpdate);
+      source.removeEventListener("play", handlePlay);
+      source.removeEventListener("pause", handlePause);
+    };
+  }, [template]);
+
+  const [podcastHorizSrc, setPodcastHorizSrc] = useState("");
+  const [podcastShortSrc, setPodcastShortSrc] = useState("");
+  const [gamingHorizSrc, setGamingHorizSrc] = useState("");
+  const [gamingShortSrc, setGamingShortSrc] = useState("");
+
+  // Convert horizontal and vertical preview videos to Blob URLs to prevent direct downloads/inspection
+  useEffect(() => {
+    let pHorizUrl = "";
+    let pShortUrl = "";
+    let gHorizUrl = "";
+    let gShortUrl = "";
+
+    fetch("/examples/podcast_horizontal.mp4?v=1")
+      .then((res) => res.blob())
+      .then((blob) => {
+        pHorizUrl = URL.createObjectURL(blob);
+        setPodcastHorizSrc(pHorizUrl);
+      })
+      .catch((err) => console.error("Error loading horizontal podcast video blob:", err));
+
+    fetch("/examples/podcast_short.mp4?v=1")
+      .then((res) => res.blob())
+      .then((blob) => {
+        pShortUrl = URL.createObjectURL(blob);
+        setPodcastShortSrc(pShortUrl);
+      })
+      .catch((err) => console.error("Error loading short podcast video blob:", err));
+
+    fetch("/examples/gaming_horizontal.mp4?v=1")
+      .then((res) => res.blob())
+      .then((blob) => {
+        gHorizUrl = URL.createObjectURL(blob);
+        setGamingHorizSrc(gHorizUrl);
+      })
+      .catch((err) => console.error("Error loading horizontal gaming video blob:", err));
+
+    fetch("/examples/gaming_short.mp4?v=1")
+      .then((res) => res.blob())
+      .then((blob) => {
+        gShortUrl = URL.createObjectURL(blob);
+        setGamingShortSrc(gShortUrl);
+      })
+      .catch((err) => console.error("Error loading short gaming video blob:", err));
+
+    return () => {
+      if (pHorizUrl) URL.revokeObjectURL(pHorizUrl);
+      if (pShortUrl) URL.revokeObjectURL(pShortUrl);
+      if (gHorizUrl) URL.revokeObjectURL(gHorizUrl);
+      if (gShortUrl) URL.revokeObjectURL(gShortUrl);
+    };
+  }, []);
+
+
   const [isTauriApp, setIsTauriApp] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const settingsRef = useRef<AppSettings | null>(null);
@@ -831,7 +918,7 @@ export default function Home() {
             {showAdvanced && (
               <div id="advanced-settings-panel" className="p-5 grid grid-cols-1 lg:grid-cols-12 gap-8 items-start border-t border-border/40">
                 {/* Left Side: Parameters */}
-                <div className="lg:col-span-7 space-y-5">
+                <div className="lg:col-span-6 space-y-5">
                   <div className="flex items-center gap-2">
                     <Settings className="w-4 h-4 text-[var(--accent-violet)]" />
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Parameter Studio</span>
@@ -960,7 +1047,7 @@ export default function Home() {
                         return visibleStyles.map((styleKey) => {
                           const isActive = subtitleStyle === styleKey;
                           const sDef = STYLE_DEFINITIONS[styleKey];
-                          const pStyle = getDynamicPreviewStyles(styleKey, isActive ? subtitleColorPrimary : undefined, isActive ? subtitleColorHighlight : undefined);
+                          const pStyle = getDynamicPreviewStyles(styleKey, subtitleColorPrimary || undefined, subtitleColorHighlight || undefined);
                           const words = styleKey.replace(/-/g, " ").split(" ");
 
                           return (
@@ -1086,7 +1173,7 @@ export default function Home() {
                 </div>
 
                 {/* Right Side: Live Preview & Comparison */}
-                <div className="lg:col-span-5 flex flex-col items-center justify-start space-y-5 py-4 min-h-[420px]">
+                <div className="lg:col-span-6 flex flex-col items-center justify-start space-y-5 py-4 min-h-[420px]">
                   <div className="text-center w-full">
                     <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block mb-1">
                       Preview & Perbandingan Template
@@ -1096,78 +1183,78 @@ export default function Home() {
                     </span>
                   </div>
 
-                  {template === "podcast" ? (
-                    <div className="w-full flex flex-row items-center justify-between gap-3 p-4 rounded-2xl bg-secondary/15 dark:bg-zinc-900/10 border border-border/60 shadow-sm animate-in fade-in duration-300">
-                      {/* Left: Original Video Card (16:9) */}
-                      <div className="flex-1 flex flex-col space-y-1.5 min-w-0">
-                        <span className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider text-center">Video Asli (16:9)</span>
-                        <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-border/80 shadow-sm">
+                  {template === "podcast" || template === "gaming" ? (
+                    <div className="w-full max-w-[340px] flex flex-col items-center space-y-5 p-5 rounded-3xl bg-secondary/10 dark:bg-zinc-900/10 border border-border/50 shadow-sm animate-in fade-in duration-300">
+                      {/* Top: Original Video Card (16:9) */}
+                      <div className="w-full flex flex-col space-y-2">
+                        <div className="flex items-center justify-between px-1">
+                          <span className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider">Video Asli (16:9)</span>
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-secondary/60 text-muted-foreground font-semibold">Sumber</span>
+                        </div>
+                        <div className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-border/80 shadow-md">
+                          {/* Transparent overlay shield */}
+                          <div className="absolute inset-0 bg-transparent z-10 cursor-default" onContextMenu={(e) => e.preventDefault()} />
                           <video
-                            src="/examples/podcast_horizontal.mp4"
+                            ref={videoRefSource}
+                            src={(template === "podcast" ? podcastHorizSrc : gamingHorizSrc) || undefined}
                             autoPlay
                             loop
                             muted
                             playsInline
-                            className="w-full h-full object-cover"
+                            controlsList="nodownload nofullscreen noremoteplayback"
+                            disablePictureInPicture
+                            onContextMenu={(e) => e.preventDefault()}
+                            className="w-full h-full object-cover relative z-0"
                           />
                         </div>
                       </div>
 
-                      {/* Middle: Theme-colored Connector Arrow */}
-                      <div className="flex flex-col items-center justify-center text-[var(--accent-violet)] flex-shrink-0 px-1">
-                        <ArrowRight className="w-5 h-5" />
+                      {/* Middle: Theme-colored Flow Arrow */}
+                      <div className="flex flex-col items-center justify-center text-[var(--accent-violet)] py-1">
+                        <span className="text-[8px] font-extrabold uppercase tracking-widest text-[var(--accent-violet)] opacity-70 mb-0.5">
+                          {template === "podcast" ? "Auto Reframing" : "Gaming Split-Screen"}
+                        </span>
+                        <svg className="w-4 h-4 animate-bounce" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                        </svg>
                       </div>
 
-                      {/* Right: Vertical Phone Mockup (9:16) */}
-                      <div className="flex-1 flex flex-col space-y-1.5 min-w-0 items-center">
-                        <span className="text-[10px] font-bold text-[var(--accent-violet)] uppercase tracking-wider text-center">Hasil (9:16)</span>
-                        <div className="relative w-[100px] aspect-[9/16] rounded-2xl overflow-hidden bg-black border-[3px] border-zinc-800 dark:border-zinc-700/80 shadow-md">
-                          {/* Notch */}
-                          <div className="absolute top-1 left-1/2 -translate-x-1/2 w-6 h-1.5 rounded-full bg-black z-20" />
-                          <video
-                            src="/examples/podcast_short.mp4"
-                            autoPlay
-                            loop
-                            muted
-                            playsInline
-                            className="absolute inset-0 w-full h-full object-cover"
-                          />
+                      {/* Bottom: Vertical Phone Mockup (9:16) */}
+                      <div className="w-full flex flex-col space-y-2 items-center">
+                        <div className="flex items-center justify-between w-full max-w-[210px] px-1">
+                          <span className="text-[10px] font-bold text-[var(--accent-violet)] uppercase tracking-wider">Hasil (9:16)</span>
+                          <span className="text-[9px] px-2 py-0.5 rounded-full bg-[var(--accent-violet)]/10 text-[var(--accent-violet)] font-bold">Shorts</span>
+                        </div>
+                        <div className="relative">
+                          {/* Glow */}
+                          <div className="absolute inset-0 rounded-[2.2rem] bg-[var(--accent-violet)] opacity-10 blur-2xl scale-110 pointer-events-none" />
+
+                          <div className="relative w-[210px] aspect-[9/16] rounded-[2.2rem] overflow-hidden bg-black border-[4px] border-zinc-800 dark:border-zinc-700/80 shadow-2xl flex flex-col">
+                            {/* Notch */}
+                            <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 rounded-full bg-black z-20 flex items-center justify-center">
+                              <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+                            </div>
+
+                            {/* Transparent overlay shield */}
+                            <div className="absolute inset-0 bg-transparent z-10 cursor-default" onContextMenu={(e) => e.preventDefault()} />
+
+                            <video
+                              ref={videoRefResult}
+                              src={(template === "podcast" ? podcastShortSrc : gamingShortSrc) || undefined}
+                              autoPlay
+                              loop
+                              muted
+                              playsInline
+                              controlsList="nodownload nofullscreen noremoteplayback"
+                              disablePictureInPicture
+                              onContextMenu={(e) => e.preventDefault()}
+                              className="absolute inset-0 w-full h-full object-cover z-0"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  ) : (
-                    // Gaming template (ML)
-                    <div className="relative animate-in fade-in duration-300">
-                      {/* Violet glow halo behind phone */}
-                      <div className="absolute inset-0 rounded-[2.2rem] bg-[var(--accent-violet)] opacity-20 blur-3xl scale-110 pointer-events-none" />
-
-                      <div className="relative w-[210px] aspect-[9/16] rounded-[2.2rem] overflow-hidden bg-black border-[4px] border-zinc-800 dark:border-zinc-700/80 shadow-2xl flex flex-col">
-                        {/* Notch */}
-                        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 rounded-full bg-black z-20 flex items-center justify-center">
-                          <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
-                        </div>
-
-                        {/* Live preview video background based on template */}
-                        <video
-                          key={template}
-                          src="/examples/gaming.mp4"
-                          autoPlay
-                          loop
-                          muted
-                          playsInline
-                          className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0"
-                        />
-
-                        {/* Top audio bars */}
-                        <div className="absolute top-6 left-3 flex gap-0.5 items-end h-4 pointer-events-none opacity-30 z-10">
-                          <div className="w-0.5 bg-white rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
-                          <div className="w-0.5 bg-white rounded-full animate-bounce h-3.5" style={{ animationDelay: "0.3s" }} />
-                          <div className="w-0.5 bg-white rounded-full animate-bounce h-1.5" style={{ animationDelay: "0.5s" }} />
-                          <div className="w-0.5 bg-white rounded-full animate-bounce h-2.5" style={{ animationDelay: "0.2s" }} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )}
