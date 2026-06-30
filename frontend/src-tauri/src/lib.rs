@@ -555,6 +555,9 @@ fn start_backend_process(
         cmd.env("LLM_PROVIDER", &settings.llm_provider);
     }
 
+    let session_id = format!("cliply_{}", chrono::Local::now().timestamp_millis());
+    cmd.env("CLIPLY_SESSION_ID", &session_id);
+
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -647,22 +650,40 @@ fn start_backend_process(
                 match agent.get(build_url).call() {
                     Ok(mut build_resp) if build_resp.status() == 200 => {
                         if let Ok(body) = build_resp.body_mut().read_json::<serde_json::Value>() {
-                            let reported_pid = body.get("pid").and_then(|v| v.as_u64());
-                            if let Some(pid) = reported_pid {
-                            if pid != spawned_pid as u64 {
-                                let msg = format!(
-                                    "Health check PID mismatch: expected {}, got {}. Stale backend on port 8003.",
-                                    spawned_pid, pid
-                                );
-                                log_line(&mut log_file, &msg);
-                                last_error = msg;
-                                thread::sleep(BACKEND_POLL_INTERVAL);
-                                continue;
+                            let reported_session = body.get("session_id").and_then(|v| v.as_str());
+                            if let Some(resp_session) = reported_session {
+                                if resp_session != session_id.as_str() {
+                                    let msg = format!(
+                                        "Health check session mismatch: expected {}, got {}. Stale backend on port 8003.",
+                                        session_id, resp_session
+                                    );
+                                    log_line(&mut log_file, &msg);
+                                    last_error = msg;
+                                    thread::sleep(BACKEND_POLL_INTERVAL);
+                                    continue;
+                                }
+                                log_line(&mut log_file, &format!(
+                                    "Backend is ready (Session {} verified via /debug/build)", session_id
+                                ));
+                            } else {
+                                // Fallback: older backend, verify PID
+                                let reported_pid = body.get("pid").and_then(|v| v.as_u64());
+                                if let Some(pid) = reported_pid {
+                                    if pid != spawned_pid as u64 {
+                                        let msg = format!(
+                                            "Health check PID mismatch: expected {}, got {}. Stale backend on port 8003.",
+                                            spawned_pid, pid
+                                        );
+                                        log_line(&mut log_file, &msg);
+                                        last_error = msg;
+                                        thread::sleep(BACKEND_POLL_INTERVAL);
+                                        continue;
+                                    }
+                                }
+                                log_line(&mut log_file, &format!(
+                                    "Backend is ready (PID {} verified via /debug/build)", spawned_pid
+                                ));
                             }
-                            }
-                            log_line(&mut log_file, &format!(
-                                "Backend is ready (PID {} verified via /debug/build)", spawned_pid
-                            ));
                         } else {
                             log_line(&mut log_file, "Backend is ready (could not parse /debug/build JSON, trusting health check)");
                         }
