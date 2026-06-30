@@ -49,7 +49,7 @@ async def _run_pipeline_wrapper(
 
     # Wait for slot to become available with a timeout limit (e.g. 1 hour total) to prevent starvation
     try:
-        async with asyncio.timeout(3600):
+        async def _acquire_and_run():
             async with _pipeline_semaphore:
                 # Check cancellation again in case it got cancelled while waiting in queue
                 if store.is_cancelled(task_id):
@@ -66,7 +66,9 @@ async def _run_pipeline_wrapper(
                     log.exception("unexpected error for task %s", task_id)
                     await store.update(task_id, status="error", error=str(e))
                     await store.publish(task_id, "error", {"error": str(e)})
-    except TimeoutError:
+
+        await asyncio.wait_for(_acquire_and_run(), timeout=3600.0)
+    except (asyncio.TimeoutError, TimeoutError):
         log.error("Task %s timed out waiting in pipeline queue (starvation check failed)", task_id)
         await store.update(task_id, status="error", error="Antrean tugas terlalu lama (timeout 1 jam). Silakan coba lagi.")
         await store.publish(task_id, "error", {"error": "Timeout antrean terlampaui."})
