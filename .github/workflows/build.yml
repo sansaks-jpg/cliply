@@ -34,7 +34,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
           cache: 'pip'
           cache-dependency-path: |
             backend/requirements-bundle.txt
@@ -71,7 +71,7 @@ jobs:
           Write-Host "Backend executable: $($exe.FullName)"
 
           $proc = Start-Process -FilePath $exe.FullName -NoNewWindow -PassThru
-          $timeout = 20
+          $timeout = 30
           $ok = $false
           for ($i = 0; $i -lt $timeout; $i++) {
             Start-Sleep -Seconds 1
@@ -85,12 +85,47 @@ jobs:
               }
             } catch {}
           }
+          if (-not $ok) {
+            if (!$proc.HasExited) { $proc.Kill(); $proc.WaitForExit() }
+            throw "Backend smoke test FAILED (health/encoders)"
+          }
+          Write-Host "Backend health check PASSED"
+
+          # Smoke test: POST /tasks harus return 201 dan task_id valid
+          $body = @{
+            url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+            num_clips = 1
+            aspect_ratio = "9:16"
+            subtitle_style = "viral-bold"
+          } | ConvertTo-Json
+          try {
+            $taskResp = Invoke-WebRequest -Uri "http://127.0.0.1:8003/tasks" -Method POST `
+              -Body $body -ContentType "application/json" -UseBasicParsing
+            if ($taskResp.StatusCode -ne 201) {
+              throw "POST /tasks returned $($taskResp.StatusCode), expected 201"
+            }
+            $taskData = $taskResp.Content | ConvertFrom-Json
+            $taskId = $taskData.task_id
+            if (-not $taskId) { throw "task_id missing from POST /tasks response" }
+            Write-Host "POST /tasks OK, task_id=$taskId"
+
+            # Verify GET /tasks/{id} returns 200 (not 404)
+            Start-Sleep -Seconds 2
+            $getResp = Invoke-WebRequest -Uri "http://127.0.0.1:8003/tasks/$taskId" -UseBasicParsing -ErrorAction Stop
+            if ($getResp.StatusCode -ne 200) {
+              throw "GET /tasks/$taskId returned $($getResp.StatusCode), expected 200 (task creation bug!)"
+            }
+            Write-Host "GET /tasks/$taskId OK - task creation smoke test PASSED"
+          } catch {
+            if (!$proc.HasExited) { $proc.Kill(); $proc.WaitForExit() }
+            throw "Task creation smoke test FAILED: $_"
+          }
+
           if (!$proc.HasExited) {
             $proc.Kill()
             $proc.WaitForExit()
           }
-          if (-not $ok) { throw "Backend smoke test FAILED" }
-          Write-Host "Backend smoke test PASSED"
+          Write-Host "All backend smoke tests PASSED"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

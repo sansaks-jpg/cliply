@@ -219,7 +219,17 @@ class TaskStore:
                     tid = data.get("task_id", "")
                     task_dir = STORAGE_DIR / tid
                     if not task_dir.exists():
-                        if data.get("status") in ("queued", "processing"):
+                        status = data.get("status", "")
+                        # Grace period: task baru yang masih queued/processing mungkin belum sempat
+                        # membuat storage dir (pipeline baru dimulai). Jangan hapus dulu selama
+                        # masih dalam 5 menit pertama sejak dibuat.
+                        created_at = float(data.get("created_at", 0) or 0)
+                        age_seconds = time.time() - created_at
+                        if status in ("queued", "processing") and age_seconds < 300:
+                            # Task masih baru — masukkan ke records dan tunggu pipeline buat foldernya
+                            records_data.append(data)
+                            continue
+                        if status in ("queued", "processing"):
                             # Orphaned processing task — data is stale, mark as error
                             log.warning("Zombie task %s: status=%s but storage missing — marking as error", tid, data.get("status"))
                         orphaned_ids.append(tid)
@@ -245,6 +255,11 @@ class TaskStore:
             for tid, r in self._mem_tasks.items():
                 task_dir = STORAGE_DIR / tid
                 if not task_dir.exists():
+                    # Grace period: task baru yang masih queued/processing mungkin belum sempat
+                    # membuat storage dir. Jangan hapus selama masih dalam 5 menit pertama.
+                    age_seconds = time.time() - r.created_at
+                    if r.status in ("queued", "processing") and age_seconds < 300:
+                        continue
                     orphaned_ids.append(tid)
             for tid in orphaned_ids:
                 self._mem_tasks.pop(tid, None)
