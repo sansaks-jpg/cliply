@@ -230,8 +230,9 @@ def _build_karaoke_base(
         text = _clean_text(text)
         if not text or t1 <= t0:
             continue
-        wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
-        words = _apply_case(text, case).split()
+        cased_text = _apply_case(text, case)
+        wrapped, adaptive_fs = _find_adaptive_wrap(cased_text, style, play_res_x, font_size)
+        words = cased_text.split()
         if not words:
             continue
         total_cs = _cs(t1 - t0)
@@ -309,8 +310,9 @@ def build_karaoke_sweep(
         if not text or t1 <= t0:
             continue
 
-        wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
-        words = _apply_case(text, case).split()
+        cased_text = _apply_case(text, case)
+        wrapped, adaptive_fs = _find_adaptive_wrap(cased_text, style, play_res_x, font_size)
+        words = cased_text.split()
         if not words:
             continue
 
@@ -409,8 +411,9 @@ def build_fade_in_word(
         text = _clean_text(text)
         if not text or t1 <= t0:
             continue
-        wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
-        words = _apply_case(text, case).split()
+        cased_text = _apply_case(text, case)
+        wrapped, adaptive_fs = _find_adaptive_wrap(cased_text, style, play_res_x, font_size)
+        words = cased_text.split()
         if not words:
             continue
         seg_words_data = seg.get("words", [])
@@ -462,8 +465,9 @@ def build_word_popup(
         text = _clean_text(text)
         if not text or t1 <= t0:
             continue
-        wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
-        words = _apply_case(text, case).split()
+        cased_text = _apply_case(text, case)
+        wrapped, adaptive_fs = _find_adaptive_wrap(cased_text, style, play_res_x, font_size)
+        words = cased_text.split()
         if not words:
             continue
         seg_words_data = seg.get("words", [])
@@ -514,7 +518,8 @@ def build_word_pop_scale(
         text = _clean_text(text)
         if not text or t1 <= t0:
             continue
-        words = _apply_case(text, case).split()
+        cased_text = _apply_case(text, case)
+        words = cased_text.split()
         if not words:
             continue
         seg_words_data = seg.get("words", [])
@@ -556,8 +561,9 @@ def build_word_box_highlight(
         if not text or t1 <= t0:
             continue
 
-        wrapped, adaptive_fs = _find_adaptive_wrap(_apply_case(text, case), style, play_res_x, font_size)
-        words = _apply_case(text, case).split()
+        cased_text = _apply_case(text, case)
+        wrapped, adaptive_fs = _find_adaptive_wrap(cased_text, style, play_res_x, font_size)
+        words = cased_text.split()
         if not words:
             continue
 
