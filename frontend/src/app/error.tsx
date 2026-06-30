@@ -35,7 +35,7 @@ export default function Error({
       </div>
       <Button
         onClick={reset}
-        className="bg-gradient-violet hover:opacity-90 text-white font-bold px-6 py-2 rounded-xl"
+        className="bg-gradient-violet hover:opacity-90 font-bold px-6 py-2 rounded-xl"
       >
         Coba Lagi
       </Button>

@@ -73,7 +73,7 @@ logging.getLogger("uvicorn.error").addFilter(_SuppressConnectionResetError())
 app = FastAPI(
     title="Clip-AI Backend",
     description="YouTube → viral 9:16 shorts. FastAPI wrapper over the backend engine.",
-    version="0.2.0",
+    version="0.2.1",
     lifespan=lifespan,
 )
 
@@ -156,7 +156,7 @@ async def video_info(url: str) -> dict:
 
     # SSRF Protection: Validate that the url matches a legitimate YouTube format
     youtube_pattern = re.compile(
-        r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)[a-zA-Z0-9_-]{11}(&.*)?$'
+        r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)[a-zA-Z0-9_-]{11}([?&].*)?$'
     )
     if not youtube_pattern.match(url):
         return {"title": "", "author": "", "thumbnail": "", "error": "Invalid YouTube URL"}

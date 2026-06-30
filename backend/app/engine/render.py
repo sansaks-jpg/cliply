@@ -805,6 +805,15 @@ def render_clips(
                     seg_copy["end"] = clamped_end - h_start
                     seg_copy["start_time"] = clamped_start - h_start
                     seg_copy["end_time"] = clamped_end - h_start
+                    if "words" in seg:
+                        seg_copy["words"] = [
+                            {
+                                **w,
+                                "start": w["start"] - h_start,
+                                "end": w["end"] - h_start
+                            }
+                            for w in seg["words"]
+                        ]
                     clip_segments.append(seg_copy)
 
             resolved_subtitle_path = subtitle_path

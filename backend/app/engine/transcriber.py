@@ -290,7 +290,49 @@ def transcribe_video(
             except Exception as e:
                 logger.warning("[transcribe] failed to read cached SRT: %s", e)
 
-    # 1. Try YouTube transcript API
+    # Extract audio early — needed for Groq alignment of YouTube transcript
+    # and as primary input for Gemini/Groq fallback.
+    audio_path = None
+    try:
+        audio_path = _download_audio(media_path, task_dir)
+    except Exception as e:
+        logger.warning("[transcribe] audio extraction failed: %s", e)
+
+    # Helper: fetch Groq word-level timestamps for forced alignment.
+    # Returns flat list of {word, start, end}, or None if unavailable.
+    # Result memoised so YT→align and Groq-fallback don't double-bill the API.
+    _groq_cache: dict = {}
+
+    def _fetch_groq_full() -> Optional[Dict]:
+        if "result" in _groq_cache:
+            return _groq_cache["result"]
+        if not audio_path or not GROQ_API_KEY:
+            _groq_cache["result"] = None
+            return None
+        try:
+            from .transcriber_groq import _try_groq_whisper
+            res = _try_groq_whisper(audio_path, task_id, language=language)
+            _groq_cache["result"] = res
+            return res
+        except Exception as e:
+            logger.warning("[transcribe] Groq fetch failed: %s", e)
+            _groq_cache["result"] = None
+            _groq_cache["error"] = str(e)
+            return None
+
+    def _fetch_groq_words() -> Optional[list]:
+        groq_full = _fetch_groq_full()
+        if not groq_full or not groq_full.get("segments"):
+            return None
+        words = []
+        for s in groq_full["segments"]:
+            for w in s.get("words", []) or []:
+                words.append(w)
+        return words or None
+
+    # 1. Try YouTube transcript API (accurate text, segment-level timestamps).
+    #    If Groq key is set, force-align YouTube words to Groq word timestamps
+    #    so karaoke subtitles match lip movement instead of drifting 3-10s blocks.
     if video_url:
         msg = "[transcribe] trying YouTube transcript API"
         logger.info(msg)
@@ -302,6 +344,23 @@ def transcribe_video(
             msg = f"[transcribe] got {len(yt_result['segments'])} segments from YouTube"
             logger.info(msg)
             _update_transcribe_progress(task_id, 19.0, msg)
+
+            try:
+                groq_words = _fetch_groq_words()
+                if groq_words:
+                    from .transcriber_align import align_words
+                    msg = f"[transcribe] aligning YouTube text with {len(groq_words)} Groq word timestamps"
+                    logger.info(msg)
+                    _update_transcribe_progress(task_id, 30.0, msg)
+                    yt_result["segments"] = align_words(yt_result["segments"], groq_words)
+                else:
+                    logger.info(
+                        "[transcribe] no Groq alignment (missing key or audio); "
+                        "subtitles will use segment-level timing"
+                    )
+            except Exception as e:
+                logger.warning("[transcribe] alignment failed, using segment-level timing: %s", e)
+
             _write_srt(media_path, yt_result, task_dir)
             return yt_result
 
@@ -309,37 +368,35 @@ def transcribe_video(
         logger.info(msg)
         _update_transcribe_progress(task_id, 18.0, msg)
 
-    # Extract audio (needed for both Groq and Gemini)
-    audio_path = None
-    try:
-        audio_path = _download_audio(media_path, task_dir)
-    except Exception as e:
-        logger.warning("[transcribe] audio extraction failed: %s", e)
-
     failure_reasons: list[str] = []
     if video_url:
         failure_reasons.append("YouTube: no transcript available for this video")
     if audio_path is None:
         failure_reasons.append("audio extraction failed (ffmpeg missing or video corrupt)")
 
-    # 2. Try Groq Whisper (fast, word timestamps)
+    # 2. Try Groq Whisper (fast, word timestamps).
+    #    Uses cached result if YouTube alignment already fetched it.
     if audio_path:
         try:
-            from .transcriber_groq import _try_groq_whisper
-            groq_result = _try_groq_whisper(audio_path, task_id, language=language)
+            groq_result = _fetch_groq_full()
             if groq_result and groq_result.get("segments"):
                 msg = f"[transcribe] got {len(groq_result['segments'])} segments from Groq (with word timestamps)"
                 logger.info(msg)
                 _update_transcribe_progress(task_id, 35.0, msg)
                 _write_srt(media_path, groq_result, task_dir)
                 return groq_result
-            reason = "no GROQ_API_KEY set" if not GROQ_API_KEY else "Groq returned no segments"
-            failure_reasons.append(f"Groq Whisper: {reason}")
+            err = _groq_cache.get("error")
+            if err:
+                failure_reasons.append(f"Groq Whisper: {err}")
+            else:
+                reason = "no GROQ_API_KEY set" if not GROQ_API_KEY else "Groq returned no segments"
+                failure_reasons.append(f"Groq Whisper: {reason}")
         except Exception as e:
             logger.warning("[transcribe] Groq failed: %s", e)
             failure_reasons.append(f"Groq Whisper: {e}")
 
-    # 3. Try Gemini 2.5 Flash (with speaker detection)
+    # 3. Try Gemini 2.5 Flash (with speaker detection).
+    #    Align with Groq word timestamps if available, for lip-sync.
     if audio_path:
         try:
             from .transcriber_gemini import _try_gemini_transcription
@@ -348,6 +405,16 @@ def transcribe_video(
                 msg = f"[transcribe] got {len(gemini_result['segments'])} segments from Gemini"
                 logger.info(msg)
                 _update_transcribe_progress(task_id, 35.0, msg)
+
+                try:
+                    groq_words = _fetch_groq_words()
+                    if groq_words:
+                        from .transcriber_align import align_words
+                        logger.info("[transcribe] aligning Gemini text with %d Groq word timestamps", len(groq_words))
+                        gemini_result["segments"] = align_words(gemini_result["segments"], groq_words)
+                except Exception as e:
+                    logger.warning("[transcribe] Gemini alignment failed: %s", e)
+
                 _write_srt(media_path, gemini_result, task_dir)
                 return gemini_result
             reason = "no GEMINI_API_KEY set" if not GEMINI_API_KEY else "Gemini returned no segments"
