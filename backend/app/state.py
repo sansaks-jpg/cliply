@@ -236,9 +236,14 @@ class TaskStore:
                             data["clips"] = [json.loads(c) for c in clips_raw]
             records = [self._record_from_dict(d) for d in records_data]
             # Clean orphaned records from Redis
-            for tid in orphaned_ids:
-                await self._redis.delete(_TASK.format(tid), _CLIPS.format(tid))
-                log.info("Auto-cleaned orphaned task %s (storage deleted)", tid)
+            if orphaned_ids:
+                keys_to_delete = []
+                for tid in orphaned_ids:
+                    keys_to_delete.extend([_TASK.format(tid), _CLIPS.format(tid)])
+                if keys_to_delete:
+                    await self._redis.delete(*keys_to_delete)
+                for tid in orphaned_ids:
+                    log.info("Auto-cleaned orphaned task %s (storage deleted)", tid)
             return sorted(records, key=lambda r: r.created_at, reverse=True)
         async with self._mem_lock:
             orphaned_ids = []
