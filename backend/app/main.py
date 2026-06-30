@@ -30,7 +30,10 @@ async def lifespan(app: FastAPI):
         exc = context.get("exception")
         if isinstance(exc, ConnectionResetError):
             return
-        (_orig_handler or loop.default_exception_handler)(loop, context)
+        if _orig_handler:
+            _orig_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
 
     loop.set_exception_handler(_filter_asyncio_error)
 

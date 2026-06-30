@@ -17,12 +17,13 @@ def _try_groq_whisper(
     audio_path: str, task_id: Optional[str] = None, language: Optional[str] = None
 ) -> Optional[Dict]:
     """Transcribe audio using Groq API with whisper-large-v3."""
+    groq_api_key = os.getenv("GROQ_API_KEY", "")
     logger.info(
         "[transcribe] GROQ_API_KEY present: %s (length: %d)",
-        bool(GROQ_API_KEY),
-        len(GROQ_API_KEY),
+        bool(groq_api_key),
+        len(groq_api_key),
     )
-    if not GROQ_API_KEY:
+    if not groq_api_key:
         logger.warning("[transcribe] no GROQ_API_KEY set")
         return None
 
@@ -38,7 +39,7 @@ def _try_groq_whisper(
         msg = f"[transcribe] calling Groq {GROQ_MODEL} with {audio_size / 1024 / 1024:.1f}MB audio"
         logger.info(msg)
         _update_groq_progress(task_id, 28.0, msg)
-        client = Groq(api_key=GROQ_API_KEY)
+        client = Groq(api_key=groq_api_key)
 
         with open(audio_path, "rb") as f:
             audio_data = (os.path.basename(audio_path), f.read())
