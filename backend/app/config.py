@@ -17,7 +17,10 @@ log = logging.getLogger(__name__)
 # override=False prevents .env from overwriting env vars already set by
 # the runtime (Docker, CI, systemd, Tauri), which are considered authoritative.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_REPO_ROOT / ".env", override=False)
+# Jika dijalankan dari Tauri, STORAGE_DIR diset di env. Gunakan override=False.
+# Jika di luar Tauri (web dev), gunakan override=True agar .env menimpa env vars global.
+is_tauri = bool(os.environ.get("STORAGE_DIR"))
+load_dotenv(_REPO_ROOT / ".env", override=not is_tauri)
 
 
 def _get(key: str, default: str = "") -> str:

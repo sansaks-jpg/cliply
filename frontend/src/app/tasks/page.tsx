@@ -36,7 +36,7 @@ function formatClock(seconds: number): string {
 function ScoreBadge({ score }: { score: number }) {
   const tier =
     score >= 80
-      ? "bg-gradient-violet text-white border-transparent shadow-md glow-accent"
+      ? "bg-gradient-violet border-transparent shadow-md glow-accent"
       : score >= 60
         ? "bg-[var(--accent-violet)]/15 text-[var(--accent-violet)] border border-[var(--accent-violet)]/30"
         : "bg-secondary text-muted-foreground border border-border/60";
@@ -97,7 +97,7 @@ function ProgressView({ task }: { task: Task }) {
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold transition-all ${
                   isActive
-                    ? "bg-gradient-violet text-white"
+                    ? "bg-gradient-violet"
                     : isDone
                       ? "bg-[var(--accent-violet)]/15 text-[var(--accent-violet)]"
                       : "bg-secondary text-muted-foreground/50"
@@ -548,7 +548,7 @@ function TaskPageContent() {
                   </Alert>
                 ) : (
                   activeClipHref && (
-                    <Button size="sm" onClick={handleDownload} className="w-full h-9 rounded-xl bg-gradient-violet hover:opacity-90 text-white font-bold text-sm transition-all cursor-pointer shadow-md glow-accent flex items-center justify-center gap-2">
+                    <Button size="sm" onClick={handleDownload} className="w-full h-9 rounded-xl bg-gradient-violet hover:opacity-90 font-bold text-sm transition-all cursor-pointer shadow-md glow-accent flex items-center justify-center gap-2">
                       <DownloadCloud className="w-4 h-4" />
                       <span>Unduh Shorts</span>
                     </Button>
@@ -611,7 +611,7 @@ function TaskPageContent() {
                       {/* Index badge */}
                       <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 transition-all ${
                         isActive
-                          ? "bg-gradient-violet text-white"
+                          ? "bg-gradient-violet"
                           : "bg-secondary text-muted-foreground"
                       }`}>
                         {idx + 1}
@@ -656,12 +656,12 @@ function TaskPageContent() {
               </div>
 
               {showLogs && (
-                <div className="lg:col-span-5 bg-zinc-950 text-zinc-300 border border-zinc-800 rounded-2xl p-4 font-mono text-xs flex flex-col h-[320px] lg:h-[340px]">
-                  <div className="flex items-center justify-between border-b border-zinc-800 pb-3 mb-3">
+                <div className="lg:col-span-5 bg-zinc-950/90 backdrop-blur-md text-zinc-300 border border-zinc-800/80 rounded-2xl p-4 font-mono text-xs flex flex-col h-[320px] lg:h-[340px] shadow-2xl relative">
+                  <div className="flex items-center justify-between border-b border-zinc-850 pb-3 mb-3">
                     <div className="flex items-center gap-2">
-                      <span className="relative flex h-1.5 w-1.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--accent-violet)] opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[var(--accent-violet)]"></span>
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                       </span>
                       <span className="text-xs uppercase font-bold tracking-wider text-zinc-400">Konsol Log Realtime</span>
                     </div>
@@ -670,7 +670,7 @@ function TaskPageContent() {
                         setLogs([]);
                         if (taskId) localStorage.removeItem(`clip_logs_${taskId}`);
                       }}
-                      className="text-xs uppercase font-bold text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer"
+                      className="text-xs uppercase font-bold text-zinc-500 hover:text-zinc-350 transition-colors cursor-pointer"
                     >
                       Bersihkan
                     </button>
@@ -679,17 +679,17 @@ function TaskPageContent() {
                   <div className="flex-grow overflow-y-auto space-y-1.5 pr-2 scrollbar-thin scrollbar-thumb-zinc-800 scrollbar-track-transparent">
                     {logs.length === 0 ? (
                       <div className="h-full flex items-center justify-center text-zinc-600 italic text-xs gap-2">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-500" />
                         Menghubungkan ke log stream...
                       </div>
                     ) : (
                       parsedLogs.map((parsed, idx) => {
                         if (parsed) {
                           return (
-                             <div key={`${idx}-${parsed.time}`} className="border-b border-zinc-900 pb-1 text-left">
+                             <div key={`${idx}-${parsed.time}`} className="border-b border-zinc-900/60 pb-1 text-left">
                                <span className="text-zinc-600 mr-2 select-none">[{parsed.time}]</span>
                                <span className={`${parsed.stageColor} mr-2`}>[{parsed.stage}]</span>
-                               <span className="text-zinc-300 break-words font-normal">{parsed.msg}</span>
+                               <span className="text-zinc-300 break-words font-normal leading-relaxed">{parsed.msg}</span>
                              </div>
                            );
                         }
