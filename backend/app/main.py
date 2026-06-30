@@ -250,6 +250,7 @@ async def debug_build() -> dict:
     return {
         "version": config._get("APP_VERSION", "0.1.7"),
         "pid": os.getpid(),
+        "session_id": os.getenv("CLIPLY_SESSION_ID", ""),
     }
 
 
