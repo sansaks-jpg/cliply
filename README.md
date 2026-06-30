@@ -2,7 +2,7 @@
 
 Automatic YouTube → viral 9:16 short clips generator. Paste a YouTube URL, and the AI pipeline downloads, transcribes, analyzes virality, tracks faces, crops to vertical, and burns karaoke subtitles — all in one go.
 
-**Version:** 0.1.5
+**Version:** 0.2.1
 
 ## Features
 
@@ -14,6 +14,9 @@ Automatic YouTube → viral 9:16 short clips generator. Paste a YouTube URL, and
 - **Shot classification** — closeup / medium / wide-cut, with dynamic zoom & letterbox
 - **Multi-style karaoke subtitles** — 10+ styles (viral-bold, tiktok, neon-glow, word-pop, etc.)
 - **Live progress (SSE)** — real-time stage updates in the browser
+- **High-Quality Previews & Split-Screen Comparison** — Premium side-by-side and vertical comparisons for both Podcast and Gaming templates, complete with frame-synchronized looping and anti-download overlay shields.
+- **Rich Status Indicators** — Live log updates capturing the video download size in MB and the active AI engine/model, combined with dynamic explanation cards for each processing stage.
+- **Improved Subtitle Color Controls** — Synchronized color picker updates applying changes to all preview cards instantly without requiring individual activation.
 - **Persistent settings** — all preferences saved in localStorage (clips, face detector, subtitle style, etc.)
 - **Dual caching** — transcripts cached as `.json` (speaker metadata) + `.srt`
 - **Pluggable LLM** — OpenAI / Gemini / Anthropic / local via env

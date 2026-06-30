@@ -25,9 +25,9 @@ Saat user submit YouTube URL ke `/tasks`, backend menjalankan pipeline async 7 s
 
 | Stage | Progress | File | Deskripsi |
 |-------|----------|------|-----------|
-| 1. DOWNLOAD | 0–15% | `downloader.py` | Download video via yt-dlp |
+| 1. DOWNLOAD | 0–15% | `downloader.py` | Download video via yt-dlp. Log mencantumkan ukuran video sumber dalam MB |
 | 2. TRANSCRIBE | 15–35% | `transcriber.py` | Gemini 2.5 Flash (speaker diarization) + Groq Whisper. Dual cache: `.srt` (standar) + `.json` (speaker metadata) |
-| 3. RANK HIGHLIGHTS | 35–50% | `highlights.py`, `llm.py` | Prepend label `[Speaker X]:` → kirim ke LLM untuk deteksi momen viral. Analisis `VIRALITY_CRITERIA`, buang overlap >50% |
+| 3. RANK HIGHLIGHTS | 35–50% | `highlights.py`, `llm.py` | Prepend label `[Speaker X]:` → kirim ke LLM untuk deteksi momen viral. Log mencantumkan model AI yang menganalisis |
 | 4. SMART CROP PLAN | 50–65% | `smart_crop.py` | Analisis frame 2 FPS via OpenCV DNN Face Detector (SSD ResNet-10). Mouth Motion Energy, scene cut detection (BGR histogram), shot type classifier (`closeup`/`medium`/`wide_cut`) |
 | 5. RENDER VERTICAL | 65–90% | `render.py`, `subtitles.py` | Crop 9:16 dengan EMA smoothing. Letterbox effect untuk `wide_cut`. Burn subtitle karaoke ASS |
 | 6. SUBTITLE STYLE | (dalam stage 5) | `subtitles.py` | Caption di 75% bawah frame, max 2 baris, font TikTok Sans / Inter Black |
