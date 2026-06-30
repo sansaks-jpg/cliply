@@ -2,6 +2,7 @@
 
 Module-level singleton `store` lazily chooses backend on first use.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -98,7 +99,10 @@ class TaskStore:
         if self._redis is None:
             try:
                 from redis.asyncio import Redis
-                r = Redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+
+                r = Redis.from_url(
+                    REDIS_URL, decode_responses=True, socket_connect_timeout=2
+                )
                 await r.ping()
                 self._redis = r
                 self._use_redis = True
@@ -187,14 +191,29 @@ class TaskStore:
             data["num_clips"] = int(data["num_clips"])
         if "sensitivity" in data:
             data["sensitivity"] = int(data["sensitivity"])
-        nullables = ("language", "error", "subtitle_style", "face_detector", "subtitle_font",
-                     "subtitle_color_primary", "subtitle_color_highlight", "encoder")
+        nullables = (
+            "language",
+            "error",
+            "subtitle_style",
+            "face_detector",
+            "subtitle_font",
+            "subtitle_color_primary",
+            "subtitle_color_highlight",
+            "encoder",
+        )
         for k in nullables:
             if k in data and not data.get(k):
                 data[k] = None
-        for k, v in {"subtitle_style": None, "face_detector": "yunet", "subtitle_font": None,
-                      "subtitle_color_primary": None, "subtitle_color_highlight": None,
-                      "encoder": "auto", "sensitivity": 50, "clips": []}.items():
+        for k, v in {
+            "subtitle_style": None,
+            "face_detector": "yunet",
+            "subtitle_font": None,
+            "subtitle_color_primary": None,
+            "subtitle_color_highlight": None,
+            "encoder": "auto",
+            "sensitivity": 50,
+            "clips": [],
+        }.items():
             if k not in data:
                 data[k] = v
         return TaskRecord(**data)
@@ -231,7 +250,11 @@ class TaskStore:
                             continue
                         if status in ("queued", "processing"):
                             # Orphaned processing task — data is stale, mark as error
-                            log.warning("Zombie task %s: status=%s but storage missing — marking as error", tid, data.get("status"))
+                            log.warning(
+                                "Zombie task %s: status=%s but storage missing — marking as error",
+                                tid,
+                                data.get("status"),
+                            )
                         orphaned_ids.append(tid)
                         continue
                     records_data.append(data)
@@ -270,7 +293,9 @@ class TaskStore:
                 self._mem_tasks.pop(tid, None)
                 self._mem_subs.pop(tid, None)
                 log.info("Auto-cleaned orphaned task %s (storage deleted)", tid)
-            return sorted(self._mem_tasks.values(), key=lambda r: r.created_at, reverse=True)
+            return sorted(
+                self._mem_tasks.values(), key=lambda r: r.created_at, reverse=True
+            )
 
     async def update(self, task_id: str, **fields) -> Optional[TaskRecord]:
         fields["updated_at"] = time.time()
@@ -289,9 +314,19 @@ class TaskStore:
                     setattr(r, k, v)
             return r
 
-    async def set_progress(self, task_id: str, pct: float, stage: str, message: str = "") -> None:
-        await self.update(task_id, progress=float(pct), stage=stage, message=message, status="processing")
-        await self.publish(task_id, "progress", {"pct": float(pct), "stage": stage, "message": message})
+    async def set_progress(
+        self, task_id: str, pct: float, stage: str, message: str = ""
+    ) -> None:
+        await self.update(
+            task_id,
+            progress=float(pct),
+            stage=stage,
+            message=message,
+            status="processing",
+        )
+        await self.publish(
+            task_id, "progress", {"pct": float(pct), "stage": stage, "message": message}
+        )
 
     async def add_clip(self, task_id: str, clip: Dict[str, Any]) -> None:
         if await self._ensure_backend():
@@ -376,14 +411,16 @@ class TaskStore:
 
             if highlights_path.exists():
                 try:
+
                     def read_json(path=highlights_path):
                         with open(path, encoding="utf-8") as file:
                             return file.read()
+
                     manifest_str = await asyncio.to_thread(read_json)
                     manifest = json.loads(manifest_str)
                     url = manifest.get("url", "")
                     clips = manifest.get("clips", [])
-                    
+
                     # Verifikasi keberadaan file fisik .mp4 untuk masing-masing klip
                     valid_clips = []
                     for clip in clips:
@@ -395,11 +432,11 @@ class TaskStore:
                         clip_file_path = task_dir / filename
                         if clip_file_path.exists():
                             valid_clips.append(clip)
-                            
+
                     if not valid_clips:
                         log.warning(
                             "Zombie completed task %s: highlights.json exists but all physical .mp4 files are missing from disk. Skipping recovery.",
-                            task_id
+                            task_id,
                         )
                         continue
 
@@ -420,18 +457,29 @@ class TaskStore:
                         updated_at=highlights_path.stat().st_mtime,
                     )
                     if await self._ensure_backend():
-                        await self._redis.hmset(_TASK.format(task_id), record.to_redis_hash())
-                        for clip in valid_clips:
-                            await self._redis.rpush(_CLIPS.format(task_id), json.dumps(clip))
+                        await self._redis.hmset(
+                            _TASK.format(task_id), record.to_redis_hash()
+                        )
+                        if valid_clips:
+                            await self._redis.rpush(
+                                _CLIPS.format(task_id),
+                                *[json.dumps(clip) for clip in valid_clips],
+                            )
                     else:
                         async with self._mem_lock:
                             self._mem_tasks[task_id] = record
                             self._mem_subs[task_id] = []
                     recovered += 1
-                    log.info("Recovered completed task %s with %d valid clips from storage", task_id, len(valid_clips))
+                    log.info(
+                        "Recovered completed task %s with %d valid clips from storage",
+                        task_id,
+                        len(valid_clips),
+                    )
                     continue
                 except Exception as e:
-                    log.warning("Failed to recover task %s from highlights.json: %s", task_id, e)
+                    log.warning(
+                        "Failed to recover task %s from highlights.json: %s", task_id, e
+                    )
 
             if transcript_path.exists():
                 # Pipeline gagal atau mati di tengah jalan — tandai sebagai error
@@ -454,15 +502,22 @@ class TaskStore:
                         updated_at=stat.st_mtime,
                     )
                     if await self._ensure_backend():
-                        await self._redis.hmset(_TASK.format(task_id), record.to_redis_hash())
+                        await self._redis.hmset(
+                            _TASK.format(task_id), record.to_redis_hash()
+                        )
                     else:
                         async with self._mem_lock:
                             self._mem_tasks[task_id] = record
                             self._mem_subs[task_id] = []
                     recovered += 1
-                    log.info("Recovered orphaned task %s from storage (marked as error)", task_id)
+                    log.info(
+                        "Recovered orphaned task %s from storage (marked as error)",
+                        task_id,
+                    )
                 except Exception as e:
-                    log.warning("Failed to recover task %s from transcript.json: %s", task_id, e)
+                    log.warning(
+                        "Failed to recover task %s from transcript.json: %s", task_id, e
+                    )
 
         return recovered
 
@@ -506,8 +561,18 @@ class TaskStore:
     async def cancel(self, task_id: str) -> None:
         """Mark a task as cancelled and notify SSE subscribers."""
         self._cancelled.add(task_id)
-        await self.update(task_id, status="cancelled", progress=100.0, stage="cancelled", message="Task cancelled by user")
-        await self.publish(task_id, "progress", {"pct": 100.0, "stage": "cancelled", "message": "Task cancelled by user"})
+        await self.update(
+            task_id,
+            status="cancelled",
+            progress=100.0,
+            stage="cancelled",
+            message="Task cancelled by user",
+        )
+        await self.publish(
+            task_id,
+            "progress",
+            {"pct": 100.0, "stage": "cancelled", "message": "Task cancelled by user"},
+        )
         # Terminal event so SSE subscribers break out of their listen loop
         await self.publish(task_id, "done", {"clips": 0})
 
@@ -545,7 +610,11 @@ class TaskStore:
                 await asyncio.to_thread(shutil.rmtree, task_dir)
                 log.info("Deleted storage directory for task %s", task_id)
             except OSError as e:
-                log.warning("Failed to delete storage directory %s: %s — task already removed from state", task_dir, e)
+                log.warning(
+                    "Failed to delete storage directory %s: %s — task already removed from state",
+                    task_dir,
+                    e,
+                )
 
         return True
 
