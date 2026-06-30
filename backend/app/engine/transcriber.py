@@ -240,6 +240,8 @@ def transcribe_video(
 ) -> Dict:
     """Transcribe video — YouTube → Gemini → Groq fallback."""
     sanitize_env()
+    groq_api_key = os.getenv("GROQ_API_KEY", "")
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     task_dir = str(STORAGE_DIR / task_id)
     os.makedirs(task_dir, exist_ok=True)
 
@@ -306,7 +308,7 @@ def transcribe_video(
     def _fetch_groq_full() -> Optional[Dict]:
         if "result" in _groq_cache:
             return _groq_cache["result"]
-        if not audio_path or not GROQ_API_KEY:
+        if not audio_path or not groq_api_key:
             _groq_cache["result"] = None
             return None
         try:
@@ -389,7 +391,7 @@ def transcribe_video(
             if err:
                 failure_reasons.append(f"Groq Whisper: {err}")
             else:
-                reason = "no GROQ_API_KEY set" if not GROQ_API_KEY else "Groq returned no segments"
+                reason = "no GROQ_API_KEY set" if not groq_api_key else "Groq returned no segments"
                 failure_reasons.append(f"Groq Whisper: {reason}")
         except Exception as e:
             logger.warning("[transcribe] Groq failed: %s", e)
@@ -417,7 +419,7 @@ def transcribe_video(
 
                 _write_srt(media_path, gemini_result, task_dir)
                 return gemini_result
-            reason = "no GEMINI_API_KEY set" if not GEMINI_API_KEY else "Gemini returned no segments"
+            reason = "no GEMINI_API_KEY set" if not gemini_api_key else "Gemini returned no segments"
             failure_reasons.append(f"Gemini: {reason}")
         except Exception as e:
             logger.warning("[transcribe] Gemini failed: %s", e)
