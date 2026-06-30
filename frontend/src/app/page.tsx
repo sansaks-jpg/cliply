@@ -1085,46 +1085,89 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Right Side: Live 9:16 Phone Preview */}
-                <div className="lg:col-span-5 flex flex-col items-center justify-center space-y-4 py-4 min-h-[360px]">
+                {/* Right Side: Live Preview & Comparison */}
+                <div className="lg:col-span-5 flex flex-col items-center justify-start space-y-5 py-4 min-h-[420px]">
                   <div className="text-center w-full">
-                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block mb-2">Live Preview Template Video</span>
+                    <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground block mb-1">
+                      Preview & Perbandingan Template
+                    </span>
+                    <span className="text-[10px] text-muted-foreground block">
+                      Perbandingan sebelum (horizontal) dan sesudah (vertikal)
+                    </span>
                   </div>
 
-                  <div className="relative">
-                    {/* Violet glow halo behind phone */}
-                    <div className="absolute inset-0 rounded-[2.2rem] bg-[var(--accent-violet)] opacity-20 blur-3xl scale-110 pointer-events-none" />
-
-                    <div className="relative w-[210px] aspect-[9/16] rounded-[2.2rem] overflow-hidden bg-black border-[4px] border-zinc-800 dark:border-zinc-700/80 shadow-2xl flex flex-col">
-                      {/* Notch */}
-                      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 rounded-full bg-black z-20 flex items-center justify-center">
-                        <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+                  {template === "podcast" ? (
+                    <div className="w-full flex flex-row items-center justify-between gap-3 p-4 rounded-2xl bg-secondary/15 dark:bg-zinc-900/10 border border-border/60 shadow-sm animate-in fade-in duration-300">
+                      {/* Left: Original Video Card (16:9) */}
+                      <div className="flex-1 flex flex-col space-y-1.5 min-w-0">
+                        <span className="text-[10px] font-bold text-muted-foreground/80 uppercase tracking-wider text-center">Video Asli (16:9)</span>
+                        <div className="relative aspect-video w-full rounded-xl overflow-hidden bg-black border border-border/80 shadow-sm">
+                          <video
+                            src="/examples/podcast_horizontal.mp4"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
                       </div>
 
-                      {/* Live preview video background based on template */}
-                      <video
-                        key={template}
-                        src={template === "podcast" ? "/examples/podcast.mp4" : "/examples/gaming.mp4"}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0"
-                      />
-
-
-                      {/* Top audio bars */}
-                      <div className="absolute top-6 left-3 flex gap-0.5 items-end h-4 pointer-events-none opacity-30 z-10">
-                        <div className="w-0.5 bg-white rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
-                        <div className="w-0.5 bg-white rounded-full animate-bounce h-3.5" style={{ animationDelay: "0.3s" }} />
-                        <div className="w-0.5 bg-white rounded-full animate-bounce h-1.5" style={{ animationDelay: "0.5s" }} />
-                        <div className="w-0.5 bg-white rounded-full animate-bounce h-2.5" style={{ animationDelay: "0.2s" }} />
+                      {/* Middle: Theme-colored Connector Arrow */}
+                      <div className="flex flex-col items-center justify-center text-[var(--accent-violet)] flex-shrink-0 px-1">
+                        <ArrowRight className="w-5 h-5" />
                       </div>
 
-
-
+                      {/* Right: Vertical Phone Mockup (9:16) */}
+                      <div className="flex-1 flex flex-col space-y-1.5 min-w-0 items-center">
+                        <span className="text-[10px] font-bold text-[var(--accent-violet)] uppercase tracking-wider text-center">Hasil (9:16)</span>
+                        <div className="relative w-[100px] aspect-[9/16] rounded-2xl overflow-hidden bg-black border-[3px] border-zinc-800 dark:border-zinc-700/80 shadow-md">
+                          {/* Notch */}
+                          <div className="absolute top-1 left-1/2 -translate-x-1/2 w-6 h-1.5 rounded-full bg-black z-20" />
+                          <video
+                            src="/examples/podcast_short.mp4"
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            className="absolute inset-0 w-full h-full object-cover"
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    // Gaming template (ML)
+                    <div className="relative animate-in fade-in duration-300">
+                      {/* Violet glow halo behind phone */}
+                      <div className="absolute inset-0 rounded-[2.2rem] bg-[var(--accent-violet)] opacity-20 blur-3xl scale-110 pointer-events-none" />
+
+                      <div className="relative w-[210px] aspect-[9/16] rounded-[2.2rem] overflow-hidden bg-black border-[4px] border-zinc-800 dark:border-zinc-700/80 shadow-2xl flex flex-col">
+                        {/* Notch */}
+                        <div className="absolute top-2 left-1/2 -translate-x-1/2 w-16 h-4 rounded-full bg-black z-20 flex items-center justify-center">
+                          <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+                        </div>
+
+                        {/* Live preview video background based on template */}
+                        <video
+                          key={template}
+                          src="/examples/gaming.mp4"
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          className="absolute inset-0 w-full h-full object-cover pointer-events-none z-0"
+                        />
+
+                        {/* Top audio bars */}
+                        <div className="absolute top-6 left-3 flex gap-0.5 items-end h-4 pointer-events-none opacity-30 z-10">
+                          <div className="w-0.5 bg-white rounded-full animate-bounce h-2" style={{ animationDelay: "0.1s" }} />
+                          <div className="w-0.5 bg-white rounded-full animate-bounce h-3.5" style={{ animationDelay: "0.3s" }} />
+                          <div className="w-0.5 bg-white rounded-full animate-bounce h-1.5" style={{ animationDelay: "0.5s" }} />
+                          <div className="w-0.5 bg-white rounded-full animate-bounce h-2.5" style={{ animationDelay: "0.2s" }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
