@@ -138,15 +138,41 @@ export default function SettingsPage() {
     if (typeof window !== "undefined") localStorage.setItem("cliply_detection_sensitivity", String(sensitivity));
   }, [sensitivity]);
 
-  const loadModels = async (baseUrl: string, apiKey: string) => {
+  const loadModels = async (baseUrl: string, apiKey: string, forceRefresh: boolean = false) => {
     if (!baseUrl) {
       setAvailableModels(["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]);
       return;
     }
+
+    const cacheKey = `cliply_models_${baseUrl}`;
+    if (!forceRefresh) {
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          const parsedModels = JSON.parse(cached);
+          if (Array.isArray(parsedModels) && parsedModels.length > 0) {
+            setAvailableModels(parsedModels);
+            if (!parsedModels.includes(openaiModel)) {
+              const mimoModel = parsedModels.find((m: string) => m.toLowerCase().includes("mimo"));
+              setOpenaiModel(mimoModel || parsedModels[0]);
+            }
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to load models from cache", e);
+      }
+    }
+
     setLoadingModels(true);
     try {
       const models = await getAvailableModels(baseUrl, apiKey);
       setAvailableModels(models);
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify(models));
+      } catch (e) {
+        console.warn("Failed to save models to cache", e);
+      }
       if (models.length > 0 && !models.includes(openaiModel)) {
         const mimoModel = models.find((m: string) => m.toLowerCase().includes("mimo"));
         setOpenaiModel(mimoModel || models[0]);
@@ -582,7 +608,7 @@ export default function SettingsPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => loadModels(openaiBaseUrl, openaiApiKey)}
+                  onClick={() => loadModels(openaiBaseUrl, openaiApiKey, true)}
                   disabled={loadingModels}
                   className="border-neutral-800 text-neutral-300 hover:bg-neutral-900 rounded-xl h-10 px-3 flex-shrink-0"
                   title="Muat Ulang Model"
