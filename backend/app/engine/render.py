@@ -729,21 +729,16 @@ def _update_render_progress(task_id: str, current: int, total: int, msg: str, st
 
         loop = getattr(store, "loop", None)
 
+        # H1 fix: ALWAYS route through set_progress so the in-memory path
+        # also acquires _mem_lock. Previously the fallback path mutated
+        # _mem_tasks directly from a thread-pool worker, racing with the
+        # async event loop's locked readers.
         if loop and loop.is_running():
             asyncio.run_coroutine_threadsafe(
                 store.set_progress(task_id, pct, stage, msg), loop
             )
         else:
             log.info("[render progress] Task %s: %.1f%% - %s", task_id, pct, msg)
-            try:
-                if not getattr(store, "_use_redis", False) and task_id in store._mem_tasks:
-                    r = store._mem_tasks[task_id]
-                    r.progress = float(pct)
-                    r.stage = stage
-                    r.message = msg
-                    r.status = "processing"
-            except Exception:
-                pass
     except Exception as e:
         log.error("Failed to update render progress: %s", e)
 
@@ -861,7 +856,7 @@ def render_clips(
             results.append({**h, "clip_url": f"/clips/{task_id}/short_{i:02d}.mp4"})
         except Exception as e:
             # Raise exception immediately to bubble up render failure and prevent fake 'completed' status
-            logger.error(f"Render failed for clip {i}: {e}")
+            log.error(f"Render failed for clip {i}: {e}")
             raise RuntimeError(f"Klip {i} ({h.get('title', 'clip')}) gagal dirender: {e}") from e
         finally:
             if os.path.exists(cut_path):

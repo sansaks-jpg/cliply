@@ -187,8 +187,11 @@ async def video_info(url: str) -> dict:
         # 🛡️ Sentinel: Added '--' to prevent command-line option injection via URL
         cmd = ["yt-dlp", "--dump-json", "--no-download", "--", url]
         import os
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15,
-                           creationflags=0x08000000 if os.name == "nt" else 0)
+        r = await run_in_threadpool(
+            subprocess.run, cmd,
+            capture_output=True, text=True, timeout=15,
+            creationflags=0x08000000 if os.name == "nt" else 0,
+        )
         if r.returncode == 0:
             data = _json.loads(r.stdout)
             return {
@@ -320,7 +323,7 @@ async def list_models(base_url: str, api_key: str | None = Header(None)) -> dict
         for result in addr_info:
             ip = result[4][0]
             ip_obj = ipaddress.ip_address(ip)
-            if ip_obj.is_loopback or str(ip_obj) == "0.0.0.0":
+            if ip_obj.is_loopback:
                 valid_ip = ip
                 break
 

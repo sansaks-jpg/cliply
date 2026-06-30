@@ -75,7 +75,7 @@ async def run_pipeline(
         llm_fn = get_llm_fn()
 
         # Thread-safe emitter — dipanggil dari dalam thread pool asyncio.to_thread
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def _emit(pct: float, stage: str, message: str) -> None:
             """Emit progress dari dalam thread ke event loop utama."""

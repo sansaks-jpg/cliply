@@ -78,9 +78,8 @@ def _try_gemini_transcription(
 ) -> Optional[Dict]:
     """Transcribe audio using Gemini 2.5 Flash with speaker detection."""
     logger.info(
-        "[transcribe] GEMINI_API_KEY present: %s (length: %d)",
+        "[transcribe] GEMINI_API_KEY present: %s",
         bool(GEMINI_API_KEY),
-        len(GEMINI_API_KEY),
     )
     if not GEMINI_API_KEY:
         logger.warning("[transcribe] no GEMINI_API_KEY set")

@@ -49,10 +49,10 @@ class CreateTaskRequest(BaseModel):
         default="podcast",
         description="Video generation template.",
     )
-    subtitle_font: Optional[str] = Field(default=None, description="Custom font override.")
-    subtitle_color_primary: Optional[str] = Field(default=None, description="Custom primary text color override (#RRGGBB).")
-    subtitle_color_highlight: Optional[str] = Field(default=None, description="Custom highlight color override (#RRGGBB).")
-    encoder: Optional[str] = Field(default=None, description="Encoder: auto | nvidia | intel | amd | cpu")
+    subtitle_font: Optional[str] = Field(default=None, pattern=r"^[a-zA-Z0-9 _-]{1,64}$", description="Custom font override.")
+    subtitle_color_primary: Optional[str] = Field(default=None, pattern=r"^#?[0-9a-fA-F]{6}$", description="Custom primary text color override (#RRGGBB).")
+    subtitle_color_highlight: Optional[str] = Field(default=None, pattern=r"^#?[0-9a-fA-F]{6}$", description="Custom highlight color override (#RRGGBB).")
+    encoder: Optional[Literal["auto", "nvidia", "intel", "amd", "cpu"]] = Field(default=None)
     sensitivity: Optional[int] = Field(default=50, ge=0, le=100, description="Detection sensitivity 0-100 (50=default, 0=max sensitive, 100=max stable).")
 
 
@@ -90,7 +90,7 @@ async def create_task(req: CreateTaskRequest, request: Request) -> TaskCreatedRe
         subtitle_color_primary=req.subtitle_color_primary,
         subtitle_color_highlight=req.subtitle_color_highlight,
         encoder=encoder,
-        sensitivity=req.sensitivity or 50,
+        sensitivity=req.sensitivity if req.sensitivity is not None else 50,
     )
 
     # Enqueue the background pipeline (no-op stub in Fase 0; real in Fase 1).

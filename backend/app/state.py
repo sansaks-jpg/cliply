@@ -616,6 +616,9 @@ class TaskStore:
                     e,
                 )
 
+        # 4. Release cancellation marker so the set doesn't grow unbounded
+        self._cancelled.discard(task_id)
+
         return True
 
 

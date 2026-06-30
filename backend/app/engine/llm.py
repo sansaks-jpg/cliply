@@ -33,9 +33,8 @@ def call_openai_llm(prompt: str) -> str:
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is not set.")
     
-    key_prefix = OPENAI_API_KEY[:8] if OPENAI_API_KEY else "None"
     logger.info(
-        f"[LLM] Memanggil OpenAI API — Model: {OPENAI_MODEL} | Base URL: {OPENAI_BASE_URL} | Key Prefix: {key_prefix}..."
+        f"[LLM] Memanggil OpenAI API — Model: {OPENAI_MODEL} | Base URL: {OPENAI_BASE_URL} | Key Present: {bool(OPENAI_API_KEY)}"
     )
     client = OpenAI(api_key=OPENAI_API_KEY, base_url=OPENAI_BASE_URL, timeout=_LLM_TIMEOUT)
 
@@ -95,9 +94,8 @@ def call_openai_llm(prompt: str) -> str:
 
 def call_anthropic_llm(prompt: str) -> str:
     from anthropic import Anthropic
-    key_prefix = ANTHROPIC_API_KEY[:8] if ANTHROPIC_API_KEY else "None"
     logger.info(
-        f"[LLM] Memanggil Anthropic API — Model: {ANTHROPIC_MODEL} | Key Prefix: {key_prefix}..."
+        f"[LLM] Memanggil Anthropic API — Model: {ANTHROPIC_MODEL} | Key Present: {bool(ANTHROPIC_API_KEY)}"
     )
     client = Anthropic(api_key=require_llm_key())
     
@@ -145,9 +143,8 @@ def call_gemini_llm(prompt: str) -> str:
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not set.")
     
-    key_prefix = GEMINI_API_KEY[:8] if GEMINI_API_KEY else "None"
     logger.info(
-        f"[LLM] Memanggil Gemini API — Model: {GEMINI_MODEL} | Key Prefix: {key_prefix}..."
+        f"[LLM] Memanggil Gemini API — Model: {GEMINI_MODEL} | Key Present: {bool(GEMINI_API_KEY)}"
     )
     client = genai.Client(api_key=GEMINI_API_KEY)
     response = client.models.generate_content(
