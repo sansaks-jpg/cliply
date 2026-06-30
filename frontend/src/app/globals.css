@@ -225,7 +225,7 @@
   color: var(--primary-foreground) !important;
 }
 
-.bg-gradient-violet * {
+.bg-gradient-violet *:not(.preview-word) {
   color: var(--primary-foreground) !important;
   stroke: var(--primary-foreground) !important;
 }
