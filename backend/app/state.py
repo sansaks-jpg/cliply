@@ -283,6 +283,30 @@ class TaskStore:
                     r.clips.append(clip)
         await self.publish(task_id, "clip_ready", clip)
 
+    async def add_clips(self, task_id: str, clips: List[Dict[str, Any]]) -> None:
+        if not clips:
+            return
+
+        if await self._ensure_backend():
+            clip_strs = [json.dumps(clip) for clip in clips]
+            await self._redis.rpush(_CLIPS.format(task_id), *clip_strs)
+
+            # Batch publish events using pipeline to reduce network roundtrips
+            async with self._redis.pipeline(transaction=False) as pipe:
+                for clip in clips:
+                    payload = json.dumps({"event": "clip_ready", "data": clip})
+                    pipe.publish(_PROGRESS.format(task_id), payload)
+                await pipe.execute()
+        else:
+            async with self._mem_lock:
+                r = self._mem_tasks.get(task_id)
+                if r:
+                    r.clips.extend(clips)
+
+            # For in-memory, we can't pipeline, but we just call publish sequentially
+            for clip in clips:
+                await self.publish(task_id, "clip_ready", clip)
+
     async def publish(self, task_id: str, event: str, data: Any) -> None:
         if await self._ensure_backend():
             payload = json.dumps({"event": event, "data": data})
