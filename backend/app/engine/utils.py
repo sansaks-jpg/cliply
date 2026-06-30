@@ -29,9 +29,12 @@ def extract_video_id(source: str) -> Optional[str]:
         source = "https://" + source
     parsed = urlparse(source)
     host = (parsed.netloc or "").lower().removeprefix("www.")
-    if host in ("youtu.be",):
+    ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be", "www.youtu.be"}
+    if host not in ALLOWED_HOSTS:
+        return None
+    if host in ("youtu.be", "www.youtu.be"):
         return parsed.path.lstrip("/").split("/", 1)[0] or None
-    if "youtube.com" in host:
+    if host in ("youtube.com", "www.youtube.com", "m.youtube.com"):
         if parsed.path.startswith("/watch"):
             return parse_qs(parsed.query).get("v", [None])[0]
         m = re.search(r"/(?:shorts|embed|live)/([^/?#&]+)", parsed.path)

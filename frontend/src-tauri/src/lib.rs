@@ -350,7 +350,14 @@ fn save_settings(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), S
     });
     let config_path = get_config_path(app)?;
     let content = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    fs::write(config_path, content).map_err(|e| e.to_string())?;
+    let tmp_path = config_path.with_extension("json.tmp");
+    fs::write(&tmp_path, content).map_err(|e| e.to_string())?;
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(&tmp_path)
+        .map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    fs::rename(&tmp_path, &config_path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -379,6 +386,8 @@ fn rotate_logs(log_path: &PathBuf) {
             return;
         }
     }
+    // Remove the oldest backup before shifting to make room.
+    let _ = fs::remove_file(log_path.with_extension(format!("{}.log", LOG_MAX_FILES)));
     // Shift existing backups: backend.2.log → gone, backend.1.log → backend.2.log, etc.
     for i in (1..LOG_MAX_FILES).rev() {
         let old = log_path.with_extension(format!("{}.log", i));
