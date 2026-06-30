@@ -19,9 +19,8 @@ def _try_groq_whisper(
     """Transcribe audio using Groq API with whisper-large-v3."""
     groq_api_key = os.getenv("GROQ_API_KEY", "")
     logger.info(
-        "[transcribe] GROQ_API_KEY present: %s (length: %d)",
+        "[transcribe] GROQ_API_KEY present: %s",
         bool(groq_api_key),
-        len(groq_api_key),
     )
     if not groq_api_key:
         logger.warning("[transcribe] no GROQ_API_KEY set")

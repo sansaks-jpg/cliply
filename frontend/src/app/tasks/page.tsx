@@ -184,6 +184,7 @@ function TaskPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
+  const sseRetryRef = useRef(0);
 
   const [logs, setLogs] = useState<string[]>([]);
   const [showLogs, setShowLogs] = useState(true);
@@ -296,7 +297,16 @@ function TaskPageContent() {
     esRef.current = es;
 
     es.onopen = () => {
+      sseRetryRef.current = 0;
       setUsePolling(false); // SSE connected, disable polling
+    };
+
+    es.onerror = () => {
+      sseRetryRef.current += 1;
+      if (sseRetryRef.current >= 3) {
+        console.warn("[SSE] connection failed after 3 retries, falling back to polling");
+        setUsePolling(true);
+      }
     };
 
     es.addEventListener("progress", (e) => {
