@@ -40,7 +40,13 @@ async def run_pipeline(
     try:
         await store.set_progress(task_id, 0, "DOWNLOAD", "Memulai unduhan…")
         source_path = await asyncio.to_thread(download_video, url, task_id)
-        await store.set_progress(task_id, 15, "DOWNLOAD", "Unduhan selesai")
+        import os
+        try:
+            size_bytes = os.path.getsize(source_path)
+            size_mb = size_bytes / (1024 * 1024)
+            await store.set_progress(task_id, 15, "DOWNLOAD", f"Unduhan selesai ({size_mb:.1f} MB)")
+        except Exception:
+            await store.set_progress(task_id, 15, "DOWNLOAD", "Unduhan selesai")
 
         if store.is_cancelled(task_id):
             _logger.warning("Task %s cancelled after DOWNLOAD", task_id)
@@ -57,7 +63,15 @@ async def run_pipeline(
             return
 
         # ── ANALYZE stage: 3 sub-steps dengan progress callback ke SSE ───────
-        await store.set_progress(task_id, 36, "ANALYZE", "Mendeteksi tipe & kepadatan konten…")
+        from ..config import LLM_PROVIDER, OPENAI_MODEL, GEMINI_MODEL, ANTHROPIC_MODEL
+        provider = (LLM_PROVIDER or "openai").strip().lower()
+        model = OPENAI_MODEL
+        if provider == "gemini":
+            model = GEMINI_MODEL
+        elif provider == "anthropic":
+            model = ANTHROPIC_MODEL
+
+        await store.set_progress(task_id, 36, "ANALYZE", f"Analisis highlight via AI ({provider}: {model})…")
         llm_fn = get_llm_fn()
 
         # Thread-safe emitter — dipanggil dari dalam thread pool asyncio.to_thread
@@ -101,7 +115,7 @@ async def run_pipeline(
         else:
             top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
             
-        await store.set_progress(task_id, 50, "ANALYZE", f"Ditemukan {len(top)} highlight viral")
+        await store.set_progress(task_id, 50, "ANALYZE", f"Ditemukan {len(top)} highlight viral via {provider.upper()}")
 
         if store.is_cancelled(task_id):
             _logger.warning("Task %s cancelled after ANALYZE", task_id)
