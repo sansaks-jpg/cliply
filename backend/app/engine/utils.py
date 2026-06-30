@@ -25,6 +25,8 @@ def extract_video_id(source: str) -> Optional[str]:
     - youtube.com/embed/<id>
     - youtube.com/live/<id>
     """
+    if "://" not in source:
+        source = "https://" + source
     parsed = urlparse(source)
     host = (parsed.netloc or "").lower().removeprefix("www.")
     if host in ("youtu.be",):
