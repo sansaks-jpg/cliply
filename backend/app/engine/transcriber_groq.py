@@ -29,6 +29,24 @@ def _try_groq_whisper(
     try:
         from groq import Groq
         logger.info("[transcribe] groq SDK imported OK")
+    except ImportError as e:
+        logger.warning("[transcribe] groq SDK not found (%s). Mencoba install otomatis...", e)
+        try:
+            import subprocess, sys
+            result_install = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "groq>=0.4.0", "-q"],
+                capture_output=True, text=True, timeout=60
+            )
+            if result_install.returncode == 0:
+                logger.info("[transcribe] groq berhasil diinstall, retry import...")
+                from groq import Groq
+                logger.info("[transcribe] groq SDK imported OK setelah install")
+            else:
+                logger.error("[transcribe] pip install groq gagal: %s", result_install.stderr)
+                return None
+        except Exception as install_err:
+            logger.error("[transcribe] Auto-install groq gagal: %s", install_err)
+            return None
     except Exception as e:
         logger.error("[transcribe] groq SDK import FAILED: %s", e, exc_info=True)
         return None
