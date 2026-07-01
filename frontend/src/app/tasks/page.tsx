@@ -659,7 +659,8 @@ function TaskPageContent() {
                     navigator.clipboard.writeText(task.url);
                     toast.success("Link video YouTube disalin!");
                   }}
-                  className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all cursor-pointer flex items-center justify-center"
+                  className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-violet)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  aria-label="Salin Link YouTube"
                   title="Salin Link YouTube"
                 >
                   <Share2 className="w-3.5 h-3.5" />
@@ -808,7 +809,8 @@ function TaskPageContent() {
                               <button
                                 type="button"
                                 onClick={() => setExpandedGallery((prev) => new Set(prev).add(gIdx))}
-                                className="absolute inset-0 w-full h-full cursor-pointer group/play bg-black"
+                                className="absolute inset-0 w-full h-full cursor-pointer group/play bg-black focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-inset focus-visible:ring-[var(--accent-violet)] z-10"
+                                aria-label="Putar klip video"
                               >
                                 {resolvedThumbUrl ? (
                                   <img src={resolvedThumbUrl} alt={clip.title || "Klip"} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
