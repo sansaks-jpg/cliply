@@ -656,6 +656,36 @@ def _mux_with_subtitles(
     subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
 
 
+def _render_split(in_path: str, out_path: str, aspect_ratio: str) -> str:
+    """Render video cropped statically to center based on aspect_ratio without face tracking.
+    
+    If aspect_ratio is '4:3', the output file will be vertical (9:16) with the 4:3 cropped area
+    placed in the center of the vertical frame accompanied by a solid black padding (letterbox).
+    If aspect_ratio is '16:9', the output file remains horizontal (16:9) without cropping.
+    """
+    silent_path = out_path + ".silent.mp4"
+    
+    if aspect_ratio == "4:3":
+        filter_str = "crop=ih*4/3:ih:(iw-ih*4/3)/2:0,scale=720:540,pad=720:1280:0:370:black"
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", in_path,
+            "-vf", filter_str,
+            "-an",
+            silent_path
+        ]
+    else:
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", in_path,
+            "-an",
+            silent_path
+        ]
+        
+    subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
+    return silent_path
+
+
 def _reframe_vertical(
     in_path: str,
     out_path: str,
@@ -669,7 +699,9 @@ def _reframe_vertical(
     template: str = "podcast",
 ) -> str:
     """Two-pass smart crop using ground-truth camera segments and non-causal smoothing."""
-    if is_master:
+    if template == "split":
+        silent_path = _render_split(in_path, out_path, aspect_ratio)
+    elif is_master:
         silent_path = _render_master_letterbox(in_path, out_path, aspect_ratio)
     else:
         target_ratio = _ratio(aspect_ratio)

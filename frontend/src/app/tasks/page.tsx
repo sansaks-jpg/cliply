@@ -17,11 +17,12 @@ import {
   TrendingUp,
   DownloadCloud,
   StopCircle,
-  Video,
   Cpu,
   HardDrive,
+  Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { API_URL, getTask, cancelTask, type Task, type TaskClip } from "@/lib/api";
@@ -285,10 +286,13 @@ function TaskPageContent() {
 
   const [usePolling, setUsePolling] = useState(false);
 
+  const taskStatus = task?.status;
+  const hasTask = !!task;
+
   // SSE for live progress
   useEffect(() => {
     if (!taskId) return;
-    if (task && task.status !== "queued" && task.status !== "processing") {
+    if (taskStatus && taskStatus !== "queued" && taskStatus !== "processing") {
       setUsePolling(false);
       return;
     }
@@ -383,11 +387,11 @@ function TaskPageContent() {
       es.close();
       esRef.current = null;
     };
-  }, [taskId, refresh]);
+  }, [taskId, refresh, addLog, taskStatus]);
 
   // Fallback polling
   useEffect(() => {
-    if (!task || (task.status !== "queued" && task.status !== "processing")) {
+    if (!hasTask || (taskStatus !== "queued" && taskStatus !== "processing")) {
       return;
     }
     if (!usePolling) return; // Skip polling if SSE is active
@@ -396,14 +400,14 @@ function TaskPageContent() {
       void refresh();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [task?.status, usePolling, refresh]);
+  }, [hasTask, taskStatus, usePolling, refresh]);
 
   // Initialize first log message
   useEffect(() => {
-    if (task && logs.length === 0 && (task.status === "queued" || task.status === "processing")) {
-      addLog(task.stage || "queued", task.message || "Tugas ditambahkan ke antrean...");
+    if (hasTask && logs.length === 0 && (taskStatus === "queued" || taskStatus === "processing")) {
+      addLog(task?.stage || "queued", task?.message || "Tugas ditambahkan ke antrean...");
     }
-  }, [task, logs.length, addLog]);
+  }, [hasTask, taskStatus, logs.length, addLog, task?.stage, task?.message]);
 
   if (loading) {
     return (
@@ -476,7 +480,7 @@ function TaskPageContent() {
   };
 
   return (
-    <div className={`h-screen overflow-y-auto bg-background text-foreground transition-colors duration-300 relative overflow-x-hidden flex flex-col ${isCompleted ? "lg:h-screen lg:overflow-hidden" : ""}`}>
+    <div className={`h-screen overflow-y-auto bg-transparent text-foreground transition-colors duration-300 relative overflow-x-hidden flex flex-col ${isCompleted ? "lg:h-screen lg:overflow-hidden" : ""}`}>
 
       {/* Ambient blobs */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
@@ -581,12 +585,12 @@ function TaskPageContent() {
               <div className="absolute inset-0 rounded-[2rem] bg-[var(--accent-violet)] opacity-15 blur-3xl scale-105 pointer-events-none" />
               {/* Wrapper: tinggi 100% container, lebar auto dengan aspect 9:16 */}
               <div
-                className="relative h-full mx-auto rounded-[2rem] overflow-hidden bg-black border-[3px] border-zinc-800 dark:border-zinc-700/80 shadow-2xl"
+                className="relative h-full mx-auto rounded-[2.2rem] overflow-hidden bg-black border-[3px] border-zinc-800 dark:border-zinc-800/80 shadow-2xl ring-1 ring-zinc-700/30"
                 style={{ aspectRatio: "9/16", maxHeight: "100%" }}
               >
-                {/* Notch */}
-                <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-16 h-4 rounded-full bg-black/80 backdrop-blur-sm z-20 flex items-center justify-center">
-                  <div className="w-1.5 h-1.5 rounded-full bg-zinc-700" />
+                {/* Dynamic Island */}
+                <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-14 h-3.5 rounded-full bg-black z-20 flex items-center justify-center">
+                  <div className="absolute right-3 w-1.5 h-1.5 rounded-full bg-zinc-850" />
                 </div>
 
                 {activeClipHref ? (
@@ -609,10 +613,12 @@ function TaskPageContent() {
                   </Alert>
                 ) : (
                   activeClipHref && (
-                    <Button size="sm" onClick={handleDownload} className="w-full h-9 rounded-xl bg-gradient-violet hover:opacity-90 font-bold text-sm transition-all cursor-pointer shadow-md glow-accent flex items-center justify-center gap-2">
-                      <DownloadCloud className="w-4 h-4" />
-                      <span>Unduh Shorts</span>
-                    </Button>
+                    <div className="flex gap-2 w-full">
+                      <Button size="sm" onClick={handleDownload} className="flex-1 h-9 rounded-xl bg-gradient-violet hover:opacity-90 font-bold text-sm transition-all cursor-pointer shadow-md glow-accent flex items-center justify-center gap-2">
+                        <DownloadCloud className="w-4 h-4" />
+                        <span>Unduh</span>
+                      </Button>
+                    </div>
                   )
                 )
               )}
@@ -647,7 +653,18 @@ function TaskPageContent() {
               <div className="flex flex-wrap items-center gap-2 mb-1">
                 <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Sumber</span>
                 <span className="text-border text-xs">|</span>
-                <span className="text-xs text-foreground/70 truncate max-w-[260px] font-semibold">{task.url}</span>
+                <span className="text-xs text-foreground/70 truncate max-w-[260px] font-semibold" title={task.url}>{task.url}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(task.url);
+                    toast.success("Link video YouTube disalin!");
+                  }}
+                  className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all cursor-pointer flex items-center justify-center"
+                  title="Salin Link YouTube"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                </button>
               </div>
               <h2 className="text-lg font-bold tracking-tight" style={{ fontFamily: "var(--font-display)" }}>
                 {task.clips.length} Klip Terdeteksi
@@ -777,7 +794,7 @@ function TaskPageContent() {
                   </p>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {task.clips.map((clip, i) => {
+                  {task.clips.map((clip) => {
                     const clipUrl = clip.clip_url
                       ? clip.clip_url.startsWith("http")
                         ? clip.clip_url
