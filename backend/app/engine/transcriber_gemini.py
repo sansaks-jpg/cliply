@@ -88,6 +88,24 @@ def _try_gemini_transcription(
     try:
         from google import genai
         logger.info("[transcribe] google.genai SDK imported OK")
+    except ImportError as e:
+        logger.warning("[transcribe] google.genai SDK not found (%s). Mencoba install otomatis...", e)
+        try:
+            import subprocess, sys
+            result_install = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "google-genai>=1.0.0", "-q"],
+                capture_output=True, text=True, timeout=60
+            )
+            if result_install.returncode == 0:
+                logger.info("[transcribe] google-genai berhasil diinstall, retry import...")
+                from google import genai
+                logger.info("[transcribe] google.genai SDK imported OK setelah install")
+            else:
+                logger.error("[transcribe] pip install google-genai gagal: %s", result_install.stderr)
+                return None
+        except Exception as install_err:
+            logger.error("[transcribe] Auto-install google-genai gagal: %s", install_err)
+            return None
     except Exception as e:
         logger.error("[transcribe] google.genai SDK import FAILED: %s", e, exc_info=True)
         return None

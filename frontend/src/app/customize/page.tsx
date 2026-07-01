@@ -301,7 +301,11 @@ function CustomizeWorkspace() {
   const [encoder] = useState(() => _lsGet("encoder", "auto"));
   const [template, setTemplate] = useState(() => _lsGet("template", "podcast"));
   const [aspectRatio, setAspectRatio] = useState(() => _lsGet("aspectRatio", "4:3"));
-  const [sensitivity] = useState(50);
+  const [sensitivity] = useState(() => {
+    if (typeof window === "undefined") return 50;
+    const v = localStorage.getItem("cliply_detection_sensitivity");
+    return v ? parseInt(v, 10) : 50;
+  });
   
   const [videoPreview, setVideoPreview] = useState<{title: string; author: string; thumbnail: string} | null>(null);
   const [previewLoading, setPreviewLoading] = useState(true);
