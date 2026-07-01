@@ -2,7 +2,7 @@
 
 Automatic YouTube → viral 9:16 short clips generator. Paste a YouTube URL, and the AI pipeline downloads, transcribes, analyzes virality, tracks faces, crops to vertical, and burns karaoke subtitles — all in one go.
 
-**Version:** 0.2.1
+**Version:** 0.2.2
 
 ## Features
 

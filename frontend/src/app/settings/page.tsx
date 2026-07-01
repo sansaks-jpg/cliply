@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import {
   isTauri,
@@ -138,7 +138,14 @@ export default function SettingsPage() {
     if (typeof window !== "undefined") localStorage.setItem("cliply_detection_sensitivity", String(sensitivity));
   }, [sensitivity]);
 
-  const loadModels = async (baseUrl: string, apiKey: string, forceRefresh: boolean = false) => {
+  const checkBackend = useCallback(() => {
+    setBackendStatus("checking");
+    waitForBackend(5000, 500).then((status) => {
+      setBackendStatus(status);
+    });
+  }, []);
+
+  const loadModels = useCallback(async (baseUrl: string, apiKey: string, forceRefresh: boolean = false) => {
     if (!baseUrl) {
       setAvailableModels(["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"]);
       return;
@@ -186,7 +193,7 @@ export default function SettingsPage() {
     } finally {
       setLoadingModels(false);
     }
-  };
+  }, [openaiModel]);
 
   useEffect(() => {
     const active = isTauri();
@@ -211,14 +218,7 @@ export default function SettingsPage() {
       }).catch(console.error);
       checkBackend();
     }
-  }, []);
-
-  const checkBackend = () => {
-    setBackendStatus("checking");
-    waitForBackend(5000, 500).then((status) => {
-      setBackendStatus(status);
-    });
-  };
+  }, [loadModels, checkBackend]);
 
   const handlePickDir = async () => {
     if (restarting) return;
@@ -335,9 +335,13 @@ export default function SettingsPage() {
       </div>
     );
   }
-
   return (
-    <div className="h-screen overflow-y-auto bg-black text-neutral-100 p-6 md:p-12">
+    <div className="h-screen overflow-y-auto bg-transparent text-foreground p-6 md:p-12 relative">
+      {/* Ambient blobs */}
+      <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
+        <div className="absolute top-[-12%] left-[-8%] w-[40rem] h-[40rem] rounded-full blur-[120px] opacity-25 dark:opacity-35 bg-[radial-gradient(circle_at_center,var(--accent-violet),transparent_70%)] animate-blob" />
+        <div className="absolute bottom-[-18%] right-[-10%] w-[36rem] h-[36rem] rounded-full blur-[120px] opacity-20 dark:opacity-30 bg-[radial-gradient(circle_at_center,var(--accent-indigo),transparent_70%)] animate-blob-2 animation-delay-2000" />
+      </div>
       <div className="max-w-3xl mx-auto space-y-8">
         {/* Header */}
         <div className="flex items-center justify-between pb-6 border-b border-neutral-800">
