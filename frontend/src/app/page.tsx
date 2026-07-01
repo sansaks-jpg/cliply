@@ -83,6 +83,7 @@ export default function Home() {
   // Poll active tasks
   useEffect(() => {
     const fn = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
       try {
         const res = await fetch(API_URL + '/tasks');
         if (res.ok) {
