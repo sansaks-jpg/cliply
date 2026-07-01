@@ -12,7 +12,8 @@ Automatic YouTube → viral 9:16 short clips generator. Paste a YouTube URL, and
 - **Speaker detection** — mouth motion energy + face size scoring with hysteresis
 - **Detection sensitivity slider** — adjustable 0-100 sensitivity for speaker detection accuracy
 - **Shot classification** — closeup / medium / wide-cut, with dynamic zoom & letterbox
-- **Multi-style karaoke subtitles** — 10+ styles (viral-bold, tiktok, neon-glow, word-pop, etc.)
+- **Multi-style karaoke subtitles** — 7 styles (viral-bold, tiktok, word-pop, highlight-box, clean-minimal, minimalist, classic-popup), all using Plus Jakarta Sans font
+- **Clip thumbnails** — auto-generated JPEG per clip for instant gallery preview without loading full videos
 - **Live progress (SSE)** — real-time stage updates in the browser
 - **High-Quality Previews & Split-Screen Comparison** — Premium side-by-side and vertical comparisons for both Podcast and Gaming templates, complete with frame-synchronized looping and anti-download overlay shields.
 - **Rich Status Indicators** — Live log updates capturing the video download size in MB and the active AI engine/model, combined with dynamic explanation cards for each processing stage.
@@ -50,7 +51,7 @@ FastAPI backend
 | Video | yt-dlp, ffmpeg, OpenCV, PySceneDetect |
 | AI | Gemini 2.5 Flash, Groq Whisper, mimo-v2.5-pro |
 | State | Redis |
-| Fonts | TikTok Sans, Montserrat, Plus Jakarta Sans, Helvetica |
+| Fonts | Plus Jakarta Sans (unified for all subtitles) |
 
 ## Prerequisites
 
@@ -69,7 +70,7 @@ FastAPI backend
 2. Paste a YouTube URL (video, Shorts, or live stream)
 3. Click **Advanced Options** to adjust:
    - **Number of clips** (1–10)
-   - **Subtitle style** (10 styles available)
+   - **Subtitle style** (7 styles available)
    - **Face detector** (YuNet / SSD / MediaPipe / YOLOv8-Face)
    - **Language** (auto-detect or force specific)
 4. Click **Generate** → watch live progress via SSE
@@ -178,22 +179,23 @@ All settings in `backend/.env`:
 | `GET` | `/tasks/{id}` | Get task status |
 | `GET` | `/tasks/{id}/events` | SSE stream for live progress |
 | `DELETE` | `/tasks/{id}` | Delete a task + storage |
-| `GET` | `/media/{task_id}/{filename}` | Serve mp4 clips & thumbnails |
+| `GET` | `/clips/{task_id}/{filename}` | Serve rendered mp4 clips |
+| `GET` | `/thumbs/{task_id}/{filename}` | Serve clip JPEG thumbnails |
 | `GET` | `/health` | Liveness check |
 
 ## Subtitle Styles
 
+All styles use **Plus Jakarta Sans** font.
+
 | Style | Animation | Description |
 |-------|-----------|-------------|
-| `viral-bold` | karaoke | Bold uppercase, yellow highlight, thick outline |
-| `tiktok` | karaoke | TikTok-style, Inter Black, green highlight |
-| `word-pop` | wordpop | Single word pop with scale |
-| `highlight-box` | box | Per-word box highlight |
-| `neon-gradient` | karaoke | Gradient neon, glow blur |
-| `neon-glow` | sweep | Karaoke sweep with flash glow |
-| `classic-popup` | popup | Traditional pop-up style |
-| `clean-minimal` | fadein | Minimal fade-in |
-| `minimalist` | fadein | Ultra-minimal, small text |
+| `viral-bold` | karaoke | Bold uppercase, yellow highlight, 4px outline |
+| `tiktok` | karaoke | TikTok-style, green highlight, 8px outline, 4 words/chunk |
+| `word-pop` | wordpop | Single word pop with scale animation |
+| `highlight-box` | box | Per-word box highlight with green border |
+| `classic-popup` | popup | Traditional pop-up style, yellow highlight |
+| `clean-minimal` | fadein | Lowercase, no outline, minimal aesthetic |
+| `minimalist` | fadein | Ultra-minimal, small text, subtle outline |
 
 ## Project Structure
 

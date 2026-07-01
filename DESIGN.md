@@ -31,7 +31,7 @@ Dokumen ini menjelaskan arsitektur antarmuka, filosofi desain, sistem pewarnaan 
 
 ## 3. User Stories
 - **Sebagai Kreator Konten**, saya ingin memasukkan URL YouTube di halaman utama agar saya bisa memotong video panjang menjadi klip pendek secara instan.
-- **Sebagai Editor**, saya ingin melihat pratinjau (preview) gaya teks subtitle yang dinamis (seperti gaya TikTok atau Neon) sebelum klip dirender agar saya tahu hasil akhirnya.
+- **Sebagai Editor**, saya ingin melihat pratinjau (preview) gaya teks subtitle yang dinamis (seperti gaya TikTok, Word Pop, atau Highlight Box) sebelum klip dirender agar saya tahu hasil akhirnya.
 - **Sebagai Pengguna Desktop**, saya ingin memilih direktori penyimpanan file video ekspor saya sendiri agar tidak memenuhi drive sistem (C:) secara tidak sengaja.
 - **Sebagai Pengguna Profesional**, saya ingin antarmuka yang tidak memakan daya GPU saat saya sedang me-minimize aplikasi ke background.
 
@@ -101,7 +101,7 @@ Untuk memperkuat estetika premium, Cliply mengimplementasikan kelas Glassmorphis
 Cliply mengimpor dan menggabungkan beberapa font modern melalui Google Fonts:
 - **Sans/Body Font**: `Plus Jakarta Sans` dan `Geist` (menjamin keterbacaan teks informasi tinggi).
 - **Display/Header Font**: `Plus Jakarta Sans` dan `Syne` (memberikan karakter tegas dan artistik pada judul).
-- **Subtitles Preview Font**: `Montserrat` dan `Plus Jakarta Sans` (memiliki bobot *bold* yang tebal, sangat cocok untuk format subtitle video portrait/shorts).
+- **Subtitles Font**: `Plus Jakarta Sans` (unified untuk semua style subtitle — bold weight, sangat cocok untuk format video portrait/shorts).
 
 ---
 
@@ -116,7 +116,7 @@ Aplikasi desktop sering kali berjalan di latar belakang (background). Untuk meng
 
 #### 1. Halaman Utama (Home - `/`)
 - **Fungsi**: Menerima input tautan URL YouTube dan menampilkan riwayat proyek lokal/tugas aktif dengan antarmuka yang sangat ringkas dan terfokus.
-- **Desain**: Input URL YouTube sinematik dengan visual neon glow ringkas, diikuti riwayat tugas recent workspace.
+- **Desain**: Input URL YouTube sinematik dengan visual glow ringkas, diikuti riwayat tugas recent workspace.
 - **SetupWizard**: Modal onboarding awal yang memaksa pengguna memilih folder penyimpanan video lokal jika baru pertama kali membuka aplikasi.
 
 #### 2. Halaman Studio Editor (Customize - `/customize`)
@@ -137,13 +137,14 @@ Aplikasi desktop sering kali berjalan di latar belakang (background). Untuk meng
 ---
 
 ### F. Subtitle Style Definitions & Previews
-Sistem pratinjau teks subtitle pada halaman studio editor (`/customize`) menggunakan pemetaan gaya visual dinamis:
-- **`viral-bold`**: Huruf besar, tebal, dengan shadow stroke hitam 3px (Font: Montserrat). Animasi karaoke kuning.
-- **`tiktok`**: Teks khas aplikasi TikTok dengan stroke hitam 4px (Font: Plus Jakarta Sans). Animasi karaoke hijau terang.
-- **`word-pop`**: Kata yang muncul satu per satu dengan transisi popup yang cepat.
-- **`clean-minimal`**: Huruf kecil semua tanpa border/stroke, bergaya estetik minimalis.
-- **`highlight-box`**: Teks dikelilingi kotak sorotan semi-transparan.
-- **`neon-gradient`**: Gaya cyberpunk dengan gradasi warna neon menyala (cyan & magenta) dan stroke tipis.
+Sistem pratinjau teks subtitle pada halaman studio editor (`/customize`) menggunakan pemetaan gaya visual dinamis. Semua style menggunakan font **Plus Jakarta Sans**:
+- **`viral-bold`**: Huruf besar, tebal, outline hitam 4px. Animasi karaoke kuning.
+- **`tiktok`**: Teks besar, outline hitam 8px, 4 kata per chunk. Animasi karaoke hijau terang.
+- **`word-pop`**: Kata muncul satu per satu dengan transisi pop-up berskala. Outline 5px.
+- **`clean-minimal`**: Huruf kecil semua tanpa outline, bergaya estetik minimalis.
+- **`highlight-box`**: Teks dikelilingi kotak sorotan hijau semi-transparan.
+- **`classic-popup`**: Gaya pop-up klasik dengan highlight kuning.
+- **`minimalist`**: Teks kecil, outline tipis 1px, ultra-minimalis.
 
 ---
 

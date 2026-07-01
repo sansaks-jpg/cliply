@@ -7,6 +7,7 @@ interface VerticalPlayerProps {
   src: string;
   poster?: string;
   className?: string;
+  preload?: "auto" | "metadata" | "none";
 }
 
 function formatTime(s: number): string {
@@ -16,7 +17,7 @@ function formatTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerProps) {
+export function VerticalPlayer({ src, poster, className = "", preload = "metadata" }: VerticalPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const seekRef = useRef<HTMLDivElement | null>(null);
 
@@ -29,6 +30,16 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
   const [buffered, setBuffered] = useState(0);
 
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reset state when src changes (e.g. user switches clip)
+  useEffect(() => {
+    setPlaying(false);
+    setCurrentTime(0);
+    setDuration(0);
+    setBuffered(0);
+    setShowControls(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+  }, [src]);
 
   const scheduleHide = useCallback(() => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
@@ -169,7 +180,7 @@ export function VerticalPlayer({ src, poster, className = "" }: VerticalPlayerPr
         src={src || undefined}
         poster={poster}
         playsInline
-        preload="metadata"
+        preload={preload}
         muted={muted}
         loop
         className="absolute inset-0 w-full h-full object-contain pointer-events-none"

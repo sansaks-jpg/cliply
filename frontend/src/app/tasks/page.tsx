@@ -20,12 +20,13 @@ import {
   Cpu,
   HardDrive,
   Share2,
+  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { API_URL, getTask, cancelTask, type Task, type TaskClip } from "@/lib/api";
+import { API_URL, getTask, cancelTask, clipUrl, thumbUrl, type Task, type TaskClip } from "@/lib/api";
 import { VerticalPlayer } from "@/components/vertical-player";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -210,6 +211,7 @@ function TaskPageContent() {
 
   // Active clip selection inside completion screen
   const [activeClipIdx, setActiveClipIdx] = useState<number>(0);
+  const [expandedGallery, setExpandedGallery] = useState<Set<number>>(new Set());
 
   const addLog = useCallback((stage: string, message: string) => {
     const cleanMsg = message.trim();
@@ -446,11 +448,8 @@ function TaskPageContent() {
 
   // Active clip references
   const activeClip: TaskClip | undefined = task.clips?.[activeClipIdx];
-  const activeClipHref = activeClip?.clip_url
-    ? activeClip.clip_url.startsWith("http")
-      ? activeClip.clip_url
-      : `${API_URL}${activeClip.clip_url.startsWith("/") ? "" : "/"}${activeClip.clip_url}`
-    : "";
+  const activeClipHref = activeClip ? clipUrl(task, activeClip) : null;
+  const activeClipThumb = activeClip ? thumbUrl(task, activeClip) : null;
 
   const isCompleted = task.status === "completed";
 
@@ -490,7 +489,7 @@ function TaskPageContent() {
 
       {/* Top Header */}
       <header className="border-b border-border/60 z-20 glass flex-shrink-0">
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <Link href="/">
             <Button variant="ghost" size="sm" className="rounded-xl hover:bg-secondary/60 gap-2 h-8 text-sm font-bold cursor-pointer transition-colors border border-border/60">
               <ArrowLeft className="w-4 h-4" />
@@ -569,7 +568,7 @@ function TaskPageContent() {
         <div className="flex-grow w-full flex flex-col lg:flex-row lg:overflow-hidden max-w-7xl mx-auto">
 
           {/* LEFT PANEL: Video besar + download + AI analysis — semua terlihat tanpa scroll */}
-          <div className="w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 border-b lg:border-b-0 lg:border-r border-border/40 flex flex-col overflow-hidden p-4 gap-3">
+          <div className="w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 border-b lg:border-b-0 lg:border-r border-border/40 flex flex-col lg:overflow-hidden p-4 gap-3">
 
             {/* Label bar */}
             <div className="flex-shrink-0 flex items-center justify-between text-xs font-bold text-muted-foreground uppercase tracking-wider">
@@ -594,7 +593,7 @@ function TaskPageContent() {
                 </div>
 
                 {activeClipHref ? (
-                  <VerticalPlayer src={activeClipHref} className="absolute inset-0 w-full h-full" />
+                  <VerticalPlayer src={activeClipHref} poster={activeClipThumb || undefined} className="absolute inset-0 w-full h-full" />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center text-muted-foreground">
                     <Loader2 className="w-6 h-6 animate-spin" />
@@ -725,7 +724,7 @@ function TaskPageContent() {
         </div>
       ) : (
         /* ── PROCESSING / QUEUED ── */
-        <div className="max-w-5xl mx-auto px-6 py-10 space-y-8 flex-grow w-full">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 space-y-8 flex-grow w-full">
 
           <div className="space-y-8 animate-in fade-in duration-500">
             <div className={`grid grid-cols-1 ${showLogs ? "lg:grid-cols-12" : "grid-cols-1"} gap-6 items-start`}>
@@ -794,17 +793,37 @@ function TaskPageContent() {
                   </p>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {task.clips.map((clip) => {
-                    const clipUrl = clip.clip_url
-                      ? clip.clip_url.startsWith("http")
-                        ? clip.clip_url
-                        : `${API_URL}${clip.clip_url.startsWith("/") ? "" : "/"}${clip.clip_url}`
-                      : "";
+                  {task.clips.map((clip, gIdx) => {
+                    const resolvedClipUrl = clipUrl(task, clip);
+                    const resolvedThumbUrl = thumbUrl(task, clip);
+                    const isExpanded = expandedGallery.has(gIdx);
+
                     return (
                       <div key={clip.clip_url || `${clip.start_time}-${clip.end_time}`} className="rounded-xl glass-panel overflow-hidden flex flex-col hover:glow-accent transition-all duration-300">
                         <div className="aspect-[9/16] w-full bg-black relative">
-                          {clipUrl ? (
-                            <VerticalPlayer src={clipUrl} />
+                          {resolvedClipUrl ? (
+                            isExpanded ? (
+                              <VerticalPlayer src={resolvedClipUrl} poster={resolvedThumbUrl || undefined} preload="none" />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setExpandedGallery((prev) => new Set(prev).add(gIdx))}
+                                className="absolute inset-0 w-full h-full cursor-pointer group/play bg-black"
+                              >
+                                {resolvedThumbUrl ? (
+                                  <img src={resolvedThumbUrl} alt={clip.title || "Klip"} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                                ) : (
+                                  <div className="absolute inset-0 flex items-center justify-center">
+                                    <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                                  </div>
+                                )}
+                                <div className="absolute inset-0 bg-black/30 group-hover/play:bg-black/40 transition-colors flex items-center justify-center">
+                                  <div className="w-10 h-10 rounded-full bg-white/25 backdrop-blur-sm border border-white/30 flex items-center justify-center group-hover/play:scale-110 transition-transform">
+                                    <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+                                  </div>
+                                </div>
+                              </button>
+                            )
                           ) : (
                             <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground gap-2">
                               <Loader2 className="w-4 h-4 animate-spin" />

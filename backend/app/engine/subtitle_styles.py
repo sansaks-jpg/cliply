@@ -45,7 +45,7 @@ STYLES: Dict[str, Dict[str, Any]] = {
     # ── Original styles (kept) ────────────────────────────────────
     "viral-bold": {
         "animation": "karaoke_fill",
-        "font": "Montserrat", "case": "upper",
+        "font": "Plus Jakarta Sans", "case": "upper",
         "primary_color": "&H00FFFFFF",
         "highlight_color": "&H0000FFFF",
         "outline_color": "&H00000000",
@@ -56,7 +56,7 @@ STYLES: Dict[str, Dict[str, Any]] = {
     },
     "minimalist": {
         "animation": "fade_in_word",
-        "font": "Helvetica", "case": "normal",
+        "font": "Plus Jakarta Sans", "case": "normal",
         "font_size_ratio": 0.035,
         "primary_color": _WHITE,
         "outline_color": _DARK_GRAY,
@@ -66,21 +66,9 @@ STYLES: Dict[str, Dict[str, Any]] = {
         "bold": False,
         "fade_ms": 150,
     },
-    "neon-glow": {
-        "animation": "karaoke_sweep",
-        "font": "Montserrat", "case": "normal",
-        "font_size_ratio": 0.042,
-        "primary_color": _CYAN,
-        "highlight_color": _MAGENTA,
-        "outline_color": _BLACK,
-        "outline_width": 4,
-        "margin_v_ratio": 0.26, "margin_h_ratio": 0.09,
-        "max_line_width_ratio": 0.82,
-        "bold": True,
-    },
     "classic-popup": {
         "animation": "word_popup",
-        "font": "Helvetica", "case": "normal",
+        "font": "Plus Jakarta Sans", "case": "normal",
         "font_size_ratio": 0.040,
         "primary_color": _WHITE,
         "highlight_color": _YELLOW,
@@ -106,7 +94,7 @@ STYLES: Dict[str, Dict[str, Any]] = {
     },
     "clean-minimal": {
         "animation": "fade_in_word",
-        "font": "Helvetica", "case": "lower",
+        "font": "Plus Jakarta Sans", "case": "lower",
         "primary_color": "&H00FFFFFF",
         "secondary_color": "&H00CCCCCC",
         "outline_color": "&H00000000", "outline_width": 0,
@@ -125,17 +113,6 @@ STYLES: Dict[str, Dict[str, Any]] = {
         "box_border_width": 14,
         "outline_color": "&H00000000", "outline_width": 0,
         "shadow": 1.5,  # Tambahkan bayangan tipis
-        "margin_v_ratio": 0.26, "margin_h_ratio": 0.09,
-        "max_line_width_ratio": 0.82, "max_lines": 2,
-        "font_size_ratio": 0.042, "bold": True,
-    },
-    "neon-gradient": {
-        "animation": "karaoke_fill",
-        "font": "Montserrat", "case": "upper",
-        "primary_color": "&H00FFF000",
-        "highlight_color": "&H00E500FF",
-        "outline_color": "&H00FFF000",
-        "outline_width": 2, "blur": 4,
         "margin_v_ratio": 0.26, "margin_h_ratio": 0.09,
         "max_line_width_ratio": 0.82, "max_lines": 2,
         "font_size_ratio": 0.042, "bold": True,

@@ -116,6 +116,12 @@ export function clipUrl(task: Task, clip: TaskClip): string | null {
   return `${API_URL}${clip.clip_url.startsWith("/") ? "" : "/"}${clip.clip_url}`;
 }
 
+export function thumbUrl(task: Task, clip: TaskClip): string | null {
+  if (!clip.thumbnail_url) return null;
+  if (/^https?:\/\//.test(clip.thumbnail_url)) return clip.thumbnail_url;
+  return `${API_URL}${clip.thumbnail_url.startsWith("/") ? "" : "/"}${clip.thumbnail_url}`;
+}
+
 export async function createTask(
   url: string,
   opts: CreateTaskOptions = {},

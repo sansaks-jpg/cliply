@@ -775,6 +775,24 @@ def _update_render_progress(task_id: str, current: int, total: int, msg: str, st
         log.error("Failed to update render progress: %s", e)
 
 
+def _generate_thumbnail(video_path: str, thumb_path: str, seek_time: float = 1.0) -> bool:
+    """Extract a single frame as JPEG thumbnail. Returns True on success."""
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-ss", str(seek_time),
+            "-i", video_path,
+            "-frames:v", "1",
+            "-q:v", "2",
+            thumb_path,
+        ]
+        subprocess.run(cmd, check=True, creationflags=CREATION_FLAGS)
+        return os.path.isfile(thumb_path)
+    except Exception as e:
+        log.warning("Thumbnail generation failed for %s: %s", video_path, e)
+        return False
+
+
 def render_clips(
     source_path: str,
     highlights: List[Dict],
@@ -795,7 +813,9 @@ def render_clips(
     sp = apply_sensitivity(sensitivity, face_detector)
     encoder_args = resolve_encoder(encoder)
     clips_dir = str(STORAGE_DIR / task_id / "clips")
+    thumbs_dir = str(STORAGE_DIR / task_id / "thumbs")
     os.makedirs(clips_dir, exist_ok=True)
+    os.makedirs(thumbs_dir, exist_ok=True)
     results = []
 
     import json
@@ -885,7 +905,14 @@ def render_clips(
                 sp=sp,
                 template=template,
             )
-            results.append({**h, "clip_url": f"/clips/{task_id}/short_{i:02d}.mp4"})
+            thumb_filename = f"short_{i:02d}.jpg"
+            thumb_path = os.path.join(thumbs_dir, thumb_filename)
+            _generate_thumbnail(out_path, thumb_path, seek_time=min(1.0, (h_end - h_start) / 2))
+            results.append({
+                **h,
+                "clip_url": f"/clips/{task_id}/short_{i:02d}.mp4",
+                "thumbnail_url": f"/thumbs/{task_id}/{thumb_filename}",
+            })
         except Exception as e:
             # Raise exception immediately to bubble up render failure and prevent fake 'completed' status
             log.error(f"Render failed for clip {i}: {e}")

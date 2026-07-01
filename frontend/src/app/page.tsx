@@ -268,7 +268,7 @@ export default function Home() {
 
       {/* Top Header */}
       <header className="border-b border-border/60 sticky top-0 z-30 glass">
-        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Image src="/logo-rectangle.png" alt="cliply" width={110} height={30} priority className="h-9 w-auto" />
           </div>
@@ -279,7 +279,7 @@ export default function Home() {
       </header>
 
       {/* Main Landing Area */}
-      <main className="max-w-4xl w-full mx-auto px-4 sm:px-6 py-12 flex-grow flex flex-col justify-center gap-10">
+      <main className="max-w-4xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-12 flex-grow flex flex-col justify-center gap-10">
         {backendStatus === "unavailable" && (
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 flex items-start gap-3">
             <div className="w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5 font-bold text-red-400">!</div>

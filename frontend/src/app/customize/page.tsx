@@ -14,7 +14,8 @@ import {
   Check,
   ChevronDown,
   Layers,
-  Settings
+  Settings,
+  Palette
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -75,14 +76,6 @@ const STYLE_DEFINITIONS: Record<string, {
     words: ["Momen", "viral", "dalam", "kotak", "highlight"],
     animation: "box"
   },
-  "neon-gradient": {
-    bold: true,
-    caseTransform: "uppercase",
-    outlineWidth: 2,
-    outlineColor: "#00F0FF",
-    words: ["TEKS", "GRADASI", "NEON", "MENYALA"],
-    animation: "karaoke"
-  },
   "minimalist": {
     bold: false,
     caseTransform: "none",
@@ -90,14 +83,6 @@ const STYLE_DEFINITIONS: Record<string, {
     outlineColor: "#444444",
     words: ["Simpel", "tanpa", "banyak", "distraksi"],
     animation: "fadein"
-  },
-  "neon-glow": {
-    bold: true,
-    caseTransform: "none",
-    outlineWidth: 4,
-    outlineColor: "#000000",
-    words: ["Cahaya", "glamur", "efek", "neon", "glow"],
-    animation: "popup"
   },
   "classic-popup": {
     bold: true,
@@ -111,15 +96,13 @@ const STYLE_DEFINITIONS: Record<string, {
 
 const getDynamicPreviewStyles = (styleKey: string, colorPrimary?: string, colorHighlight?: string) => {
   const fontMap: Record<string, string> = {
-    "viral-bold":    "Montserrat",
+    "viral-bold":    "Plus Jakarta Sans",
     "tiktok":        "Plus Jakarta Sans",
     "word-pop":      "Plus Jakarta Sans",
-    "clean-minimal": "Helvetica",
+    "clean-minimal": "Plus Jakarta Sans",
     "highlight-box": "Plus Jakarta Sans",
-    "neon-gradient": "Montserrat",
-    "minimalist":    "Helvetica",
-    "neon-glow":     "Montserrat",
-    "classic-popup": "Helvetica",
+    "minimalist":    "Plus Jakarta Sans",
+    "classic-popup": "Plus Jakarta Sans",
   };
   const fontFamily = fontMap[styleKey] ?? "Helvetica";
 
@@ -129,9 +112,7 @@ const getDynamicPreviewStyles = (styleKey: string, colorPrimary?: string, colorH
     "word-pop":      "#FFFFFF",
     "clean-minimal": "rgba(255,255,255,0.90)",
     "highlight-box": "#FFFFFF",
-    "neon-gradient": "#00F0FF",
     "minimalist":    "rgba(255,255,255,0.75)",
-    "neon-glow":     "#00FFFF",
     "classic-popup": "#FFFFFF",
   };
   const primaryColor = primaryMap[styleKey] ?? "#FFFFFF";
@@ -142,9 +123,7 @@ const getDynamicPreviewStyles = (styleKey: string, colorPrimary?: string, colorH
     "word-pop":      "#FFFFFF",
     "clean-minimal": "rgba(255,255,255,0.50)",
     "highlight-box": "#00E676",
-    "neon-gradient": "#FF00E5",
     "minimalist":    "rgba(255,255,255,0.30)",
-    "neon-glow":     "#FF00FF",
     "classic-popup": "#FFFF00",
   };
   const highlightColor = highlightMap[styleKey] ?? "#FFFF00";
@@ -154,10 +133,29 @@ const getDynamicPreviewStyles = (styleKey: string, colorPrimary?: string, colorH
 
   const boxColor = finalHighlightColor;
   const boxBgColor = finalHighlightColor.startsWith("#") ? `${finalHighlightColor}33` : "rgba(124,58,237,0.2)";
-  const outlineColor = styleKey === "neon-gradient" ? finalPrimaryColor : undefined;
+  const outlineColor = undefined;
 
   return { fontFamily, primaryColor: finalPrimaryColor, highlightColor: finalHighlightColor, boxColor, boxBgColor, outlineColor };
 };
+
+const STYLE_DISPLAY: Record<string, { name: string; desc: string }> = {
+  "viral-bold":     { name: "Viral Bold",     desc: "Tebal, outline hitam" },
+  "tiktok":         { name: "TikTok",         desc: "Font TikTok Sans" },
+  "word-pop":       { name: "Word Pop",       desc: "Kata aktif pop-up" },
+  "clean-minimal":  { name: "Clean",          desc: "Minimalis, no outline" },
+  "highlight-box":  { name: "Highlight Box",  desc: "Kotak highlight" },
+  "minimalist":     { name: "Minimalist",     desc: "Sederhana, ringan" },
+  "classic-popup":  { name: "Classic Popup",  desc: "Pop-up klasik lembut" },
+};
+
+const COLOR_PRESETS = [
+  { name: "Default",   primary: "",          highlight: "" },
+  { name: "Viral",      primary: "#FFFFFF",   highlight: "#FFFF00" },
+  { name: "TikTok",     primary: "#FFFFFF",   highlight: "#FF0050" },
+  { name: "Gaming",     primary: "#FFFFFF",   highlight: "#00FFFF" },
+  { name: "Nature",     primary: "#FFFFFF",   highlight: "#00FF66" },
+  { name: "Fire",       primary: "#FFFFFF",   highlight: "#FF8800" },
+] as const;
 
 const _shadowCache = new Map<string, string>();
 const makeTextShadow = (ow: number, oc: string) => {
@@ -297,7 +295,7 @@ function CustomizeWorkspace() {
   });
   const [subtitleColorPrimary, setSubtitleColorPrimary] = useState(() => _lsGet("subtitleColorPrimary", ""));
   const [subtitleColorHighlight, setSubtitleColorHighlight] = useState(() => _lsGet("subtitleColorHighlight", ""));
-  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showColorPicker] = useState(true);
   const [encoder] = useState(() => _lsGet("encoder", "auto"));
   const [template, setTemplate] = useState(() => _lsGet("template", "podcast"));
   const [aspectRatio, setAspectRatio] = useState(() => _lsGet("aspectRatio", "4:3"));
@@ -520,7 +518,7 @@ function CustomizeWorkspace() {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-transparent text-foreground transition-colors duration-300 flex flex-col font-sans antialiased relative">
+    <div className="h-screen overflow-y-auto lg:overflow-hidden bg-transparent text-foreground transition-colors duration-300 flex flex-col font-sans antialiased relative">
       {/* Ambient violet glow blobs */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
         <div className="absolute top-[-12%] left-[-8%] w-[44rem] h-[44rem] rounded-full blur-[120px] opacity-25 dark:opacity-40 bg-[radial-gradient(circle_at_center,var(--accent-violet),transparent_70%)] animate-blob" />
@@ -529,7 +527,7 @@ function CustomizeWorkspace() {
 
       {/* Top Header */}
       <header className="border-b border-border/60 z-30 glass shrink-0">
-        <div className="max-w-[1450px] mx-auto px-6 py-3 flex items-center justify-between">
+        <div className="max-w-[1450px] mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
             <Image src="/logo-rectangle.png" alt="cliply" width={110} height={30} priority className="h-9 w-auto" />
           </Link>
@@ -540,7 +538,7 @@ function CustomizeWorkspace() {
       </header>
 
       {/* Main Workspace Container (Viewport-Fit: No global scroll) */}
-      <main className="max-w-[1450px] w-full mx-auto px-4 sm:px-6 py-3 flex-grow flex flex-col min-h-0 overflow-hidden">
+      <main className="max-w-[1450px] w-full mx-auto px-4 sm:px-6 py-3 lg:flex-grow flex flex-col lg:min-h-0 lg:overflow-hidden">
         
         {/* URL / Back Header */}
         <div className="flex items-center justify-between pb-2 border-b border-border/40 shrink-0">
@@ -570,12 +568,12 @@ function CustomizeWorkspace() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="w-full flex-grow flex flex-col min-h-0 mt-3">
-          {/* Layout 2-Panel Universal (Kiri: Setelan Studio, Kanan: Preview & Render) */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 flex-grow min-h-0 items-stretch overflow-hidden">
+        <form onSubmit={handleSubmit} className="w-full lg:flex-grow flex flex-col lg:min-h-0 mt-3">
+          {/* Layout 2-Panel Universal (Mobile: Preview > Settings > Button | Desktop: Settings | Preview) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 lg:flex-grow lg:min-h-0 items-start lg:items-stretch lg:overflow-hidden">
             
-            {/* Panel Kiri: Pengaturan Studio (lg:col-span-5) - No scrollbar needed thanks to Tabs */}
-            <div className="lg:col-span-5 rounded-2xl glass-panel p-5 border border-border/40 flex flex-col min-h-0 max-h-full">
+            {/* Panel Kiri: Pengaturan Studio + Render Button (Mobile: order-2, Desktop: order-1) */}
+            <div className="lg:col-span-5 order-2 lg:order-1 rounded-2xl glass-panel p-4 sm:p-5 border border-border/40 flex flex-col lg:min-h-0 lg:max-h-full">
               
               {/* Header Panel Kiri */}
               <div className="flex items-center justify-between pb-3 border-b border-border/40 shrink-0">
@@ -603,77 +601,77 @@ function CustomizeWorkspace() {
                 <button
                   type="button"
                   onClick={() => handleTabClick("layout")}
-                  className={`relative z-10 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={`relative z-10 py-1.5 px-1 sm:px-2 rounded-lg text-[9px] sm:text-[10px] font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer ${
                     activeTab === "layout"
                       ? "text-[var(--accent-violet)]"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  <Layers className="w-3 h-3" />
-                  <span>Template & Klip</span>
+                  <Layers className="w-3 h-3 shrink-0" />
+                  <span className="truncate">Template & Klip</span>
                 </button>
 
                 {template === "split" ? (
                   <div
                     onClick={() => handleTabClick("subtitle")}
-                    className="relative z-10 cursor-not-allowed flex items-center justify-center py-1.5 px-2 opacity-30 select-none w-full"
+                    className="relative z-10 cursor-not-allowed flex items-center justify-center py-1.5 px-1 sm:px-2 opacity-30 select-none w-full"
                     title="Kamu memilih template Split Video (No-AI). Fitur subtitle dinonaktifkan."
                   >
                     <button
                       type="button"
-                      className="pointer-events-none flex items-center justify-center gap-1.5 text-[10px] font-bold text-muted-foreground w-full h-full"
+                      className="pointer-events-none flex items-center justify-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] font-bold text-muted-foreground w-full h-full"
                     >
-                      <Sparkles className="w-3 h-3" />
-                      <span>Subtitle & Gaya</span>
+                      <Sparkles className="w-3 h-3 shrink-0" />
+                      <span className="truncate">Subtitle & Gaya</span>
                     </button>
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => handleTabClick("subtitle")}
-                    className={`relative z-10 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    className={`relative z-10 py-1.5 px-1 sm:px-2 rounded-lg text-[9px] sm:text-[10px] font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer ${
                       activeTab === "subtitle"
                         ? "text-[var(--accent-violet)]"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <Sparkles className="w-3 h-3" />
-                    <span>Subtitle & Gaya</span>
+                    <Sparkles className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Subtitle & Gaya</span>
                   </button>
                 )}
 
                 {template === "split" ? (
                   <div
                     onClick={() => handleTabClick("advanced")}
-                    className="relative z-10 cursor-not-allowed flex items-center justify-center py-1.5 px-2 opacity-30 select-none w-full"
+                    className="relative z-10 cursor-not-allowed flex items-center justify-center py-1.5 px-1 sm:px-2 opacity-30 select-none w-full"
                     title="Kamu memilih template Split Video (No-AI). Fitur lanjutan dinonaktifkan."
                   >
                     <button
                       type="button"
-                      className="pointer-events-none flex items-center justify-center gap-1.5 text-[10px] font-bold text-muted-foreground w-full h-full"
+                      className="pointer-events-none flex items-center justify-center gap-1 sm:gap-1.5 text-[9px] sm:text-[10px] font-bold text-muted-foreground w-full h-full"
                     >
-                      <Settings className="w-3 h-3" />
-                      <span>Setelan Lanjutan</span>
+                      <Settings className="w-3 h-3 shrink-0" />
+                      <span className="truncate">Setelan Lanjutan</span>
                     </button>
                   </div>
                 ) : (
                   <button
                     type="button"
                     onClick={() => handleTabClick("advanced")}
-                    className={`relative z-10 py-1.5 px-2 rounded-lg text-[10px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    className={`relative z-10 py-1.5 px-1 sm:px-2 rounded-lg text-[9px] sm:text-[10px] font-bold transition-all flex items-center justify-center gap-1 sm:gap-1.5 cursor-pointer ${
                       activeTab === "advanced"
                         ? "text-[var(--accent-violet)]"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
-                    <Settings className="w-3 h-3" />
-                    <span>Setelan Lanjutan</span>
+                    <Settings className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Setelan Lanjutan</span>
                   </button>
                 )}
               </div>
 
               {/* Tab Contents Area (flex-grow) */}
-              <div className="flex-grow py-4 min-h-0 overflow-y-auto">
+              <div className="py-4 lg:flex-grow lg:min-h-0 lg:overflow-y-auto">
                 
                 {/* TAB 1: TEMPLATE & KLIP - Selalu tampil untuk template split */}
                 {(template === "split" || activeTab === "layout") && (
@@ -820,177 +818,166 @@ function CustomizeWorkspace() {
                 {template !== "split" && activeTab === "subtitle" && (
                   <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300 ease-out">
                     
-                    {/* Grid card pilihan gaya subtitle */}
-                    {showColorPicker ? (
-                      <div className="space-y-1.5 animate-in fade-in duration-200">
-                        <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
-                          Gaya Subtitle Terpilih
-                        </Label>
-                        <div 
-                          onClick={() => setShowColorPicker(false)}
-                          className="cursor-pointer"
-                          title="Klik untuk mengubah gaya subtitle"
-                        >
-                          {(() => {
-                            const styleKey = subtitleStyle;
-                            const sDef = STYLE_DEFINITIONS[styleKey];
-                            const pStyle = getDynamicPreviewStyles(styleKey, subtitleColorPrimary || undefined, subtitleColorHighlight || undefined);
-                            const textShadow = makeTextShadow(Math.min(sDef.outlineWidth, 1.5), sDef.outlineColor);
+                    {/* Header + Selected Style Name */}
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
+                        Pilih Gaya Subtitle
+                      </Label>
+                      <span className="text-[9px] font-bold text-[var(--accent-violet)] bg-[var(--accent-violet)]/10 px-2 py-0.5 rounded-md">
+                        {STYLE_DISPLAY[subtitleStyle]?.name}
+                      </span>
+                    </div>
 
-                            return (
-                              <div
-                                className="rounded-xl p-2.5 text-left flex flex-col justify-between relative h-20 overflow-hidden bg-secondary/85 text-foreground shadow-sm ring-1.5 ring-primary/25 scale-[1.01] hover:bg-secondary/95 transition-all"
-                              >
-                                <div className="flex items-center justify-between w-full">
-                                  <span className="text-[9px] font-bold tracking-tight text-muted-foreground uppercase">
-                                    {styleKey.replace(/-/g, " ")}
-                                  </span>
-                                  <span className="text-[9px] font-bold text-[var(--accent-violet)] hover:underline">
-                                    Ubah Gaya
-                                  </span>
-                                </div>
+                    {/* Style Grid - compact when color picker open */}
+                    <div className={`grid gap-1.5 sm:gap-2 transition-all duration-300 ${
+                      showColorPicker
+                        ? "grid-cols-4 sm:grid-cols-5"
+                        : "grid-cols-2 sm:grid-cols-3 gap-2"
+                    }`}>
+                      {(["viral-bold", "tiktok", "word-pop", "clean-minimal", "highlight-box", "minimalist", "classic-popup"] as const).map((styleKey) => {
+                        const isActive = subtitleStyle === styleKey;
+                        const sDef = STYLE_DEFINITIONS[styleKey];
+                        const disp = STYLE_DISPLAY[styleKey];
+                        const pStyle = getDynamicPreviewStyles(styleKey, subtitleColorPrimary || undefined, subtitleColorHighlight || undefined);
+                        const textShadow = makeTextShadow(Math.min(sDef.outlineWidth, 1.5), sDef.outlineColor);
+                        const sampleText = sDef.caseTransform === "uppercase"
+                          ? disp.name.toUpperCase()
+                          : sDef.caseTransform === "lowercase"
+                            ? disp.name.toLowerCase()
+                            : disp.name;
 
-                                <div className="w-full flex items-center justify-center bg-black/90 rounded-lg py-1 px-2 min-h-[30px] border border-zinc-800/50 shadow-inner overflow-hidden select-none mt-1">
-                                  <span
-                                    style={{
-                                      fontFamily: pStyle.fontFamily,
-                                      color: pStyle.highlightColor,
-                                      textShadow: textShadow,
-                                      textTransform: sDef.caseTransform,
-                                      fontWeight: sDef.bold ? "900" : "400",
-                                      fontSize: "10px",
-                                      letterSpacing: sDef.caseTransform === "uppercase" ? "0.02em" : "normal",
-                                      lineHeight: "1.1",
-                                      backgroundColor: sDef.animation === "box" ? pStyle.boxBgColor : "transparent",
-                                      boxShadow: sDef.animation === "box" ? `0 0 0 1px ${pStyle.boxColor}` : "none",
-                                      padding: sDef.animation === "box" ? "1px 4px" : "0px",
-                                      borderRadius: sDef.animation === "box" ? "2px" : "0px",
-                                    }}
-                                  >
-                                    {styleKey === "clean-minimal" ? "gaya" : styleKey === "minimalist" ? "Simpel" : "VIRAL"}
-                                  </span>
-                                </div>
+                        return (
+                          <button
+                            key={styleKey}
+                            type="button"
+                            onClick={() => setSubtitleStyle(styleKey)}
+                            className={`rounded-lg sm:rounded-xl text-left flex flex-col cursor-pointer w-full transition-all duration-200 ease-out relative overflow-hidden border ${
+                              showColorPicker ? "p-1" : "p-2"
+                            } ${
+                              isActive
+                                ? "border-[var(--accent-violet)] bg-secondary/85 shadow-md scale-[1.02] z-10"
+                                : "border-border/50 bg-secondary/20 hover:bg-secondary/40 hover:border-border"
+                            }`}
+                            title={`${disp.name} — ${disp.desc}`}
+                          >
+                            {/* Check badge */}
+                            {isActive && (
+                              <div className="absolute top-1 right-1 z-10 w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full bg-[var(--accent-violet)] flex items-center justify-center">
+                                <Check className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-background" />
                               </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 animate-in fade-in duration-200">
-                        <Label className="text-xs font-bold text-muted-foreground flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-[var(--accent-violet)]" />
-                          Pilih Gaya Subtitle
-                        </Label>
-                        <div className="grid grid-cols-2 gap-2 pr-1">
-                          {(() => {
-                            const allStylesKeys = ["viral-bold", "tiktok", "word-pop", "clean-minimal", "highlight-box", "neon-gradient", "minimalist", "neon-glow", "classic-popup"] as const;
-                            return allStylesKeys.map((styleKey) => {
-                              const isActive = subtitleStyle === styleKey;
-                              const sDef = STYLE_DEFINITIONS[styleKey];
-                              const pStyle = getDynamicPreviewStyles(styleKey, subtitleColorPrimary || undefined, subtitleColorHighlight || undefined);
-                              const textShadow = makeTextShadow(Math.min(sDef.outlineWidth, 1.5), sDef.outlineColor);
+                            )}
 
+                            {/* Preview */}
+                            <div className="w-full flex items-center justify-center bg-black/90 rounded-md sm:rounded-lg overflow-hidden select-none border border-zinc-800/50 shadow-inner"
+                              style={{ minHeight: showColorPicker ? "24px" : "36px", padding: showColorPicker ? "2px 1px" : "8px 4px" }}
+                            >
+                              <span
+                                style={{
+                                  fontFamily: pStyle.fontFamily,
+                                  color: pStyle.highlightColor,
+                                  textShadow: textShadow,
+                                  textTransform: sDef.caseTransform,
+                                  fontWeight: sDef.bold ? "900" : "400",
+                                  fontSize: showColorPicker ? "9px" : "11px",
+                                  letterSpacing: sDef.caseTransform === "uppercase" ? "0.02em" : "normal",
+                                  lineHeight: "1.1",
+                                  backgroundColor: sDef.animation === "box" ? pStyle.boxBgColor : "transparent",
+                                  boxShadow: sDef.animation === "box" ? `0 0 0 1px ${pStyle.boxColor}` : "none",
+                                  padding: sDef.animation === "box" ? "1px 4px" : "0px",
+                                  borderRadius: sDef.animation === "box" ? "2px" : "0px",
+                                }}
+                              >
+                                {sampleText}
+                              </span>
+                            </div>
+
+                            {/* Name + desc (hidden when compact) */}
+                            {!showColorPicker && (
+                              <div className="mt-1.5 px-0.5">
+                                <p className={`text-[10px] font-bold truncate ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
+                                  {disp.name}
+                                </p>
+                                <p className="text-[8px] text-muted-foreground/60 truncate leading-tight">
+                                  {disp.desc}
+                                </p>
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Color Customization Section - always visible */}
+                    <div className="pt-3 border-t border-border/20 space-y-2">
+                      <div className="space-y-3 p-3 rounded-xl border border-border/45 bg-secondary/15">
+                        {/* Preset swatches */}
+                        <div className="space-y-1.5">
+                          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                            <Palette className="w-3 h-3 text-[var(--accent-violet)]" />
+                            Preset Cepat
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {COLOR_PRESETS.map((preset) => {
+                              const isActivePreset = (preset.primary === (subtitleColorPrimary || "")) && (preset.highlight === (subtitleColorHighlight || ""));
                               return (
                                 <button
-                                  key={styleKey}
+                                  key={preset.name}
                                   type="button"
-                                  onClick={() => {
-                                    setSubtitleStyle(styleKey);
-                                    setShowColorPicker(false);
-                                  }}
-                                  className={`rounded-xl p-2.5 text-left flex flex-col justify-between cursor-pointer w-full transition-all duration-300 ease-out relative h-20 overflow-hidden ${
-                                    isActive
-                                      ? "bg-secondary/85 text-foreground shadow-sm ring-1.5 ring-primary/25 scale-[1.02] z-10"
-                                      : "bg-secondary/20 text-muted-foreground hover:bg-secondary/45 hover:scale-[1.01]"
+                                  onClick={() => { setSubtitleColorPrimary(preset.primary); setSubtitleColorHighlight(preset.highlight); }}
+                                  className={`px-2 py-1 rounded-lg text-[9px] font-bold border transition-all cursor-pointer flex items-center gap-1 ${
+                                    isActivePreset
+                                      ? "border-[var(--accent-violet)] bg-[var(--accent-violet)]/15 text-foreground"
+                                      : "border-border/50 bg-secondary/30 text-muted-foreground hover:bg-secondary/50"
                                   }`}
+                                  title={`${preset.name}: ${preset.primary || "default"} / ${preset.highlight || "default"}`}
                                 >
-                                  <div className="flex items-center justify-between w-full">
-                                    <span className="text-[9px] font-bold tracking-tight text-muted-foreground truncate uppercase">
-                                      {styleKey.replace(/-/g, " ")}
-                                    </span>
-                                    <div className={`transition-all duration-200 flex items-center justify-center rounded-full p-0.5 ${isActive ? "bg-[var(--accent-violet)] text-background" : "border border-muted-foreground/30 opacity-40"}`}>
-                                      <Check className={`w-2.5 h-2.5 transition-all duration-200 ${isActive ? "scale-100 opacity-100" : "scale-50 opacity-0"}`} />
-                                    </div>
-                                  </div>
-
-                                  <div className="w-full flex items-center justify-center bg-black/90 rounded-lg py-1 px-2 min-h-[30px] border border-zinc-800/50 shadow-inner overflow-hidden select-none mt-1">
-                                    <span
-                                      style={{
-                                        fontFamily: pStyle.fontFamily,
-                                        color: pStyle.highlightColor,
-                                        textShadow: textShadow,
-                                        textTransform: sDef.caseTransform,
-                                        fontWeight: sDef.bold ? "900" : "400",
-                                        fontSize: "10px",
-                                        letterSpacing: sDef.caseTransform === "uppercase" ? "0.02em" : "normal",
-                                        lineHeight: "1.1",
-                                        backgroundColor: sDef.animation === "box" ? pStyle.boxBgColor : "transparent",
-                                        boxShadow: sDef.animation === "box" ? `0 0 0 1px ${pStyle.boxColor}` : "none",
-                                        padding: sDef.animation === "box" ? "1px 4px" : "0px",
-                                        borderRadius: sDef.animation === "box" ? "2px" : "0px",
-                                      }}
-                                    >
-                                      {styleKey === "clean-minimal" ? "gaya" : styleKey === "minimalist" ? "Simpel" : "VIRAL"}
-                                    </span>
-                                  </div>
+                                  {preset.primary && <span className="w-2 h-2 rounded-full inline-block border border-white/20" style={{ backgroundColor: preset.primary }} />}
+                                  {preset.highlight && <span className="w-2 h-2 rounded-full inline-block border border-white/20" style={{ backgroundColor: preset.highlight }} />}
+                                  {preset.name}
                                 </button>
                               );
-                            });
-                          })()}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Kustomisasi Warna */}
-                    <div className="space-y-2 pt-2 border-t border-border/20">
-                      <button
-                        type="button"
-                        onClick={() => setShowColorPicker(!showColorPicker)}
-                        className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-secondary/40 hover:bg-secondary/60 border border-border/40 text-[10px] font-bold text-foreground transition-all cursor-pointer"
-                      >
-                        <span>Kustomisasi Warna Subtitle</span>
-                        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-300 ${showColorPicker ? "rotate-180" : ""}`} />
-                      </button>
-                      
-                      <div className={`grid transition-all duration-300 ease-in-out ${showColorPicker ? "grid-rows-[1fr] opacity-100 mt-1" : "grid-rows-[0fr] opacity-0"}`}>
-                        <div className="overflow-hidden">
-                          <div className="space-y-2 p-3 rounded-xl border border-border/45 bg-secondary/15">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] text-muted-foreground">Warna Teks</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-mono text-muted-foreground/80">{subtitleColorPrimary || "default"}</span>
-                                <input
-                                  type="color"
-                                  value={subtitleColorPrimary || "#FFFFFF"}
-                                  onChange={(e) => setSubtitleColorPrimary(e.target.value)}
-                                  className="w-5 h-5 rounded-md border border-border cursor-pointer bg-transparent"
-                                />
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] text-muted-foreground">Warna Highlight</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-[9px] font-mono text-muted-foreground/80">{subtitleColorHighlight || "default"}</span>
-                                <input
-                                  type="color"
-                                  value={subtitleColorHighlight || "#FFFF00"}
-                                  onChange={(e) => setSubtitleColorHighlight(e.target.value)}
-                                  className="w-5 h-5 rounded-md border border-border cursor-pointer bg-transparent"
-                                />
-                              </div>
-                            </div>
-                            {(subtitleColorPrimary || subtitleColorHighlight) && (
-                              <button
-                                type="button"
-                                onClick={() => { setSubtitleColorPrimary(""); setSubtitleColorHighlight(""); }}
-                                className="w-full text-[9px] font-bold text-muted-foreground hover:text-destructive py-0.5 transition-colors cursor-pointer"
-                              >
-                                Reset Warna
-                              </button>
-                            )}
+                            })}
                           </div>
                         </div>
+
+                        {/* Custom color inputs */}
+                        <div className="space-y-2 pt-2 border-t border-border/30">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold text-muted-foreground">Warna Teks</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-mono text-muted-foreground/70">{subtitleColorPrimary || "default"}</span>
+                              <input
+                                type="color"
+                                value={subtitleColorPrimary || "#FFFFFF"}
+                                onChange={(e) => setSubtitleColorPrimary(e.target.value)}
+                                className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent shrink-0"
+                              />
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-semibold text-muted-foreground">Warna Highlight</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-mono text-muted-foreground/70">{subtitleColorHighlight || "default"}</span>
+                              <input
+                                type="color"
+                                value={subtitleColorHighlight || "#FFFF00"}
+                                onChange={(e) => setSubtitleColorHighlight(e.target.value)}
+                                className="w-7 h-7 rounded-md border border-border cursor-pointer bg-transparent shrink-0"
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        {(subtitleColorPrimary || subtitleColorHighlight) && (
+                          <button
+                            type="button"
+                            onClick={() => { setSubtitleColorPrimary(""); setSubtitleColorHighlight(""); }}
+                            className="w-full text-[9px] font-bold text-muted-foreground hover:text-destructive py-1 transition-colors cursor-pointer border-t border-border/30 pt-2"
+                          >
+                            Reset ke Warna Default
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -1043,9 +1030,9 @@ function CustomizeWorkspace() {
 
             </div>
 
-            {/* Panel Kanan: Preview Perbandingan & Render (lg:col-span-7) */}
-            <div className="lg:col-span-7 rounded-2xl glass-panel p-5 border border-border/40 flex flex-col justify-between overflow-hidden min-h-0 max-h-full">
-              <div className="space-y-4 flex-grow flex flex-col min-h-0">
+            {/* Panel Kanan: Preview Perbandingan & Render (Mobile: order-1 atas, Desktop: order-2 kanan) */}
+            <div className="lg:col-span-7 order-1 lg:order-2 rounded-2xl glass-panel p-4 sm:p-5 border border-border/40 flex flex-col justify-between lg:overflow-hidden lg:min-h-0 lg:max-h-full">
+              <div className="space-y-4 lg:flex-grow lg:flex lg:flex-col lg:min-h-0">
                 
                 <div className="flex items-center gap-2 pb-2 border-b border-border/40 shrink-0">
                   <div className="w-5 h-5 rounded-lg bg-[var(--accent-violet)]/10 text-[var(--accent-violet)] flex items-center justify-center font-bold text-[10px]">2</div>
@@ -1073,10 +1060,10 @@ function CustomizeWorkspace() {
                 </div>
 
                 {/* Wide Video Comparison Container (flex-grow flex-shrink min-h-0) */}
-                <div className="flex-grow min-h-0 flex items-center justify-center bg-secondary/10 rounded-2xl border border-border/20 p-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-5 w-full items-center justify-center">
+                <div className="lg:flex-grow lg:min-h-0 min-h-[280px] flex items-center justify-center bg-secondary/10 rounded-2xl border border-border/20 p-3 sm:p-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 w-full items-center justify-center">
                     {/* Left: Original Video (span 6) */}
-                    <div className="sm:col-span-6 space-y-1.5 text-center">
+                    <div className="lg:col-span-6 space-y-1.5 text-center">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Video Asli (16:9)</span>
                       <div className="relative aspect-video rounded-xl overflow-hidden bg-black border border-border/60 shadow-lg">
                         <video
@@ -1095,12 +1082,12 @@ function CustomizeWorkspace() {
                     </div>
 
                     {/* Right: Mockup HP Vertikal 9:16 (span 6, diperbesar visualnya ke w-[150px]) */}
-                    <div className="sm:col-span-6 space-y-1.5 text-center flex flex-col items-center">
+                    <div className="lg:col-span-6 space-y-1.5 text-center flex flex-col items-center">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Hasil Reframing</span>
                       <div className="relative">
                         <div className="absolute inset-0 bg-[var(--accent-violet)] opacity-15 blur-2xl scale-110 pointer-events-none rounded-[1.8rem] animate-glow-pulse" />
                         
-                        <div className="relative w-[150px] aspect-[9/16] rounded-[1.8rem] overflow-hidden bg-black border-[3.5px] border-zinc-800 dark:border-zinc-850/80 shadow-2xl flex flex-col ring-1 ring-zinc-700/30">
+                        <div className="relative w-28 sm:w-[150px] aspect-[9/16] rounded-[1.8rem] overflow-hidden bg-black border-[3.5px] border-zinc-800 dark:border-zinc-850/80 shadow-2xl flex flex-col ring-1 ring-zinc-700/30">
                           <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-8 h-2.5 rounded-full bg-black z-20" />
                           
                           {template === "split" ? (
@@ -1151,10 +1138,6 @@ function CustomizeWorkspace() {
           </div>
         </form>
       </main>
-
-      <footer className="border-t border-border/60 py-3 text-center text-[10px] text-muted-foreground shrink-0 mt-auto">
-        <p>© {new Date().getFullYear()} cliply</p>
-      </footer>
     </div>
   );
 }

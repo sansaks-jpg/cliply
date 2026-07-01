@@ -336,7 +336,7 @@ export default function SettingsPage() {
     );
   }
   return (
-    <div className="h-screen overflow-y-auto bg-transparent text-foreground p-6 md:p-12 relative">
+    <div className="h-screen overflow-y-auto bg-transparent text-foreground p-4 sm:p-6 md:p-12 relative">
       {/* Ambient blobs */}
       <div className="fixed inset-0 pointer-events-none -z-10 overflow-hidden">
         <div className="absolute top-[-12%] left-[-8%] w-[40rem] h-[40rem] rounded-full blur-[120px] opacity-25 dark:opacity-35 bg-[radial-gradient(circle_at_center,var(--accent-violet),transparent_70%)] animate-blob" />
@@ -344,26 +344,27 @@ export default function SettingsPage() {
       </div>
       <div className="max-w-3xl mx-auto space-y-8">
         {/* Header */}
-        <div className="flex items-center justify-between pb-6 border-b border-neutral-800">
-          <div className="flex items-center gap-4">
-            <Link href="/" className="p-2 hover:bg-neutral-900 rounded-lg transition-colors border border-transparent hover:border-neutral-800">
+        <div className="flex items-center justify-between gap-3 pb-6 border-b border-neutral-800">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <Link href="/" className="p-2 hover:bg-neutral-900 rounded-lg transition-colors border border-transparent hover:border-neutral-800 shrink-0">
               <ArrowLeft className="w-5 h-5 text-neutral-300" />
             </Link>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-white">Pengaturan</h1>
-              <p className="text-xs text-neutral-400">Konfigurasi folder penyimpanan dan kunci API AI</p>
+            <div className="min-w-0">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white truncate">Pengaturan</h1>
+              <p className="text-xs text-neutral-400 truncate">Konfigurasi folder penyimpanan dan kunci API AI</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-900 border border-neutral-800 rounded-full text-xs font-medium">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-neutral-900 border border-neutral-800 rounded-full text-xs font-medium shrink-0">
             <Server className={`w-3.5 h-3.5 ${backendStatus === "ready" ? "text-emerald-500" : "text-rose-500"}`} />
-            <span>Backend: {backendStatus === "ready" ? "Ready" : "Offline"}</span>
+            <span className="hidden sm:inline">Backend: {backendStatus === "ready" ? "Ready" : "Offline"}</span>
+            <span className="sm:hidden">{backendStatus === "ready" ? "On" : "Off"}</span>
             <div className={`w-2 h-2 rounded-full ${backendStatus === "ready" ? "bg-emerald-500 animate-pulse" : "bg-rose-500"}`} />
           </div>
         </div>
 
         {/* 1. Storage Settings */}
-        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6 space-y-6 backdrop-blur-md">
+        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-4 sm:p-6 space-y-6 backdrop-blur-md">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-white">Lokasi Penyimpanan</h2>
             <p className="text-xs text-neutral-400">
@@ -407,7 +408,7 @@ export default function SettingsPage() {
         </div>
 
         {/* Sensitivity Control */}
-        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6 space-y-4 backdrop-blur-md">
+        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-4 sm:p-6 space-y-4 backdrop-blur-md">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-white">Sensitivitas Deteksi</h2>
             <p className="text-xs text-neutral-400">
@@ -437,7 +438,7 @@ export default function SettingsPage() {
         </div>
 
         {/* 1.5. App Update Settings */}
-        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6 space-y-6 backdrop-blur-md">
+        <div className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-4 sm:p-6 space-y-6 backdrop-blur-md">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-white">Pembaruan Aplikasi</h2>
             <p className="text-xs text-neutral-400">
@@ -483,7 +484,7 @@ export default function SettingsPage() {
         </div>
 
         {/* 2. AI Key Settings */}
-        <form onSubmit={handleSaveApiSettings} className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-6 space-y-6 backdrop-blur-md">
+        <form onSubmit={handleSaveApiSettings} className="bg-neutral-900/50 border border-neutral-800 rounded-xl p-4 sm:p-6 space-y-6 backdrop-blur-md">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-white">Model AI & Kunci API</h2>
             <p className="text-xs text-neutral-400">

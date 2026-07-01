@@ -30,8 +30,8 @@ Saat user submit YouTube URL ke `/tasks`, backend menjalankan pipeline async 7 s
 | 3. RANK HIGHLIGHTS | 35–50% | `highlights.py`, `llm.py` | Prepend label `[Speaker X]:` → kirim ke LLM untuk deteksi momen viral. Log mencantumkan model AI yang menganalisis |
 | 4. SMART CROP PLAN | 50–65% | `smart_crop.py` | Analisis frame 2 FPS via OpenCV DNN Face Detector (SSD ResNet-10). Mouth Motion Energy, scene cut detection (BGR histogram), shot type classifier (`closeup`/`medium`/`wide_cut`) |
 | 5. RENDER VERTICAL | 65–90% | `render.py`, `subtitles.py` | Crop 9:16 dengan EMA smoothing. Letterbox effect untuk `wide_cut`. Burn subtitle karaoke ASS |
-| 6. SUBTITLE STYLE | (dalam stage 5) | `subtitles.py` | Caption di 75% bawah frame, max 2 baris, font TikTok Sans / Inter Black |
-| 7. FINALIZE | 90–100% | `pipeline.py` | Tulis `highlights.json` manifest (metadata + download URLs per klip mp4) |
+| 6. SUBTITLE STYLE | (dalam stage 5) | `subtitles.py` | Caption di 75% bawah frame, max 2 baris, font Plus Jakarta Sans |
+| 7. FINALIZE | 90–100% | `pipeline.py` | Tulis `highlights.json` manifest (metadata + download URLs per klip mp4 + thumbnail URLs per klip jpg) |
 
 ## Template System & Layout
 
@@ -71,7 +71,7 @@ backend/
 │   ├── queue.py           # Task queue (enqueue_task)
 │   ├── routes/
 │   │   ├── tasks.py       # POST/GET/DELETE /tasks, SSE /tasks/{id}/stream
-│   │   └── media.py       # Static file serving for clips
+│   │   └── media.py       # Static file serving for clips + thumbnails
 │   ├── engine/
 │   │   ├── pipeline.py    # run_pipeline() — orchestrates full flow
 │   │   ├── downloader.py  # yt-dlp video download
@@ -83,7 +83,7 @@ backend/
 │   │   ├── highlight_prompts.py    # LLM prompt templates and constants
 │   │   ├── highlight_validation.py # Unit and highlight validation logic
 │   │   ├── llm.py         # Pluggable LLM client (OpenAI/Anthropic/Gemini)
-│   │   ├── render.py      # Smart-crop renderer — two-pass interpolation, face tracking
+│   │   ├── render.py      # Smart-crop renderer — two-pass interpolation, face tracking, thumbnail generation
 │   │   ├── face_detection.py      # Multi-model face detector (YuNet/YOLOv8)
 │   │   ├── camera_segments.py     # Scene cut detection & shot type classification
 │   │   ├── smoothing.py   # Kalman-filter smoothing & sample data structures
