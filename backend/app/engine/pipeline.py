@@ -52,104 +52,141 @@ async def run_pipeline(
             _logger.warning("Task %s cancelled after DOWNLOAD", task_id)
             return
 
-        await store.set_progress(task_id, 15, "TRANSCRIBE", "Transkripsi video…")
-        transcript = await asyncio.to_thread(transcribe_video, source_path, task_id, language, url)
-        if not transcript.get("segments"):
-            raise RuntimeError("No detectable speech.")
-        await store.set_progress(task_id, 35, "TRANSCRIBE", "Transkripsi selesai")
-
-        if store.is_cancelled(task_id):
-            _logger.warning("Task %s cancelled after TRANSCRIBE", task_id)
-            return
-
-        # ── ANALYZE stage: 3 sub-steps dengan progress callback ke SSE ───────
-        from ..config import LLM_PROVIDER, OPENAI_MODEL, GEMINI_MODEL, ANTHROPIC_MODEL
-        provider = (LLM_PROVIDER or "openai").strip().lower()
-        model = OPENAI_MODEL
-        if provider == "gemini":
-            model = GEMINI_MODEL
-        elif provider == "anthropic":
-            model = ANTHROPIC_MODEL
-
-        await store.set_progress(task_id, 36, "ANALYZE", f"Analisis highlight via AI ({provider}: {model})…")
-        llm_fn = get_llm_fn()
-
-        # Thread-safe emitter — dipanggil dari dalam thread pool asyncio.to_thread
-        loop = asyncio.get_running_loop()
-
-        def _emit(pct: float, stage: str, message: str) -> None:
-            """Emit progress dari dalam thread ke event loop utama."""
-            try:
-                future = asyncio.run_coroutine_threadsafe(
-                    store.set_progress(task_id, pct, stage, message),
-                    loop,
-                )
-                future.result(timeout=5)
-            except (concurrent.futures.TimeoutError, RuntimeError, concurrent.futures.CancelledError, redis.exceptions.RedisError) as exc:
-                _logger.debug("[EMIT] Failed to emit progress: %s", exc)
-
-        is_auto = (num_clips == 0)
-        target_limit = 10 if is_auto else num_clips
-
-        highlights_result = await get_highlights_async(transcript, target_limit, llm_fn, _emit, template)
-        all_highlights: List[Dict] = highlights_result.get("highlights", [])
-        if not all_highlights:
-            raise RuntimeError("No viral highlights found.")
-            
-        failed_chunks = highlights_result.get("failed_chunks", [])
-        coverage_pct = highlights_result.get("coverage_pct", 100)
-        if failed_chunks:
-            _logger.warning(
-                "[PIPELINE] Partial failure during highlights analysis. "
-                "Coverage: %d%%. Chunks failed starting at: %s",
-                coverage_pct, failed_chunks
-            )
-            await store.set_progress(task_id, 45, "ANALYZE", f"Analisis {coverage_pct}% video selesai (ada rate-limit)")
-            
-        if is_auto:
-            sorted_highlights = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)
-            top = [h for h in sorted_highlights if int(h.get("score", 0)) >= 70]
-            if not top and sorted_highlights:
-                top = sorted_highlights[:1]
-            top = top[:7]
-        else:
-            top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
-            
-        await store.set_progress(task_id, 50, "ANALYZE", f"Ditemukan {len(top)} highlight viral via {provider.upper()}")
-
-        if store.is_cancelled(task_id):
-            _logger.warning("Task %s cancelled after ANALYZE", task_id)
-            return
-
-        # ── SUBTITLES stage ──────────────────────────────────────────────────
-        style_key = subtitle_style or SUBTITLE_STYLE_DEFAULT
-        task_dir = str(STORAGE_DIR / task_id)
-        ass_path = f"{task_dir}/subtitles.ass"
-        fonts_dir = str(FONTS_DIR) if FONTS_DIR.exists() else None
-
         record = await store.get(task_id)
         s_font = getattr(record, "subtitle_font", None) if record else None
         s_color_primary = getattr(record, "subtitle_color_primary", None) if record else None
         s_color_highlight = getattr(record, "subtitle_color_highlight", None) if record else None
+        fonts_dir = str(FONTS_DIR) if FONTS_DIR.exists() else None
+        style_key = subtitle_style or SUBTITLE_STYLE_DEFAULT
 
-        await store.set_progress(task_id, 55, "SUBTITLES", f"Membuat subtitle karaoke ({style_key})…")
-        ass_path = await asyncio.to_thread(
-            generate_ass,
-            transcript.get("segments", []),
-            style_key,
-            ass_path,
-            1080,
-            1920,
-            fonts_dir,
-            s_font,
-            s_color_primary,
-            s_color_highlight,
-        )
-        await store.set_progress(task_id, 60, "SUBTITLES", "Subtitle siap")
+        if template == "split":
+            await store.set_progress(task_id, 25, "ANALYZE", "Membagi video menjadi bagian-bagian sama besar...")
+            import cv2
+            def _get_video_duration(path):
+                cap = cv2.VideoCapture(path)
+                if not cap.isOpened():
+                    return 0.0
+                fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+                frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+                duration = frame_count / fps if fps > 0 else 0.0
+                cap.release()
+                return duration
 
-        if store.is_cancelled(task_id):
-            _logger.warning("Task %s cancelled after SUBTITLES", task_id)
-            return
+            duration = await asyncio.to_thread(_get_video_duration, source_path)
+            if duration <= 0.0:
+                raise RuntimeError("Durasi video tidak terdeteksi atau file video rusak.")
+
+            parts = num_clips if num_clips > 0 else 5
+            chunk_duration = duration / parts
+            top = [
+                {
+                    "start_time": float(i * chunk_duration),
+                    "end_time": float((i + 1) * chunk_duration),
+                    "title": f"Part {i + 1}",
+                    "score": 100,
+                    "virality_reason": f"Dipotong secara otomatis menjadi {parts} bagian."
+                }
+                for i in range(parts)
+            ]
+            await store.set_progress(task_id, 50, "ANALYZE", f"Video berhasil dibagi menjadi {parts} bagian.")
+            ass_path = None
+            await store.set_progress(task_id, 60, "SUBTITLES", "Bypass subtitle (Split Template)")
+
+            if store.is_cancelled(task_id):
+                _logger.warning("Task %s cancelled after ANALYZE/SUBTITLES", task_id)
+                return
+        else:
+            await store.set_progress(task_id, 15, "TRANSCRIBE", "Transkripsi video…")
+            transcript = await asyncio.to_thread(transcribe_video, source_path, task_id, language, url)
+            if not transcript.get("segments"):
+                raise RuntimeError("No detectable speech.")
+            await store.set_progress(task_id, 35, "TRANSCRIBE", "Transkripsi selesai")
+
+            if store.is_cancelled(task_id):
+                _logger.warning("Task %s cancelled after TRANSCRIBE", task_id)
+                return
+
+            # ── ANALYZE stage: 3 sub-steps dengan progress callback ke SSE ───────
+            from ..config import LLM_PROVIDER, OPENAI_MODEL, GEMINI_MODEL, ANTHROPIC_MODEL
+            provider = (LLM_PROVIDER or "openai").strip().lower()
+            model = OPENAI_MODEL
+            if provider == "gemini":
+                model = GEMINI_MODEL
+            elif provider == "anthropic":
+                model = ANTHROPIC_MODEL
+
+            await store.set_progress(task_id, 36, "ANALYZE", f"Analisis highlight via AI ({provider}: {model})…")
+            llm_fn = get_llm_fn()
+
+            # Thread-safe emitter — dipanggil dari dalam thread pool asyncio.to_thread
+            loop = asyncio.get_running_loop()
+
+            def _emit(pct: float, stage: str, message: str) -> None:
+                """Emit progress dari dalam thread ke event loop utama."""
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        store.set_progress(task_id, pct, stage, message),
+                        loop,
+                    )
+                    future.result(timeout=5)
+                except (concurrent.futures.TimeoutError, RuntimeError, concurrent.futures.CancelledError, redis.exceptions.RedisError) as exc:
+                    _logger.debug("[EMIT] Failed to emit progress: %s", exc)
+
+            is_auto = (num_clips == 0)
+            target_limit = 10 if is_auto else num_clips
+
+            highlights_result = await get_highlights_async(transcript, target_limit, llm_fn, _emit, template)
+            all_highlights: List[Dict] = highlights_result.get("highlights", [])
+            if not all_highlights:
+                raise RuntimeError("No viral highlights found.")
+                
+            failed_chunks = highlights_result.get("failed_chunks", [])
+            coverage_pct = highlights_result.get("coverage_pct", 100)
+            if failed_chunks:
+                _logger.warning(
+                    "[PIPELINE] Partial failure during highlights analysis. "
+                    "Coverage: %d%%. Chunks failed starting at: %s",
+                    coverage_pct, failed_chunks
+                )
+                await store.set_progress(task_id, 45, "ANALYZE", f"Analisis {coverage_pct}% video selesai (ada rate-limit)")
+                
+            if is_auto:
+                sorted_highlights = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)
+                top = [h for h in sorted_highlights if int(h.get("score", 0)) >= 70]
+                if not top and sorted_highlights:
+                    top = sorted_highlights[:1]
+                top = top[:7]
+            else:
+                top = sorted(all_highlights, key=lambda h: int(h.get("score", 0)), reverse=True)[:num_clips]
+                
+            await store.set_progress(task_id, 50, "ANALYZE", f"Ditemukan {len(top)} highlight viral via {provider.upper()}")
+
+            if store.is_cancelled(task_id):
+                _logger.warning("Task %s cancelled after ANALYZE", task_id)
+                return
+
+            # ── SUBTITLES stage ──────────────────────────────────────────────────
+            task_dir = str(STORAGE_DIR / task_id)
+            ass_path = f"{task_dir}/subtitles.ass"
+
+            await store.set_progress(task_id, 55, "SUBTITLES", f"Membuat subtitle karaoke ({style_key})…")
+            ass_path = await asyncio.to_thread(
+                generate_ass,
+                transcript.get("segments", []),
+                style_key,
+                ass_path,
+                1080,
+                1920,
+                fonts_dir,
+                s_font,
+                s_color_primary,
+                s_color_highlight,
+            )
+            await store.set_progress(task_id, 60, "SUBTITLES", "Subtitle siap")
+
+            if store.is_cancelled(task_id):
+                _logger.warning("Task %s cancelled after SUBTITLES", task_id)
+                return
 
         # ── SMART_CROP + RENDER stage ────────────────────────────────────────
         await store.set_progress(task_id, 62, "SMART_CROP", f"Analisis face-crop untuk {len(top)} klip…")

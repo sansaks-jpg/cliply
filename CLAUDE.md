@@ -112,7 +112,8 @@ frontend/
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx       # Root layout (ThemeProvider, fonts, Toaster)
-│   │   ├── page.tsx         # Home page — URL input, config, recent tasks
+│   │   ├── page.tsx         # Home page — URL input & task history landing
+│   │   ├── customize/page.tsx # Studio editor — Parameters, tabs, previews, & render triggers
 │   │   ├── tasks/page.tsx   # Task detail — progress SSE, clip gallery
 │   │   ├── settings/page.tsx # Tauri settings (API keys, LLM provider)
 │   │   └── globals.css      # Tailwind + custom CSS variables
@@ -279,4 +280,4 @@ Saat menerima PR dari bot contributor (e.g., `google-labs-jules[bot]`):
 4. **PID verification:** Tauri polls `/debug/build` to confirm the responding backend is the one it spawned (prevents stale process acceptance).
 5. **Static export:** Next.js `output: "export"` means no server-side features (API routes, ISR, middleware). All data fetching is client-side.
 6. **pnpm:** Package manager is pnpm (v10). Don't use npm or yarn.
-7. **Version:** Currently `0.2.1`. Version appears in: `package.json` (root), `frontend/package.json`, `frontend/src-tauri/Cargo.toml`, `frontend/src-tauri/tauri.conf.json`, `backend/app/main.py`. Saat menaikkan versi, pastikan untuk memperbaruinya di seluruh berkas tersebut secara bersamaan sebelum melakukan commit.
+7. **Version:** Currently `0.2.2`. Version appears in: `package.json` (root), `frontend/package.json`, `frontend/src-tauri/Cargo.toml`, `frontend/src-tauri/tauri.conf.json`, `backend/app/main.py`. Saat menaikkan versi, pastikan untuk memperbaruinya di seluruh berkas tersebut secara bersamaan sebelum melakukan commit.

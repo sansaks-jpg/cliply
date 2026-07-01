@@ -45,7 +45,7 @@ class CreateTaskRequest(BaseModel):
         default="yolov8-face",
         description="Face detector model to use.",
     )
-    template: Optional[Literal["podcast", "gaming"]] = Field(
+    template: Optional[Literal["podcast", "gaming", "split"]] = Field(
         default="podcast",
         description="Video generation template.",
     )
