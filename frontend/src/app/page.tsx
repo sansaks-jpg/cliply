@@ -58,6 +58,25 @@ export default function Home() {
           }
         });
       });
+
+      // Listen to Tauri backend lifecycle events
+      import("@tauri-apps/api/event").then(({ listen }) => {
+        const unlistenCrashed = listen<number>("backend-crashed", (event) => {
+          console.error("[Tauri] Backend crashed with exit code:", event.payload);
+          setBackendStatus("unavailable");
+          toast.error(`Server backend berhenti tidak terduga (kode: ${event.payload}). Silakan restart aplikasi.`);
+        });
+        const unlistenError = listen<string>("backend-error", (event) => {
+          console.error("[Tauri] Backend error:", event.payload);
+          setBackendStatus("unavailable");
+          toast.error("Server backend gagal dimulai. Periksa log untuk detail.");
+        });
+        // Cleanup on unmount
+        return () => {
+          unlistenCrashed.then((fn) => fn());
+          unlistenError.then((fn) => fn());
+        };
+      }).catch(console.error);
     }
   }, []);
 
